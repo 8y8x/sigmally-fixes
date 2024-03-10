@@ -569,6 +569,14 @@
 			return { name, skin };
 		};
 
+		/** @type {object | undefined} */
+		aux.settings = undefined;
+		setInterval(() => {
+			try {
+				aux.settings = JSON.parse(localStorage.getItem('settings') ?? '');
+			} catch (_) {}
+		}, 50);
+
 		/** @param {number} ms */
 		aux.wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -597,6 +605,8 @@
 		// #1 : define cell variables and functions
 		/** @type {Map<number, Cell>} */
 		world.cells = new Map();
+		/** @type {Set<Cell>} */
+		world.clanmates = new Set();
 		/** @type {number[]} */
 		world.mine = []; // order matters, as the oldest cells split first
 
@@ -726,9 +736,10 @@
 			ui.leaderboard.update();
 
 			// clear world
-			world.cells.clear(); // make sure we won't see overlapping IDs from new cells from the new connection
-			while (world.mine.length) world.mine.pop();
 			world.border = undefined;
+			world.cells.clear(); // make sure we won't see overlapping IDs from new cells from the new connection
+			world.clanmates.clear();
+			while (world.mine.length) world.mine.pop();
 
 			setTimeout(connect, 500 * Math.min(reconnectAttempts++ + 1, 10));
 		}
@@ -859,6 +870,8 @@
 							const myIdx = world.mine.indexOf(killedId);
 							if (myIdx !== -1)
 								world.mine.splice(myIdx, 1);
+
+							world.clanmates.delete(killed);
 						}
 					}
 
@@ -914,12 +927,16 @@
 							if (rgb) cell.rgb = rgb;
 							if (skin) cell.skin = skin;
 							if (name) cell.name = name;
+
+							if (clan && clan === aux.settings?.clan)
+								world.clanmates.add(cell);
 						} else {
 							if (r > 20 && !(flags & 0x20)) { // not pellet, not ejected
 								({ name, skin } = aux.parseNameSkin(name, skin));
 							}
 
-							world.cells.set(id, {
+							/** @type {Cell} */
+							const cell = {
 								id,
 								x, ox: x, nx: x,
 								y, oy: y, ny: y,
@@ -929,7 +946,12 @@
 								jagged,
 								name, skin, sub,
 								jelly: { x, y, r },
-							});
+							};
+
+							world.cells.set(id, cell);
+
+							if (clan && clan === aux.settings?.clan)
+								world.clanmates.add(cell);
 						}
 					}
 
@@ -960,6 +982,7 @@
 					world.cells.forEach(cell => {
 						cell.dead ??= { to: undefined, at: now };
 					});
+					world.clanmates.clear();
 					// passthrough
 				case 0x14: // delete my cells
 					while (world.mine.length) world.mine.pop();
@@ -1292,13 +1315,11 @@
 		function playData(spectating) {
 			/** @type {HTMLInputElement | null} */
 			const nickElement = document.querySelector('input#nick');
+			/** @type {HTMLInputElement | null} */
+			const showClanmatesElement = document.querySelector('input#showClanmates');
 
-			// settings are immediately updated when you change your skin, so we can just pull from that
-			/** @type {object | undefined} */
-			let settings;
-			try {
-				settings = JSON.parse(localStorage.getItem('settings') ?? '');
-			} catch (_) {}
+			// user settings are immediately updated for some fields, like skins
+			const settings = aux.settings;
 
 			let clan;
 			let sub = false;
@@ -1316,7 +1337,7 @@
 				token,
 				sub,
 				clan,
-				showClanmates: true, // dev comment suggests this will be a checkbox in the future
+				showClanmates: !showClanmatesElement || showClanmatesElement.checked,
 			}
 		}
 
@@ -2152,10 +2173,10 @@
 			})();
 
 			(function minimap() {
+				// text needs to be small and sharp, i don't trust webgl with that, so we use a 2d context
 				const { border } = world;
 				if (!border) return;
 
-				// text needs to be small and sharp, i don't trust webgl with that
 				/** @type {HTMLInputElement | null} */
 				const showMinimap = document.querySelector('input#showMinimap');
 				if (showMinimap && !showMinimap.checked) {
@@ -2196,35 +2217,77 @@
 					});
 				});
 
-				// draw cells
 				ctx.globalAlpha = 1;
-				let avgX = 0;
-				let avgY = 0;
-				let myCells = 0;
-				let myName = '';
-				world.mine.forEach(id => {
-					const cell = world.cells.get(id);
-					if (!cell || cell.dead) return;
 
-					++myCells;
-					myName = cell.name;
 
+
+				// draw cells
+				/** @param {Cell} cell */
+				const drawCell = function drawCell(cell) {
 					const x = (cell.x - border.l) / gameWidth * canvas.width;
 					const y = (cell.y - border.t) / gameHeight * canvas.height;
 					const r = Math.max(cell.r / gameWidth * canvas.width, 2);
 
-					avgX += x;
-					avgY += y;
-
 					ctx.fillStyle = aux.rgb2hex(cell.rgb);
-
 					ctx.beginPath();
 					ctx.moveTo(x + r, y);
 					ctx.arc(x, y, r, 0, 2 * Math.PI);
 					ctx.fill();
+				};
+
+				/**
+				 * @param {number} x
+				 * @param {number} y
+				 * @param {string} name
+				 */
+				const drawName = function drawName(x, y, name) {
+					x = (x - border.l) / gameWidth * canvas.width;
+					y = (y - border.t) / gameHeight * canvas.height;
+
+					ctx.fillStyle = '#fff';
+					ctx.fillText(name, x, y - 7 * devicePixelRatio - sectorSize / 6);
+				}
+
+				// draw clanmates first, below yourself
+				// we sort clanmates by color AND name, to ensure clanmates stay separate
+				/** @type {Map<string, { name: string, n: number, x: number, y: number }>} */
+				const avgPos = new Map();
+				world.clanmates.forEach(cell => {
+					if (world.mine.includes(cell.id)) return;
+					drawCell(cell);
+
+					const id = cell.name + (cell.rgb[0] + 255*cell.rgb[1] + 255*255*cell.rgb[2]);
+					const entry = avgPos.get(id);
+					if (entry) {
+						++entry.n;
+						entry.x += cell.x;
+						entry.y += cell.y;
+					} else {
+						avgPos.set(id, { name: cell.name, n: 1, x: cell.x, y: cell.y });
+					}
 				});
 
-				if (myCells <= 0) {
+				avgPos.forEach(entry => {
+					drawName(entry.x / entry.n, entry.y / entry.n, entry.name);
+				});
+
+				// draw my cells above everyone else
+				let myName = '';
+				let ownN = 0;
+				let ownX = 0;
+				let ownY = 0;
+				world.mine.forEach(id => {
+					const cell = world.cells.get(id);
+					if (!cell) return;
+
+					drawCell(cell);
+					myName = cell.name;
+					++ownN;
+					ownX += cell.x;
+					ownY += cell.y;
+				});
+
+				if (ownN <= 0) {
 					// if no cells were drawn, draw our spectate pos instead
 					const x = (world.camera.x - border.l) / gameWidth * canvas.width;
 					const y = (world.camera.y - border.t) / gameHeight * canvas.height;
@@ -2236,11 +2299,7 @@
 					ctx.fill();
 				} else {
 					// draw name above player's cells
-					avgX /= myCells;
-					avgY /= myCells;
-
-					ctx.fillStyle = '#fff';
-					ctx.fillText(myName, avgX, avgY - 7 - sectorSize / 6);
+					drawName(ownX / ownN, ownY / ownN, myName);
 				}
 			})();
 
