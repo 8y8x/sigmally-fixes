@@ -486,7 +486,7 @@
 				const container = document.createElement('div');
 				const author = document.createElement('span');
 				author.style.cssText = `color: ${aux.rgb2hex(rgb)}; padding-right: 0.75em;`;
-				author.textContent = authorName ? 'Unnamed' : aux.parseNameSkin(authorName, '').name;
+				author.textContent = authorName ? aux.parseNameSkin(authorName, '').name : 'Unnamed';
 				container.appendChild(author);
 
 				const msg = document.createElement('span');
