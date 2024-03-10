@@ -2015,7 +2015,11 @@
 			const showNames = !showNamesElement || showNamesElement.checked;
 
 			(function cells() {
-				const showMass = (/** @type {HTMLInputElement | null} */ (document.querySelector('input#showMass')))?.checked;
+				const showMass
+					= (/** @type {HTMLInputElement | null} */ (document.querySelector('input#showMass')))?.checked;
+				/** @type {HTMLInputElement | null} */
+				const showSkinsElement = document.querySelector('input#showSkins');
+				const showSkins = !showSkinsElement || showSkinsElement.checked;
 
 				/** @param {Cell} cell */
 				function calcAlpha(cell) {
@@ -2090,7 +2094,7 @@
 					}
 
 					gl.uniform1i(uniforms.cell.u_texture_enabled, 0);
-					if (cell.skin) {
+					if (showSkins && cell.skin) {
 						const texture = textureFromCache(cell.skin);
 						if (texture) {
 							gl.uniform1i(uniforms.cell.u_texture_enabled, 1);
