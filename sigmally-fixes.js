@@ -91,6 +91,15 @@
 	const ui = (() => {
 		const ui = {};
 
+		(() => {
+			const title = document.querySelector('#title');
+			if (!title) return;
+
+			const watermark = document.createElement('span');
+			watermark.innerHTML = '<a href="https://greasyfork.org/en/scripts/483587">Sigmally Fixes</a> by yx';
+			title.insertAdjacentElement('afterend', watermark);
+		})();
+
 		ui.game = (() => {
 			const game = {};
 			/** @type {HTMLCanvasElement | null} */
