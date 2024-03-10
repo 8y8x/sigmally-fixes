@@ -2346,7 +2346,7 @@
 					ctx.fillStyle = '#faa';
 					ctx.beginPath();
 					ctx.moveTo(x + 5, y);
-					ctx.arc(x, y, 5, 0, 2 * Math.PI);
+					ctx.arc(x, y, 5 * devicePixelRatio, 0, 2 * Math.PI);
 					ctx.fill();
 				} else {
 					// draw name above player's cells
