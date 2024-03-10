@@ -2150,7 +2150,14 @@
 						const { aspectRatio, text } = textFromCache(mass, false);
 						gl.uniform1f(uniforms.text.u_text_aspect_ratio, aspectRatio);
 						gl.uniform1i(uniforms.text.u_silhouette_enabled, 0);
-						gl.uniform1i(uniforms.text.u_subtext_enabled, 1);
+
+						if (showThisName)
+							gl.uniform1i(uniforms.text.u_subtext_enabled, 1);
+						else {
+							// if a player has no name, keep the mass in the middle
+							gl.uniform1f(uniforms.text.u_radius, cell.r / 2);
+							gl.uniform1i(uniforms.text.u_subtext_enabled, 0);
+						}
 
 						gl.bindTexture(gl.TEXTURE_2D, text);
 						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
