@@ -307,7 +307,6 @@
 			return game;
 		})();
 
-		// TODO: text needs to turn black when using light theme
 		ui.stats = (() => {
 			const container = document.createElement('div');
 			container.style.cssText = `position: fixed; top: 10px; left: 10px; width: 400px; height: fit-content;
