@@ -16,6 +16,103 @@
 'use strict';
 
 (async () => {
+	////////////////////////////////
+	// Define Auxiliary Functions //
+	////////////////////////////////
+	const aux = (() => {
+		const aux = {};
+
+		/**
+		 * consistent exponential easing relative to 60fps
+		 * @param {number} o
+		 * @param {number} n
+		 * @param {number} factor
+		 * @param {number} dt in seconds
+		 */
+		aux.exponentialEase = (o, n, factor, dt) => {
+			return o + (n - o) * (1 - (1 - 1 / factor)**(60 * dt));
+		};
+
+		/** @param {[number, number, number]} rgb */
+		aux.rgb2hex = rgb => {
+			return [
+				'#',
+				Math.floor(rgb[0] * 255).toString(16).padStart(2, '0'),
+				Math.floor(rgb[1] * 255).toString(16).padStart(2, '0'),
+				Math.floor(rgb[2] * 255).toString(16).padStart(2, '0'),
+			].join('');
+		};
+
+		/**
+		 * @param {string} name
+		 * @param {string} skin
+		 */
+		aux.parseNameSkin = (name, skin) => {
+			const match = /^\{(.*?)\}(.*)$/.exec(name);
+			if (match) {
+				skin ||= match[1];
+				name = match[2] || 'An unnamed cell';
+			} else {
+				name ||= 'An unnamed cell';
+			}
+
+			if (skin) {
+				skin = skin.replace('1%', '').replace('2%', '').replace('3%', '');
+				skin = '/static/skins/' + skin + '.png';
+			}
+
+			return { name, skin };
+		};
+
+		/**
+		 * Only changes sometimes, like when your skin is updated
+		 * @type {object | undefined}
+		 */
+		aux.settings = undefined;
+		setInterval(() => {
+			try {
+				aux.settings = JSON.parse(localStorage.getItem('settings') ?? '');
+			} catch (_) {}
+		}, 50);
+
+		/** @type {object | undefined} */
+		aux.userData = undefined;
+		// this is the best method i've found to get the userData object, since game.js uses strict mode
+		window.fetch = new Proxy(fetch, {
+			apply: (target, thisArg, args) => {
+				let url = args[0];
+				if (typeof url !== 'string') return target.apply(thisArg, args);
+				// fix: game.js doesn't think we're connected to a server, we default to eu0 because that's the default
+				// everywhere else
+				if (url.includes('/userdata/')) args[0] = url.replace('///', '//eu0.sigmally.com/server/');
+
+				return target.apply(thisArg, args).then(res => new Proxy(res, {
+					get: (target, prop, _receiver) => {
+						if (prop !== 'json') {
+							const val = target[prop];
+							if (typeof val === 'function')
+								return val.bind(target);
+							else
+								return val;
+						}
+
+						return () => target.json().then(obj => {
+							aux.userData = obj?.body?.user ?? aux.userData;
+							return obj;
+						});
+					},
+				}));
+			}
+		});
+
+		/** @param {number} ms */
+		aux.wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+		return aux;
+	})();
+
+
+
 	////////////////////////
 	// Destroy Old Client //
 	////////////////////////
@@ -285,14 +382,10 @@
 			const deathScreen = {};
 
 			const statsContainer = document.querySelector('#__line2');
-			const oldContinueButton = /** @type {HTMLElement | null} */ (document.querySelector('#continue_button'));
-			if (oldContinueButton) {
-				const continueButton = /** @type {HTMLButtonElement} */ (oldContinueButton.cloneNode(true));
-				continueButton.id = ''; // prevent game script from seeing
-				oldContinueButton.insertAdjacentElement('afterend', continueButton);
-				oldContinueButton.style.display = 'none';
+			const continueButton = /** @type {HTMLElement | null} */ (document.querySelector('#continue_button'));
+			if (continueButton) {
 				continueButton.addEventListener('click', () => {
-					ui.toggleEscOverlay(true);
+					setTimeout(() => ui.toggleEscOverlay(true));
 				});
 			}
 
@@ -526,70 +619,6 @@
 		})();
 
 		return ui;
-	})();
-
-
-
-	////////////////////////////////
-	// Define Auxiliary Functions //
-	////////////////////////////////
-	const aux = (() => {
-		const aux = {};
-
-		/**
-		 * consistent exponential easing relative to 60fps
-		 * @param {number} o
-		 * @param {number} n
-		 * @param {number} factor
-		 * @param {number} dt in seconds
-		 */
-		aux.exponentialEase = (o, n, factor, dt) => {
-			return o + (n - o) * (1 - (1 - 1 / factor)**(60 * dt));
-		};
-
-		/** @param {[number, number, number]} rgb */
-		aux.rgb2hex = rgb => {
-			return [
-				'#',
-				Math.floor(rgb[0] * 255).toString(16).padStart(2, '0'),
-				Math.floor(rgb[1] * 255).toString(16).padStart(2, '0'),
-				Math.floor(rgb[2] * 255).toString(16).padStart(2, '0'),
-			].join('');
-		};
-
-		/**
-		 * @param {string} name
-		 * @param {string} skin
-		 */
-		aux.parseNameSkin = (name, skin) => {
-			const match = /^\{(.*?)\}(.*)$/.exec(name);
-			if (match) {
-				skin ||= match[1];
-				name = match[2] || 'An unnamed cell';
-			} else {
-				name ||= 'An unnamed cell';
-			}
-
-			if (skin) {
-				skin = skin.replace('1%', '').replace('2%', '').replace('3%', '');
-				skin = '/static/skins/' + skin + '.png';
-			}
-
-			return { name, skin };
-		};
-
-		/** @type {object | undefined} */
-		aux.settings = undefined;
-		setInterval(() => {
-			try {
-				aux.settings = JSON.parse(localStorage.getItem('settings') ?? '');
-			} catch (_) {}
-		}, 50);
-
-		/** @param {number} ms */
-		aux.wait = ms => new Promise(resolve => setTimeout(resolve, ms));
-
-		return aux;
 	})();
 
 
@@ -1327,22 +1356,19 @@
 			/** @type {HTMLInputElement | null} */
 			const showClanmatesElement = document.querySelector('input#showClanmates');
 
-			// user settings are immediately updated for some fields, like skins
-			const settings = aux.settings;
-
 			let clan;
 			let sub = false;
 			let token;
-			if (settings?.userData) {
-				clan = settings.userData.clan;
-				sub = (settings.userData.subscription ?? 0) > Date.now();
-				token = settings.userData.token;
+			if (aux.userData) {
+				clan = aux.userData.clan;
+				sub = (aux.userData.subscription ?? 0) > Date.now();
+				token = aux.userData.token;
 			}
 
 			return {
 				state: spectating ? 2 : undefined,
 				name: nickElement?.value ?? '',
-				skin: settings?.skin,
+				skin: aux.settings?.skin,
 				token,
 				sub,
 				clan,
@@ -2164,6 +2190,9 @@
 
 					score += cell.nr * cell.nr / 100;
 				});
+
+				if (typeof aux.userData?.boost === 'number' && aux.userData.boost > Date.now())
+					score *= 2;
 
 				if (score > 0)
 					ui.stats.score.textContent = 'Score: ' + Math.floor(score);
