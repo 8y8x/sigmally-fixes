@@ -144,9 +144,11 @@
 			}
 		});
 
+		/** @type {WeakSet<WebSocket>} */
+		const safeWebSockets = new WeakSet();
 		let realWsSend = WebSocket.prototype.send;
 		WebSocket.prototype.send = function() {
-			if (this.url.includes('sigmally.com')) {
+			if (!safeWebSockets.has(this) && this.url.includes('sigmally.com')) {
 				this.onclose = null;
 				this.close();
 				throw new Error('Nope :) - hooked by Sigmally Fixes');
@@ -177,7 +179,7 @@
 			onkeyup = null;
 		}, 50);
 
-		return { realWebSocket, realWsSend };
+		return { realWebSocket, safeWebSockets };
 	})();
 
 
@@ -283,12 +285,11 @@
 				].join('\r\n');
 			}
 
-			/** @type {HTMLInputElement | null} */
-			const darkTheme = document.querySelector('input#darkTheme');
-
 			function matchTheme() {
 				let color = '#fff';
 
+				/** @type {HTMLInputElement | null} */
+				const darkTheme = document.querySelector('input#darkTheme');
 				if (darkTheme && !darkTheme.checked)
 					color = '#000';
 
@@ -605,9 +606,9 @@
 				scroll();
 			};
 
-			/** @type {HTMLInputElement | null} */
-			const darkTheme = document.querySelector('input#darkTheme');
 			chat.matchTheme = () => {
+				/** @type {HTMLInputElement | null} */
+				const darkTheme = document.querySelector('input#darkTheme');
 				if (!darkTheme || darkTheme.checked) {
 					list.style.color = '#fffc';
 				} else {
@@ -751,6 +752,7 @@
 				server = location.search.slice('?ip='.length); // in csrf we trust
 
 			ws = new destructor.realWebSocket('wss://' + server);
+			destructor.safeWebSockets.add(ws);
 			ws.binaryType = 'arraybuffer';
 			ws.addEventListener('close', wsClose);
 			ws.addEventListener('error', wsError);
@@ -798,7 +800,7 @@
 			world.camera.y = world.camera.ty = 0;
 			world.camera.scale = world.camera.tscale = 1;
 
-			destructor.realWsSend.call(ws, new TextEncoder().encode('SIG 0.0.1\x00'));
+			ws.send(new TextEncoder().encode('SIG 0.0.1\x00'));
 		}
 
 		// listen for when the gamemode changes
@@ -838,7 +840,7 @@
 				dat.setUint8(1 + i, dataBuf[i]);
 			}
 
-			destructor.realWsSend.call(ws, buf);
+			ws.send(buf);
 		}
 
 		function createPingLoop() {
@@ -850,7 +852,7 @@
 					net.latency = -1;
 				}
 
-				destructor.realWsSend.call(ws, new Uint8Array([ Number(handshake.shuffle.get(0xfe)) ]));
+				ws.send(new Uint8Array([ Number(handshake.shuffle.get(0xfe)) ]));
 				pendingPingFrom = performance.now();
 			}
 
@@ -1135,27 +1137,27 @@
 			dat.setInt32(1, x, true);
 			dat.setInt32(5, y, true);
 
-			destructor.realWsSend.call(ws, buf);
+			ws.send(buf);
 		}
 
 		net.w = function() {
 			if (!handshake) return;
-			destructor.realWsSend.call(ws, new Uint8Array([ Number(handshake.shuffle.get(21)) ]));
+			ws.send(new Uint8Array([ Number(handshake.shuffle.get(21)) ]));
 		}
 
 		net.qdown = function() {
 			if (!handshake) return;
-			destructor.realWsSend.call(ws, new Uint8Array([ Number(handshake.shuffle.get(18)) ]));
+			ws.send(new Uint8Array([ Number(handshake.shuffle.get(18)) ]));
 		}
 
 		net.qup = function() {
 			if (!handshake) return;
-			destructor.realWsSend.call(ws, new Uint8Array([ Number(handshake.shuffle.get(19)) ]));
+			ws.send(new Uint8Array([ Number(handshake.shuffle.get(19)) ]));
 		}
 
 		net.split = function() {
 			if (!handshake) return;
-			destructor.realWsSend.call(ws, new Uint8Array([ Number(handshake.shuffle.get(17)) ]));
+			ws.send(new Uint8Array([ Number(handshake.shuffle.get(17)) ]));
 		}
 
 		/**
@@ -1173,7 +1175,7 @@
 			for (let i = 0; i < msgBuf.byteLength; ++i)
 				dat.setUint8(2 + i, msgBuf[i]);
 
-			destructor.realWsSend.call(ws, buf);
+			ws.send(buf);
 		}
 
 		/**
@@ -1257,6 +1259,9 @@
 
 		addEventListener('mousemove', e => {
 			if (ui.escOverlayVisible()) return;
+			// fix for sigmod (<=8.5.5.4)'s broken randomPos() function, which spazzes your mouse
+			// all other mouse movements orchestrated by sigmod are targetted at the canvas
+			if (!e.isTrusted && e.target === document) return;
 			mouseX = e.clientX;
 			mouseY = e.clientY;
 		});
