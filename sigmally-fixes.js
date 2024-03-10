@@ -2198,8 +2198,16 @@
 					ui.stats.score.textContent = 'Score: ' + Math.floor(score);
 				else
 					ui.stats.score.textContent = '';
-				ui.stats.measures.textContent = `${Math.floor(fps)} FPS `
-					+ (net.latency ? Math.floor(net.latency) + 'ms ping' : '');
+
+				let measures = `${Math.floor(fps)} FPS`;
+				if (net.latency !== undefined) {
+					if (net.latency === -1)
+						measures += ' ????ms ping';
+					else
+						measures += ` ${Math.floor(net.latency)}ms ping`;
+				}
+
+				ui.stats.measures.textContent = measures;
 
 				if (score > world.stats.highestScore) {
 					world.stats.highestScore = score;
