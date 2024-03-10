@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
 // @version      2024-03-10
-// @description  Easily 2X or 3X your FPS - many bug fixes - supports SigMod
+// @description  Easily 2X or 3X your FPS + many bug fixes + supports SigMod
 // @author       8y8x
 // @match        https://sigmally.com/
 // @icon         https://8y8x.dev/favicon.ico
@@ -30,6 +30,28 @@
 		aux.exponentialEase = (o, n, factor, dt) => {
 			return o + (n - o) * (1 - (1 - 1 / factor)**(60 * dt));
 		};
+
+		/**
+		 * @param {string} hex
+		 * @returns {[number, number, number]}
+		 */
+		aux.hex2rgb = hex => {
+			if (hex.length === 4) {
+				return [
+					(parseInt(hex[1], 16) || 0) / 15,
+					(parseInt(hex[2], 16) || 0) / 15,
+					(parseInt(hex[3], 16) || 0) / 15
+				];
+			} else if (hex.length === 7) {
+				return [
+					(parseInt(hex.slice(1, 3), 16) || 0) / 255,
+					(parseInt(hex.slice(3, 5), 16) || 0) / 255,
+					(parseInt(hex.slice(5, 7), 16) || 0) / 255
+				];
+			} else {
+				return [0, 0, 0];
+			}
+		}
 
 		/** @param {[number, number, number]} rgb */
 		aux.rgb2hex = rgb => {
@@ -178,6 +200,51 @@
 		}, 50);
 
 		return { realWebSocket, safeWebSockets };
+	})();
+
+
+
+	///////////////////////////////////////
+	// Configuration by External Scripts //
+	///////////////////////////////////////
+	const config = (() => {
+		const config = {};
+
+		// intended to be modified by external scripts (like SigMod)
+		// there is no validation against garbage data - please be careful
+
+		/**
+		 * this is the color of the map border in RGBA format (values are between 0-1, use aux.hex2rgb for conversion)
+		 * @type {[number, number, number, number]}
+		 */
+		config.borderColor = [0, 0, 1, 1];
+
+		/**
+		 * when not undefined, this is the outline color (in RGBA format) applied to all cells except pellets
+		 * @type {[number, number, number, number] | undefined}
+		 */
+		config.cellOutline = undefined;
+
+		/**
+		 * when not undefined, this is the color (in RGBA format) applied to all pellets
+		 * @type {[number, number, number, number] | undefined}
+		 */
+		config.pelletColor = undefined;
+
+		/**
+		 * when enabled, a white/black outline is placed around your cells that can't split
+		 * @type {boolean}
+		 */
+		config.outlineUnsplittable = true;
+
+		/**
+		 * every key is a case-sensitive substring (like "Chet") to match in a skin's URL
+		 * and the value is the exact URL to use instead
+		 * @type {Map<string, string>}
+		 */
+		config.skinOverrides = new Map();
+
+		return config;
 	})();
 
 
@@ -1953,7 +2020,7 @@
 				gl.useProgram(programs.bg);
 
 				if (showBorder?.checked && world.border) {
-					gl.uniform4f(uniforms.bg.u_border_color, 0, 0, 1, 1); // #00f
+					gl.uniform4f(uniforms.bg.u_border_color, ...config.borderColor);
 					gl.uniform1fv(uniforms.bg.u_border_lrtb,
 						new Float32Array([ world.border.l, world.border.r, world.border.t, world.border.b ]));
 				} else {
@@ -2079,22 +2146,37 @@
 						return;
 					}
 
-					const myIndex = world.mine.indexOf(cell.id);
-					gl.uniform4f(uniforms.cell.u_color, ...cell.rgb, 1);
-					if (myIndex === -1 || canSplit[myIndex]) {
-						gl.uniform4f(uniforms.cell.u_outline_color,
-							cell.rgb[0] * 0.9, cell.rgb[1] * 0.9, cell.rgb[2] * 0.9, 1);
+					if (cell.r <= 20) {
 						gl.uniform1i(uniforms.cell.u_outline_thick, 0);
+						if (config.pelletColor) {
+							gl.uniform4f(uniforms.cell.u_color, ...config.pelletColor);
+							gl.uniform4f(uniforms.cell.u_outline_color, ...config.pelletColor);
+						} else {
+							gl.uniform4f(uniforms.cell.u_color, ...cell.rgb, 1);
+							gl.uniform4f(uniforms.cell.u_outline_color, ...cell.rgb, 1);
+						}
 					} else {
-						gl.uniform1i(uniforms.cell.u_outline_thick, 1);
-						if (!darkTheme || darkTheme.checked)
-							gl.uniform4f(uniforms.cell.u_outline_color, 1, 1, 1, 1);
-						else
-							gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 1);
+						gl.uniform4f(uniforms.cell.u_color, ...cell.rgb, 1);
+						const myIndex = world.mine.indexOf(cell.id);
+						if (!config.outlineUnsplittable || myIndex === -1 || canSplit[myIndex]) {
+							gl.uniform1i(uniforms.cell.u_outline_thick, 0);
+							if (config.cellOutline) {
+								gl.uniform4f(uniforms.cell.u_outline_color, ...config.cellOutline);
+							} else {
+								gl.uniform4f(uniforms.cell.u_outline_color,
+									cell.rgb[0] * 0.9, cell.rgb[1] * 0.9, cell.rgb[2] * 0.9, 1);
+							}
+						} else {
+							gl.uniform1i(uniforms.cell.u_outline_thick, 1);
+							if (!darkTheme || darkTheme.checked)
+								gl.uniform4f(uniforms.cell.u_outline_color, 1, 1, 1, 1);
+							else
+								gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 1);
+						}
 					}
 
 					gl.uniform1i(uniforms.cell.u_texture_enabled, 0);
-					if (showSkins && cell.skin) {
+					if (cell.skin) {
 						const texture = textureFromCache(cell.skin);
 						if (texture) {
 							gl.uniform1i(uniforms.cell.u_texture_enabled, 1);
@@ -2376,5 +2458,5 @@
 	// for me and other script developers! i'll try not to change things around too much,
 	// but do some null?.coalescing?.just?.in?.case
 	// @ts-expect-error
-	window.sigfix = { destructor, aux, ui, world, net, version: 2 };
+	window.sigfix = { destructor, config, aux, ui, world, net, version: 2 };
 })();
