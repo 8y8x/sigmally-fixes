@@ -2362,5 +2362,5 @@
 	// for me and other script developers! i'll try not to change things around too much,
 	// but do some null?.coalescing?.just?.in?.case
 	// @ts-expect-error
-	window.sigfix = { destructor, aux, ui, world, net, version: 1 };
+	window.sigfix = { destructor, aux, ui, world, net, version: 2 };
 })();
