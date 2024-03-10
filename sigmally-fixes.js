@@ -1,15 +1,13 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2024-02-28
-// @description  Massive performance improvements, bug fixes for Sigmally.com - supports SigMod
+// @version      2024-03-10
+// @description  Easily 2X or 3X your FPS - many bug fixes - supports SigMod
 // @author       8y8x
 // @match        https://sigmally.com/
 // @icon         https://8y8x.dev/favicon.ico
 // @license      MIT
 // @grant        none
-// @namespace https://8y8x.dev/sigmally-fixes
-// @downloadURL https://update.greasyfork.org/scripts/483587/Sigmally%20Fixes%20V2.user.js
-// @updateURL https://update.greasyfork.org/scripts/483587/Sigmally%20Fixes%20V2.meta.js
+// @namespace    https://8y8x.dev/sigmally-fixes
 // ==/UserScript==
 
 // @ts-check
