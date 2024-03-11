@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2024-03-10
+// @version      2024-03-11
 // @description  Easily 2X or 3X your FPS + many bug fixes + supports SigMod
 // @author       8y8x
 // @match        https://sigmally.com/
@@ -450,7 +450,7 @@
 			const continueButton = /** @type {HTMLElement | null} */ (document.querySelector('#continue_button'));
 			if (continueButton) {
 				continueButton.addEventListener('click', () => {
-					setTimeout(() => ui.toggleEscOverlay(true));
+					ui.toggleEscOverlay(true);
 				});
 			}
 
@@ -1919,8 +1919,9 @@
 				ctx.fillStyle = silhouette ? '#000' : '#fff';
 				ctx.strokeStyle = '#000';
 
-				ctx.strokeText(text, lineWidth, textSize * 1.5);
-				ctx.fillText(text, lineWidth, textSize * 1.5);
+				// add a space, which is to prevent sigmod from detecting the name
+				ctx.strokeText(text + ' ', lineWidth, textSize * 1.5);
+				ctx.fillText(text + ' ', lineWidth, textSize * 1.5);
 
 				const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
@@ -2386,7 +2387,8 @@
 					y = (y - border.t) / gameHeight * canvas.height;
 
 					ctx.fillStyle = '#fff';
-					ctx.fillText(name, x, y - 7 * devicePixelRatio - sectorSize / 6);
+					// add a space to prevent sigmod from detecting names
+					ctx.fillText(name + ' ', x, y - 7 * devicePixelRatio - sectorSize / 6);
 				}
 
 				// draw clanmates first, below yourself
