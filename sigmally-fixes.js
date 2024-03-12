@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2024-03-11
+// @version      2024-03-11.1
 // @description  Easily 2X or 3X your FPS + many bug fixes + supports SigMod
 // @author       8y8x
 // @match        https://sigmally.com/
@@ -1032,7 +1032,7 @@
 							if (skin) cell.skin = skin;
 							if (name) cell.name = name;
 
-							if (clan && clan === aux.settings?.clan)
+							if (clan && clan === aux.userData?.clan)
 								world.clanmates.add(cell);
 						} else {
 							if (r > 20 && !(flags & 0x20)) { // not pellet, not ejected
@@ -1054,7 +1054,7 @@
 
 							world.cells.set(id, cell);
 
-							if (clan && clan === aux.settings?.clan)
+							if (clan && clan === aux.userData?.clan)
 								world.clanmates.add(cell);
 						}
 					}
