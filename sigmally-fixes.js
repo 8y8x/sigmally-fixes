@@ -1068,8 +1068,10 @@
 						off += 4;
 
 						const deleted = world.cells.get(deletedId);
-						if (deleted)
+						if (deleted) {
 							deleted.dead = { to: undefined, at: now };
+							world.clanmates.delete(deleted);
+						}
 					}
 
 					break;
