@@ -1740,10 +1740,10 @@
 				if (u_subtext_enabled) {
 					clip_space = a_pos * 0.5 + vec2(0, 0.5);
 				} else {
-					clip_space = a_pos + vec2(0, -0.25);
+					clip_space = a_pos;
 				}
 
-				clip_space *= u_radius * 0.3 * vec2(u_text_aspect_ratio, 1.0);
+				clip_space *= u_radius * 0.45 * vec2(u_text_aspect_ratio, 1.0);
 				clip_space += -u_camera_pos + u_pos;
 				clip_space *= u_camera_scale * vec2(1.0 / u_aspect_ratio, -1.0);
 				gl_Position = vec4(clip_space, 0, 1);
@@ -1876,7 +1876,9 @@
 			const canvas = document.createElement('canvas');
 			const ctx = canvas.getContext('2d', { willReadFrequently: true });
 			if (!ctx) throw new Error('canvas.getContext(\'2d\') yields null, for whatever reason');
+
 			const textSize = 72;
+			canvas.height = textSize * 3;
 
 			// declare a little awkwardly, after ctx is definitely not null
 			/**
@@ -1892,9 +1894,11 @@
 
 				// setting canvas.width resets the canvas state
 				ctx.font = textSize + 'px Ubuntu';
+				ctx.lineJoin = 'round';
 				ctx.lineWidth = lineWidth;
 				ctx.fillStyle = silhouette ? '#000' : '#fff';
 				ctx.strokeStyle = '#000';
+				ctx.textBaseline = 'middle';
 
 				// add a space, which is to prevent sigmod from detecting the name
 				ctx.strokeText(text + ' ', lineWidth, textSize * 1.5);
