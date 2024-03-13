@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2024-03-12
+// @version      2024-03-13
 // @description  Easily 2X or 3X your FPS + many bug fixes + supports SigMod
 // @author       8y8x
 // @match        https://sigmally.com/
@@ -83,6 +83,13 @@
 
 			return { name, skin };
 		};
+
+		/** @type {object | undefined} */
+		aux.sigmod = undefined;
+		setInterval(() => {
+			// @ts-expect-error
+			aux.sigmod = window.sigmod?.settings;
+		}, 50);
 
 		/**
 		 * Only changes sometimes, like when your skin is updated
@@ -200,51 +207,6 @@
 		}, 50);
 
 		return { realWebSocket, safeWebSockets };
-	})();
-
-
-
-	///////////////////////////////////////
-	// Configuration by External Scripts //
-	///////////////////////////////////////
-	const config = (() => {
-		const config = {};
-
-		// intended to be modified by external scripts (like SigMod)
-		// there is no validation against garbage data - please be careful
-
-		/**
-		 * this is the color of the map border in RGBA format (values are between 0-1, use aux.hex2rgb for conversion)
-		 * @type {[number, number, number, number]}
-		 */
-		config.borderColor = [0, 0, 1, 1];
-
-		/**
-		 * when not undefined, this is the outline color (in RGBA format) applied to all cells except pellets
-		 * @type {[number, number, number, number] | undefined}
-		 */
-		config.cellOutline = undefined;
-
-		/**
-		 * when not undefined, this is the color (in RGBA format) applied to all pellets
-		 * @type {[number, number, number, number] | undefined}
-		 */
-		config.pelletColor = undefined;
-
-		/**
-		 * when enabled, a white/black outline is placed around your cells that can't split
-		 * @type {boolean}
-		 */
-		config.outlineUnsplittable = true;
-
-		/**
-		 * every key is a case-sensitive substring (like "Chet") to match in a skin's URL
-		 * and the value is the exact URL to use instead
-		 * @type {Map<string, string>}
-		 */
-		config.skinOverrides = new Map();
-
-		return config;
 	})();
 
 
@@ -420,6 +382,8 @@
 		/** @type {HTMLElement | null} */
 		const menuLinks = document.querySelector('#menu-links');
 		/** @type {HTMLElement | null} */
+		const menuWrapper = document.querySelector('#menu-wrapper');
+		/** @type {HTMLElement | null} */
 		const overlay = document.querySelector('#overlays');
 
 		let escOverlayVisible = true;
@@ -432,12 +396,14 @@
 				mainMenu.style.display = '';
 				if (overlay) overlay.style.display = '';
 				if (menuLinks) menuLinks.style.display = '';
+				if (menuWrapper) menuWrapper.style.display = '';
 
 				ui.deathScreen.hide();
 			} else {
 				mainMenu.style.display = 'none';
 				if (overlay) overlay.style.display = 'none';
 				if (menuLinks) menuLinks.style.display = 'none';
+				if (menuWrapper) menuWrapper.style.display = 'none';
 			}
 		};
 
@@ -681,6 +647,15 @@
 			};
 
 			return chat;
+		})();
+
+		// sigmod quick fix
+		(() => {
+			// the play timer is inserted below the top-left stats, but because we offset them, we need to offset this
+			// too
+			const style = document.createElement('style');
+			style.textContent = '.playTimer { transform: translate(10px, 10px); }';
+			document.head.appendChild(style);
 		})();
 
 		return ui;
@@ -1841,7 +1816,6 @@
 		gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
 
 		const gridSrc = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAAAAXNSR0IArs4c6QAAAKVJREFUaEPtkkEKwlAUxBzw/jeWL4J4gECkSrqftC/pzjnn9gfP3ofcf/mWbY8OuVLBilypxutbKlIRyUC/liQWYyuC1UnDikhiMbYiWJ00rIgkFmMrgtVJw4pIYjG2IlidNKyIJBZjK4LVScOKSGIxtiJYnTSsiCQWYyuC1UnDikhiMbYiWJ00rIgkFmMrgtVJw4pIYjG2IlidNPwU2TbpHV/DPgFxJfgvliP9RQAAAABJRU5ErkJggg==';
-		const virusSrc = '/assets/images/viruses/2.png';
 
 
 
@@ -1861,6 +1835,7 @@
 				cache.set(src, null);
 
 				const image = new Image();
+				image.crossOrigin = 'anonymous';
 				image.addEventListener('load', () => {
 					const texture = gl.createTexture();
 					gl.bindTexture(gl.TEXTURE_2D, texture);
@@ -1974,6 +1949,55 @@
 			fps += (1 / dt - fps) / 10;
 			lastFrame = now;
 
+			// get settings
+			const cellColor = aux.sigmod?.cellColor ? aux.hex2rgb(aux.sigmod.cellColor) : undefined;
+			const hidePellets = aux.sigmod?.hideFood;
+			const mapColor = aux.sigmod?.mapColor ? aux.hex2rgb(aux.sigmod.mapColor) : undefined;
+			const outlineColor = aux.sigmod?.borderColor ? aux.hex2rgb(aux.sigmod.borderColor) : undefined;
+			const pelletColor = aux.sigmod?.foodColor ? aux.hex2rgb(aux.sigmod.foodColor) : undefined;
+			/** @type {object | undefined} */
+			const skinReplacement = aux.sigmod?.skinImage;
+			/** @type {string} */
+			const virusSrc = aux.sigmod?.virusImage ?? '/assets/images/viruses/2.png';
+
+			/** @type {[number, number, number] | undefined} */
+			let nameColor1;
+			/** @type {[number, number, number] | undefined} */
+			let nameColor2;
+			if (aux.sigmod?.nameColor) {
+				nameColor1 = nameColor2 = aux.hex2rgb(aux.sigmod.nameColor);
+			} else if (aux.sigmod?.gradientName?.enabled) {
+				// color1 and color2 are optional to set
+				if (aux.sigmod.gradientName.color1)
+					nameColor1 = aux.hex2rgb(aux.sigmod.gradientName.color1);
+
+				if (aux.sigmod.gradientName.color2)
+					nameColor2 = aux.hex2rgb(aux.sigmod.gradientName.color2);
+			}
+
+			/**
+			 * @param {string} selector
+			 * @param {boolean} value
+			 */
+			function setting(selector, value) {
+				/** @type {HTMLInputElement | null} */
+				const el = document.querySelector(selector);
+				return el ? el.checked : value;
+			}
+
+			const darkTheme = setting('input#darkTheme', true);
+			const jellyPhysics = setting('input#jellyPhysics', false);
+			const showBorder = setting('input#showBorder', true);
+			const showGrid = setting('input#showGrid', true);
+			const showMass = setting('input#showMass', false);
+			const showMinimap = setting('input#showMinimap', true);
+			const showNames = setting('input#showNames', true);
+			const showSkins = setting('input#showSkins', true);
+
+			/** @type {HTMLInputElement | null} */
+			const nickElement = document.querySelector('input#nick');
+			const nick = aux.parseNameSkin(nickElement?.value ?? '', '').name;
+
 			// note: most routines are named, for benchmarking purposes
 			(function setGlobalUniforms() {
 				const aspectRatio = ui.game.canvas.width / ui.game.canvas.height;
@@ -1999,16 +2023,10 @@
 				gl.uniform1i(uniforms.text.u_silhouette, 1);
 			})();
 
-			/** @type {HTMLInputElement | null} */
-			const darkTheme = document.querySelector('input#darkTheme');
-
 			(function background() {
-				/** @type {HTMLInputElement | null} */
-				const showBorder = document.querySelector('input#showBorder');
-				/** @type {HTMLInputElement | null} */
-				const showGrid = document.querySelector('input#showGrid');
-
-				if (!darkTheme || darkTheme.checked) {
+				if (mapColor) {
+					gl.clearColor(...mapColor, 1);
+				} else if (darkTheme) {
 					gl.clearColor(0x11 / 255, 0x11 / 255, 0x11 / 255, 1); // #111
 				} else {
 					gl.clearColor(0xf2 / 255, 0xfb / 255, 0xff / 255, 1); // #f2fbff
@@ -2021,8 +2039,8 @@
 
 				gl.useProgram(programs.bg);
 
-				if (showBorder?.checked && world.border) {
-					gl.uniform4f(uniforms.bg.u_border_color, ...config.borderColor);
+				if (showBorder && world.border) {
+					gl.uniform4f(uniforms.bg.u_border_color, 0, 0, 1, 1); // #00f
 					gl.uniform1fv(uniforms.bg.u_border_lrtb,
 						new Float32Array([ world.border.l, world.border.r, world.border.t, world.border.b ]));
 				} else {
@@ -2030,8 +2048,8 @@
 					gl.uniform1fv(uniforms.bg.u_border_lrtb, new Float32Array([ 0, 0, 0, 0 ]));
 				}
 
-				gl.uniform1i(uniforms.bg.u_dark_theme_enabled, Number(!darkTheme || darkTheme.checked));
-				gl.uniform1i(uniforms.bg.u_grid_enabled, Number(!showGrid || showGrid.checked));
+				gl.uniform1i(uniforms.bg.u_dark_theme_enabled, Number(darkTheme));
+				gl.uniform1i(uniforms.bg.u_grid_enabled, Number(showGrid));
 
 				gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 			})();
@@ -2075,21 +2093,7 @@
 				world.camera.scale = aux.exponentialEase(world.camera.scale, world.camera.tscale, 9, dt);
 			})();
 
-			/** @type {HTMLInputElement | null} */
-			const jellyPhysicsElement = document.querySelector('input#jellyPhysics');
-			const jellyPhysics = jellyPhysicsElement?.checked;
-
-			/** @type {HTMLInputElement | null} */
-			const showNamesElement = document.querySelector('input#showNames');
-			const showNames = !showNamesElement || showNamesElement.checked;
-
 			(function cells() {
-				const showMass
-					= (/** @type {HTMLInputElement | null} */ (document.querySelector('input#showMass')))?.checked;
-				/** @type {HTMLInputElement | null} */
-				const showSkinsElement = document.querySelector('input#showSkins');
-				const showSkins = !showSkinsElement || showSkinsElement.checked;
-
 				/** @param {Cell} cell */
 				function calcAlpha(cell) {
 					let alpha = Math.min((now - cell.born) / 120, 1);
@@ -2149,28 +2153,34 @@
 					}
 
 					if (cell.r <= 20) {
+						if (hidePellets) return;
+
 						gl.uniform1i(uniforms.cell.u_outline_thick, 0);
-						if (config.pelletColor) {
-							gl.uniform4f(uniforms.cell.u_color, ...config.pelletColor);
-							gl.uniform4f(uniforms.cell.u_outline_color, ...config.pelletColor);
+						if (pelletColor) {
+							gl.uniform4f(uniforms.cell.u_color, ...pelletColor, 1);
+							gl.uniform4f(uniforms.cell.u_outline_color, ...pelletColor, 1);
 						} else {
 							gl.uniform4f(uniforms.cell.u_color, ...cell.rgb, 1);
 							gl.uniform4f(uniforms.cell.u_outline_color, ...cell.rgb, 1);
 						}
 					} else {
-						gl.uniform4f(uniforms.cell.u_color, ...cell.rgb, 1);
+						if (cellColor)
+							gl.uniform4f(uniforms.cell.u_color, ...cellColor, 1);
+						else
+							gl.uniform4f(uniforms.cell.u_color, ...cell.rgb, 1);
+
 						const myIndex = world.mine.indexOf(cell.id);
-						if (!config.outlineUnsplittable || myIndex === -1 || canSplit[myIndex]) {
+						if (myIndex === -1 || canSplit[myIndex]) {
 							gl.uniform1i(uniforms.cell.u_outline_thick, 0);
-							if (config.cellOutline) {
-								gl.uniform4f(uniforms.cell.u_outline_color, ...config.cellOutline);
+							if (outlineColor) {
+								gl.uniform4f(uniforms.cell.u_outline_color, ...outlineColor, 1);
 							} else {
 								gl.uniform4f(uniforms.cell.u_outline_color,
 									cell.rgb[0] * 0.9, cell.rgb[1] * 0.9, cell.rgb[2] * 0.9, 1);
 							}
 						} else {
 							gl.uniform1i(uniforms.cell.u_outline_thick, 1);
-							if (!darkTheme || darkTheme.checked)
+							if (darkTheme)
 								gl.uniform4f(uniforms.cell.u_outline_color, 1, 1, 1, 1);
 							else
 								gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 1);
@@ -2178,8 +2188,12 @@
 					}
 
 					gl.uniform1i(uniforms.cell.u_texture_enabled, 0);
-					if (cell.skin) {
-						const texture = textureFromCache(cell.skin);
+					if (showSkins && cell.skin) {
+						let skin = cell.skin;
+						if (skinReplacement && cell.skin.includes(skinReplacement.original + '.png'))
+							skin = skinReplacement.replaceImg;
+
+						const texture = textureFromCache(skin);
 						if (texture) {
 							gl.uniform1i(uniforms.cell.u_texture_enabled, 1);
 							gl.bindTexture(gl.TEXTURE_2D, texture);
@@ -2207,16 +2221,30 @@
 						gl.uniform2f(uniforms.text.u_pos, cell.x, cell.y);
 					gl.uniform1f(uniforms.text.u_radius, cell.r);
 
+					let useSilhouette = false;
 					if (cell.sub) {
 						gl.uniform3f(uniforms.text.u_color1, 0xeb / 255, 0x95 / 255, 0x00 / 255); // #eb9500
 						gl.uniform3f(uniforms.text.u_color2, 0xe4 / 255, 0xb1 / 255, 0x10 / 255); // #e4b110
+						useSilhouette = true;
 					} else {
 						gl.uniform3f(uniforms.text.u_color1, 1, 1, 1);
 						gl.uniform3f(uniforms.text.u_color2, 1, 1, 1);
 					}
 
+					if (cell.name === nick) {
+						if (nameColor1) {
+							gl.uniform3f(uniforms.text.u_color1, ...nameColor1);
+							useSilhouette = true;
+						}
+
+						if (nameColor2) {
+							gl.uniform3f(uniforms.text.u_color2, ...nameColor2);
+							useSilhouette = true;
+						}
+					}
+
 					if (showThisName) {
-						const { aspectRatio, text, silhouette } = textFromCache(cell.name, cell.sub);
+						const { aspectRatio, text, silhouette } = textFromCache(cell.name, useSilhouette);
 						gl.uniform1f(uniforms.text.u_text_aspect_ratio, aspectRatio);
 						gl.uniform1i(uniforms.text.u_silhouette_enabled, silhouette ? 1 : 0);
 						gl.uniform1i(uniforms.text.u_subtext_enabled, 0);
@@ -2317,21 +2345,32 @@
 			})();
 
 			(function minimap() {
-				// text needs to be small and sharp, i don't trust webgl with that, so we use a 2d context
-				const { border } = world;
-				if (!border) return;
-
-				/** @type {HTMLInputElement | null} */
-				const showMinimap = document.querySelector('input#showMinimap');
-				if (showMinimap && !showMinimap.checked) {
+				if (!showMinimap) {
 					ui.minimap.canvas.style.display = 'none';
 					return;
 				} else {
 					ui.minimap.canvas.style.display = '';
 				}
 
+				const { border } = world;
+				if (!border) return;
+
+				// text needs to be small and sharp, i don't trust webgl with that, so we use a 2d context
 				const { canvas, ctx } = ui.minimap;
 				canvas.width = canvas.height = 200 * devicePixelRatio;
+
+				// sigmod overlay resizes itself differently, so we correct it whenever we need to
+				/** @type {HTMLCanvasElement | null} */
+				const sigmodMinimap = document.querySelector('canvas.minimap');
+				if (sigmodMinimap) {
+					// we need to check before updating the canvas, otherwise we will clear it
+					if (sigmodMinimap.style.width !== '200px' || sigmodMinimap.style.height !== '200px')
+						sigmodMinimap.style.width = sigmodMinimap.style.height = '200px';
+
+					if (sigmodMinimap.width !== 200 * devicePixelRatio || sigmodMinimap.height !== 200 * devicePixelRatio)
+						sigmodMinimap.width = sigmodMinimap.height = 200 * devicePixelRatio;
+				}
+
 				ctx.clearRect(0, 0, canvas.width, canvas.height);
 
 				const gameWidth = (border.r - border.l);
@@ -2348,7 +2387,7 @@
 
 				// draw section names
 				ctx.font = `${Math.floor(sectorSize / 3)}px Ubuntu`;
-				ctx.fillStyle = (!darkTheme || darkTheme.checked) ? '#fff' : '#000';
+				ctx.fillStyle = darkTheme ? '#fff' : '#000';
 				ctx.globalAlpha = 0.3;
 				ctx.textAlign = 'center';
 				ctx.textBaseline = 'middle';
@@ -2443,8 +2482,14 @@
 					ctx.arc(x, y, 5 * devicePixelRatio, 0, 2 * Math.PI);
 					ctx.fill();
 				} else {
+					ownX /= ownN;
+					ownY /= ownN;
 					// draw name above player's cells
-					drawName(ownX / ownN, ownY / ownN, myName);
+					drawName(ownX, ownY, myName);
+
+					// send a hint to sigmod
+					ctx.globalAlpha = 0;
+					ctx.fillText(`X: ${ownX}, Y: ${ownY}`, 0, -1000);
 				}
 			})();
 
@@ -2458,8 +2503,6 @@
 
 
 
-	// for me and other script developers! i'll try not to change things around too much,
-	// but do some null?.coalescing?.just?.in?.case
-	// @ts-expect-error
-	window.sigfix = { destructor, config, aux, ui, world, net, version: 2 };
+	// @ts-expect-error for debugging purposes
+	window.sigfix = { destructor, aux, ui, world, net, version: 3 };
 })();
