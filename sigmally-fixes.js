@@ -2444,7 +2444,7 @@
 					if (world.mine.includes(cell.id)) return;
 					drawCell(cell);
 
-					const id = cell.name + (cell.rgb[0] + 255*cell.rgb[1] + 255*255*cell.rgb[2]);
+					const id = cell.name + cell.rgb[0] + cell.rgb[1] + cell.rgb[2];
 					const entry = avgPos.get(id);
 					if (entry) {
 						++entry.n;
