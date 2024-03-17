@@ -2290,6 +2290,7 @@
 					if (cell.r > 20) {
 						// not a pellet, will draw sorted later
 						sorted.push(cell);
+						return;
 					}
 
 					const alpha = calcAlpha(cell);
