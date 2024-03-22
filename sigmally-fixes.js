@@ -243,9 +243,11 @@
 			oldCanvas.insertAdjacentElement('beforebegin', newCanvas);
 			game.canvas = newCanvas;
 
-			// forward macro inputs from the canvas to the old one - this is for sigmod mouse controls
+			// forward macro inputs from the canvas to the old one - this is for sigmod mouse button controls
 			newCanvas.addEventListener('mousedown', e => oldCanvas.dispatchEvent(new MouseEvent('mousedown', e)));
 			newCanvas.addEventListener('mouseup', e => oldCanvas.dispatchEvent(new MouseEvent('mouseup', e)));
+			// forward mouse movements from the old canvas to the new one - this is for sigmod mouse keybinds
+			oldCanvas.addEventListener('mousemove', e => newCanvas.dispatchEvent(new MouseEvent('mousemove', e)));
 
 			const gl = newCanvas.getContext('webgl2');
 			if (!gl) {
