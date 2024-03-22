@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2024-03-17
+// @version      2024-03-22
 // @description  Easily 2X or 3X your FPS + many bug fixes + supports SigMod
 // @author       8y8x
 // @match        https://sigmally.com/
