@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2024-03-22
+// @version      2024-03-22.1
 // @description  Easily 2X or 3X your FPS + many bug fixes + supports SigMod
 // @author       8y8x
 // @match        https://sigmally.com/
@@ -1380,7 +1380,9 @@
 
 		// when switching tabs, make sure W is not being held
 		addEventListener('blur', () => {
-			w = false;
+			// dispatch event to make sure sigmod gets it too
+			document.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW', key: 'w' }));
+			forceW = 0;
 		});
 
 		addEventListener('beforeunload', e => {
