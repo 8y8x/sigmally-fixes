@@ -240,7 +240,7 @@
 			newCanvas.id = '';
 			newCanvas.style.cssText = `background: #003; width: 100vw; height: 100vh; position: fixed; top: 0; left: 0;
 				z-index: 1;`;
-			(document.querySelector('.body__inner') ?? document.body).appendChild(newCanvas);
+			oldCanvas.insertAdjacentElement('beforebegin', newCanvas);
 			game.canvas = newCanvas;
 
 			// forward macro inputs from the canvas to the old one - this is for sigmod mouse controls
@@ -654,7 +654,7 @@
 			// the play timer is inserted below the top-left stats, but because we offset them, we need to offset this
 			// too
 			const style = document.createElement('style');
-			style.textContent = '.playTimer { transform: translate(10px, 10px); }';
+			style.textContent = '.playTimer { transform: translate(5px, 10px); }';
 			document.head.appendChild(style);
 		})();
 
@@ -1291,18 +1291,17 @@
 		}
 
 		setInterval(() => {
+			if (!document.hasFocus()) return;
 			mouse();
-			if (forceW) {
+			if (forceW > 0) {
 				--forceW;
 				net.w();
 			} else if (w) net.w();
 		}, 40);
 
-		addEventListener('mousemove', e => {
+		// sigmod freezes the player by overlaying an invisible div, so we just listen for canvas movements instead
+		ui.game.canvas.addEventListener('mousemove', e => {
 			if (ui.escOverlayVisible()) return;
-			// fix for sigmod (<=8.5.5.4)'s broken randomPos() function, which spazzes your mouse
-			// all other mouse movements orchestrated by sigmod are targetted at the canvas
-			if (!e.isTrusted && e.target === document) return;
 			mouseX = e.clientX;
 			mouseY = e.clientY;
 		});
@@ -1314,15 +1313,21 @@
 		});
 
 		addEventListener('keydown', e => {
+			if (!document.hasFocus()) return;
+			
+			if (e.code === 'Escape') {
+				if (document.activeElement === ui.chat.input)
+					ui.chat.input.blur();
+				else
+					ui.toggleEscOverlay();
+				return;
+			}
+
 			if (unfocused()) {
-				if (document.activeElement === ui.chat.input) {
-					if (e.code === 'Enter' && ui.chat.input.value.length > 0) {
-						net.chat(ui.chat.input.value.slice(0, 15));
-						ui.chat.input.value = '';
-						ui.chat.input.blur();
-					} else if (e.code === 'Escape') {
-						ui.chat.input.blur();
-					}
+				if (e.code === 'Enter' && document.activeElement === ui.chat.input && ui.chat.input.value.length > 0) {
+					net.chat(ui.chat.input.value.slice(0, 15));
+					ui.chat.input.value = '';
+					ui.chat.input.blur();
 				}
 
 				return;
@@ -1349,10 +1354,6 @@
 					ui.chat.input.focus();
 					break;
 				}
-				case 'Escape': {
-					ui.toggleEscOverlay();
-					break;
-				}
 			}
 
 			if (e.ctrlKey && e.code === 'KeyW') {
@@ -1369,7 +1370,6 @@
 
 		addEventListener('keyup', e => {
 			// do not check if unfocused
-
 			if (e.code === 'KeyQ')
 				net.qup();
 			else if (e.code === 'KeyW')
