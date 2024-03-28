@@ -2487,5 +2487,5 @@
 
 
 	// @ts-expect-error for debugging purposes
-	window.sigfix = { destructor, aux, ui, world, net, version: 3 };
+	window.sigfix = { destructor, aux, ui, world, net };
 })();
