@@ -63,27 +63,6 @@
 			].join('');
 		};
 
-		/**
-		 * @param {string} name
-		 * @param {string} skin
-		 */
-		aux.parseNameSkin = (name, skin) => {
-			const match = /^\{(.*?)\}(.*)$/.exec(name);
-			if (match) {
-				skin ||= match[1];
-				name = match[2] || 'An unnamed cell';
-			} else {
-				name ||= 'An unnamed cell';
-			}
-
-			if (skin) {
-				skin = skin.replace('1%', '').replace('2%', '').replace('3%', '');
-				skin = '/static/skins/' + skin + '.png';
-			}
-
-			return { name, skin };
-		};
-
 		/** @type {object | undefined} */
 		aux.sigmod = undefined;
 		setInterval(() => {
@@ -612,7 +591,7 @@
 				const container = document.createElement('div');
 				const author = document.createElement('span');
 				author.style.cssText = `color: ${aux.rgb2hex(rgb)}; padding-right: 0.75em;`;
-				author.textContent = authorName ? aux.parseNameSkin(authorName, '').name : 'Unnamed';
+				author.textContent = authorName;
 				container.appendChild(author);
 
 				const msg = document.createElement('span');
@@ -1012,10 +991,6 @@
 							if (clan && clan === aux.userData?.clan)
 								world.clanmates.add(cell);
 						} else {
-							if (r > 20 && !(flags & 0x20)) { // not pellet, not ejected
-								({ name, skin } = aux.parseNameSkin(name, skin));
-							}
-
 							/** @type {Cell} */
 							const cell = {
 								id,
@@ -1091,7 +1066,6 @@
 
 						let name;
 						[name, off] = readZTString(dat, off);
-						name = aux.parseNameSkin(name, '').name;
 
 						// why this is copied into every leaderboard entry is beyond my understanding
 						myPosition = dat.getUint32(off, true);
@@ -1105,7 +1079,7 @@
 						if (myPosition - 1 >= lb.length) {
 							/** @type {HTMLInputElement | null} */
 							const inputName = document.querySelector('input#nick');
-							lb.push({ name: aux.parseNameSkin(inputName?.value ?? '', '').name, sub: false, me: true, place: myPosition });
+							lb.push({ name: inputName?.value ?? '?', sub: false, me: true, place: myPosition });
 						}
 
 						if (myPosition < world.stats.highestPosition)
@@ -2004,7 +1978,7 @@
 
 			/** @type {HTMLInputElement | null} */
 			const nickElement = document.querySelector('input#nick');
-			const nick = aux.parseNameSkin(nickElement?.value ?? '', '').name;
+			const nick = nickElement?.value ?? '?';
 
 			// note: most routines are named, for benchmarking purposes
 			(function setGlobalUniforms() {
