@@ -63,6 +63,13 @@
 			].join('');
 		};
 
+		/** @param {string} skin */
+		aux.parseSkin = skin => {
+			if (!skin) return skin;
+			skin = skin.replace('1%', '').replace('2%', '').replace('3%', '');
+			return '/static/skins/' + skin + '.png';
+		}
+
 		/** @type {object | undefined} */
 		aux.sigmod = undefined;
 		setInterval(() => {
@@ -964,6 +971,7 @@
 						if (flags & 0x04) {
 							// update skin
 							[skin, off] = readZTString(dat, off);
+							skin = aux.parseSkin(skin);
 						}
 
 						let name = '';
@@ -1760,6 +1768,7 @@
 					out_color = normal * color;
 				}
 
+				out_color.a = 1.0 - pow(1.0 - out_color.a, 3.0);
 				out_color.a *= u_alpha;
 			}
 			`),
