@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2024-03-29
-// @description  Easily 2X or 3X your FPS on Sigmally.com + many bug fixes + supports SigMod
+// @version      2024-03-30
+// @description  Easily 2X or 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
-// @match        https://sigmally.com/
+// @match        https://*.sigmally.com/*
 // @icon         https://8y8x.dev/favicon.ico
 // @license      MIT
 // @grant        none
@@ -637,6 +637,17 @@
 			return chat;
 		})();
 
+		/** @param {string} msg */
+		ui.error = msg => {
+			const modal = /** @type {HTMLElement | null} */ (document.querySelector('#errormodal'));
+			const desc = document.querySelector('#errormodal p');
+			if (desc)
+				desc.innerHTML = msg;
+
+			if (modal)
+				modal.style.display = 'block';
+		};
+
 		// sigmod quick fix
 		(() => {
 			// the play timer is inserted below the top-left stats, but because we offset them, we need to offset this
@@ -779,6 +790,7 @@
 				server = location.search.slice('?ip='.length); // in csrf we trust
 
 			ws = new destructor.realWebSocket('wss://' + server);
+			console.log('new ws:', ws, server);
 			destructor.safeWebSockets.add(ws);
 			ws.binaryType = 'arraybuffer';
 			ws.addEventListener('close', wsClose);
@@ -1123,6 +1135,11 @@
 					ui.chat.add(name, rgb, msg);
 					break;
 				}
+				
+				case 0xb4: { // incorrect password alert
+					ui.error('Password is incorrect');
+					break;
+				}
 
 				case 0xdd: {
 					net.howarewelosingmoney();
@@ -1386,25 +1403,19 @@
 			/** @type {HTMLInputElement | null} */
 			const nickElement = document.querySelector('input#nick');
 			/** @type {HTMLInputElement | null} */
+			const password = document.querySelector('input#password');
+			/** @type {HTMLInputElement | null} */
 			const showClanmatesElement = document.querySelector('input#showClanmates');
-
-			let clan;
-			let sub = false;
-			let token;
-			if (aux.userData) {
-				clan = aux.userData.clan;
-				sub = (aux.userData.subscription ?? 0) > Date.now();
-				token = aux.userData.token;
-			}
 
 			return {
 				state: spectating ? 2 : undefined,
 				name: nickElement?.value ?? '',
 				skin: aux.settings?.skin,
-				token,
-				sub,
-				clan,
+				token: aux.userData?.token,
+				sub: (aux.userData?.subscription ?? 0) > Date.now(),
+				clan: aux.userData?.clan,
 				showClanmates: !showClanmatesElement || showClanmatesElement.checked,
+				password: password?.value,
 			}
 		}
 
