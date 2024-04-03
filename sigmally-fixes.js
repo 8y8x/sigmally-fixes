@@ -1323,7 +1323,7 @@
 		addEventListener('wheel', e => {
 			if (unfocused()) return;
 			input.zoom *= 0.8 ** (e.deltaY / 100);
-			input.zoom = Math.min(Math.max(input.zoom, 0.1), 10);
+			input.zoom = Math.min(Math.max(input.zoom, 0.8 ** 10), 0.8 ** -11);
 		});
 
 		addEventListener('keydown', e => {
