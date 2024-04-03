@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2024-03-30
+// @version      2024-04-02
 // @description  Easily 2X or 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -63,12 +63,21 @@
 			].join('');
 		};
 
+		/** @param {string} name */
+		aux.parseName = name => {
+			const match = name.match(/^\{.*?\}(.*)$/);
+			if (match)
+				name = match[1];
+
+			return name || 'An unnamed cell';
+		};
+
 		/** @param {string} skin */
 		aux.parseSkin = skin => {
 			if (!skin) return skin;
 			skin = skin.replace('1%', '').replace('2%', '').replace('3%', '');
 			return '/static/skins/' + skin + '.png';
-		}
+		};
 
 		/** @type {object | undefined} */
 		aux.sigmod = undefined;
@@ -784,8 +793,11 @@
 		if (!gamemode)
 			console.warn('#gamemode element no longer exists, falling back to us-1');
 
+		/** @type {HTMLOptionElement | null} */
+		const firstGamemode = document.querySelector('#gamemode option');
+
 		function connect() {
-			let server = gamemode?.value ?? 'us0.sigmally.com/ws/';
+			let server = gamemode?.value ?? firstGamemode?.value ?? 'us0.sigmally.com/ws/';
 			if (location.search.startsWith('?ip='))
 				server = location.search.slice('?ip='.length); // in csrf we trust
 
@@ -990,6 +1002,7 @@
 						if (flags & 0x08) {
 							// update name
 							[name, off] = readZTString(dat, off);
+							name = aux.parseName(name);
 						}
 
 						const jagged = !!(flags & 0x11);
@@ -1135,7 +1148,7 @@
 					ui.chat.add(name, rgb, msg);
 					break;
 				}
-				
+
 				case 0xb4: { // incorrect password alert
 					ui.error('Password is incorrect');
 					break;
@@ -1315,7 +1328,7 @@
 
 		addEventListener('keydown', e => {
 			if (!document.hasFocus()) return;
-			
+
 			if (e.code === 'Escape') {
 				if (document.activeElement === ui.chat.input)
 					ui.chat.input.blur();
@@ -1779,7 +1792,6 @@
 					out_color = normal * color;
 				}
 
-				out_color.a = 1.0 - pow(1.0 - out_color.a, 3.0);
 				out_color.a *= u_alpha;
 			}
 			`),
@@ -2210,7 +2222,7 @@
 				 * @param {number} alpha
 				 */
 				function drawText(cell, alpha) {
-					const showThisName = showNames && cell.r > 20 && cell.name;
+					const showThisName = showNames && cell.r > 75 && cell.name;
 					const showThisMass = showMass && cell.r > 75;
 					if (!showThisName && !showThisMass) return;
 
@@ -2268,14 +2280,7 @@
 						const { aspectRatio, text } = textFromCache(mass, false);
 						gl.uniform1f(uniforms.text.u_text_aspect_ratio, aspectRatio);
 						gl.uniform1i(uniforms.text.u_silhouette_enabled, 0);
-
-						if (showThisName)
-							gl.uniform1i(uniforms.text.u_subtext_enabled, 1);
-						else {
-							// if a player has no name, keep the mass in the middle
-							gl.uniform1f(uniforms.text.u_radius, cell.r / 2);
-							gl.uniform1i(uniforms.text.u_subtext_enabled, 0);
-						}
+						gl.uniform1i(uniforms.text.u_subtext_enabled, 1);
 
 						gl.bindTexture(gl.TEXTURE_2D, text);
 						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -2285,8 +2290,8 @@
 				/** @type {Cell[]} */
 				const sorted = [];
 				world.cells.forEach(cell => {
-					if (cell.r > 20) {
-						// not a pellet, will draw sorted later
+					if (cell.r > 75) {
+						// not an important cell, will draw sorted later
 						sorted.push(cell);
 						return;
 					}
