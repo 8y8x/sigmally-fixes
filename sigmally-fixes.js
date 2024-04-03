@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2024-04-02
+// @version      2.1.0
 // @description  Easily 2X or 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -772,8 +772,6 @@
 		const net = {};
 
 		// #1 : define state
-		/** @type {Symbol | undefined} */
-		let connection = undefined;
 		/** @type {{ shuffle: Map<number, number>, unshuffle: Map<number, number> } | undefined} */
 		let handshake;
 		/** @type {number | undefined} */
@@ -802,7 +800,6 @@
 				server = location.search.slice('?ip='.length); // in csrf we trust
 
 			ws = new destructor.realWebSocket('wss://' + server);
-			console.log('new ws:', ws, server);
 			destructor.safeWebSockets.add(ws);
 			ws.binaryType = 'arraybuffer';
 			ws.addEventListener('close', wsClose);
@@ -817,7 +814,6 @@
 			if (pingInterval)
 				clearInterval(pingInterval);
 
-			connection = undefined;
 			net.latency = undefined;
 			net.ready = false;
 
@@ -842,7 +838,6 @@
 
 		function wsOpen() {
 			reconnectAttempts = 0;
-			connection = Symbol();
 
 			ui.chat.barrier();
 
@@ -1266,7 +1261,7 @@
 			if (!ws) return undefined;
 			if (ws.readyState !== WebSocket.OPEN) return undefined;
 			if (!handshake) return undefined;
-			return connection;
+			return ws;
 		}
 
 
@@ -1440,62 +1435,118 @@
 		play.disabled = spectate.disabled = true;
 
 		(async () => {
-			let grecaptcha, CAPTCHA2;
+			let grecaptcha, CAPTCHA2, CAPTCHA3;
 			do {
 				grecaptcha = /** @type {any} */ (window).grecaptcha;
 				CAPTCHA2 = /** @type {any} */ (window).CAPTCHA2;
+				CAPTCHA3 = /** @type {any} */ (window).CAPTCHA3;
 
 				await aux.wait(50);
-			} while (!(grecaptcha && CAPTCHA2 && grecaptcha.render && grecaptcha.reset));
+			} while (!(CAPTCHA2 && CAPTCHA3 && grecaptcha && grecaptcha.execute && grecaptcha.ready && grecaptcha.render && grecaptcha.reset));
 
 			const container = document.createElement('div');
 			container.id = 'g-recaptcha2';
+			container.style.display = 'none';
 			play.parentNode?.insertBefore(container, play);
 
-			let handle;
+			/** @type {WebSocket | undefined} */
+			let acceptedConnection = undefined;
+			let processing = false;
+			let v2Handle;
 			/** @type {string | undefined} */
-			let v2;
-			let v2Pending = false;
-			/** @type {Symbol | undefined} */
-			let v2LastConnection = undefined;
-			const getV2 = function getV2() {
-				if (v2Pending) return;
-				v2Pending = true;
+			let v2Token = undefined;
+			/** @type {string | undefined} */
+			let v3Token = undefined;
 
-				if (handle !== undefined) {
-					container.style.display = 'block';
-					grecaptcha.reset(handle);
-				} else {
-					handle = grecaptcha.render('g-recaptcha2', {
-						sitekey: CAPTCHA2,
-						/** @param {string} token */
-						callback: token => {
-							v2 = token;
-							v2Pending = false;
-							container.style.display = 'none';
+			// we need to give recaptcha enough time to analyze us, otherwise v3 will fail
+			grecaptcha.ready(() => setInterval(async function captchaFlow() {
+				let connection = net.connection();
+				if (!connection) {
+					play.disabled = spectate.disabled = true;
+					return;
+				}
+
+				if (v2Token || v3Token) {
+					net.captcha(v2Token, v3Token);
+					v2Token = v3Token = undefined;
+					processing = false;
+					acceptedConnection = connection;
+					play.disabled = spectate.disabled = false;
+					return;
+				}
+	
+				if (processing || connection === acceptedConnection)
+					return;
+	
+				// start the process of getting a new captcha token
+				acceptedConnection = undefined;
+				processing = true;
+				play.disabled = spectate.disabled = true;
+
+				// (a) : get a v3 token first
+				// grecaptcha.execute may take a while (~1s), but if called particularly early on, it may never resolve
+				/** @type {string | undefined} */
+				const v3 = await Promise.race([
+					grecaptcha.execute(CAPTCHA3),
+					new Promise(resolve => setTimeout(resolve, 3000, undefined)),
+				]);
+
+				if (v3) {
+					// (b) : send the v3 token to sigmally for validation (sometimes sigmally doesn't accept v3 tokens)
+					const v3Accepted = await fetch('https://' + new URL(connection.url).hostname + '/server/recaptcha/v3', {
+						method: 'POST',
+						body: JSON.stringify({ recaptchaV3Token: v3 }),
+						headers: { 'Content-Type': 'application/json' },
+					})
+						.then(res => res.json()).then(res => !!res?.body?.success)
+						.catch(err => {
+							console.error('Failed to validate v3 token:', err);
+							return false;
+						});
+		
+					// (c) : if valid, send the v3 token to this game
+					if (v3Accepted) {
+						connection = net.connection();
+						if (connection) {
+							net.captcha(undefined, v3);
+							processing = false;
+							acceptedConnection = connection;
+							play.disabled = spectate.disabled = false;
+						} else {
+							v3Token = v3;
 						}
+
+						return;
+					}
+				}
+	
+	
+				// (d) : show a v2 challenge, then send the v2 token to this game
+				container.style.display = 'block';
+				if (v2Handle !== undefined) {
+					grecaptcha.reset(v2Handle);
+				} else {
+					v2Handle = grecaptcha.render('g-recaptcha2', {
+						sitekey: CAPTCHA2,
+						callback: v2 => {
+							container.style.display = 'none';
+							connection = net.connection();
+							if (connection) {
+								net.captcha(v2, undefined);
+								processing = false;
+								acceptedConnection = connection;
+								play.disabled = spectate.disabled = false;
+							} else {
+								v2Token = v2;
+							}
+						},
 					});
 				}
-			}
-			getV2();
-
-			setInterval(() => {
-				const con = net.connection();
-				if (v2 && con && v2LastConnection !== con) {
-					net.captcha(v2, undefined);
-					v2 = undefined;
-					v2LastConnection = con;
-				}
-
-				if (!v2 && !v2Pending && v2LastConnection !== net.connection())
-					getV2();
-
-				play.disabled = spectate.disabled = v2LastConnection !== net.connection() || v2Pending;
-			}, 100);
+			}, 500));
 
 			/** @param {MouseEvent} e */
 			async function clickHandler(e) {
-				if (v2LastConnection !== net.connection() || v2Pending) return;
+				if (!acceptedConnection) return;
 				ui.toggleEscOverlay(false);
 				net.play(playData(e.currentTarget === spectate));
 			}
