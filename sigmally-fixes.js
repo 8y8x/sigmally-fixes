@@ -340,7 +340,7 @@
 
 			const linesContainer = document.createElement('div');
 			linesContainer.style.cssText = `font-family: Ubuntu; font-size: 20px; line-height: 1.2; width: 100%;
-				height: fit-content; text-align: center; white-space: pre; overflow-x: hidden;`;
+				height: fit-content; text-align: center; white-space: pre; overflow: hidden;`;
 			container.appendChild(linesContainer);
 
 			const lines = [];
