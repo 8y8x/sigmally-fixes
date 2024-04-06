@@ -1981,9 +1981,10 @@
 			/**
 			 * @param {string} text
 			 * @param {boolean} silhouette
-			 * @param {number} textSize
+			 * @param {boolean} subtext
 			 */
-			const texture = function texture(text, silhouette, textSize) {
+			const texture = function texture(text, silhouette, subtext) {
+				const textSize = subtext ? defaultTextSize / 2 : defaultTextSize;
 				const lineWidth = Math.ceil(textSize / 10);
 
 				ctx.font = textSize + 'px Ubuntu';
@@ -2009,7 +2010,7 @@
 				if (!texture) throw new Error('gl.createTexture() yields null');
 				gl.bindTexture(gl.TEXTURE_2D, texture);
 				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, data);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST_MIPMAP_LINEAR);
 				gl.generateMipmap(gl.TEXTURE_2D);
 				return texture;
 			};
@@ -2017,16 +2018,17 @@
 			/**
 			 * @template {boolean} T
 			 * @param {string} text
+			 * @param {T} silhouette
 			 * @param {T} subtext
 			 * @returns {CacheEntry<T>}
 			 */
-			return (text, subtext) => {
+			return (text, silhouette, subtext) => {
 				let entry = cache.get(text);
 				if (!entry) {
 					entry = {
-						text: texture(text, false, subtext ? defaultTextSize / 2 : defaultTextSize),
+						text: texture(text, false, subtext),
 						aspectRatio: canvas.width / canvas.height, // mind the execution order
-						silhouette: subtext ? texture(text, true, defaultTextSize) : undefined,
+						silhouette: silhouette ? texture(text, true, subtext) : undefined,
 						accessed: performance.now(),
 					};
 					cache.set(text, entry);
@@ -2035,7 +2037,7 @@
 				}
 
 				if (subtext && !entry.silhouette) {
-					entry.silhouette = texture(text, true, defaultTextSize);
+					entry.silhouette = texture(text, true, subtext);
 				}
 
 				return entry;
@@ -2348,7 +2350,7 @@
 					}
 
 					if (showThisName) {
-						const { aspectRatio, text, silhouette } = textFromCache(cell.name, useSilhouette);
+						const { aspectRatio, text, silhouette } = textFromCache(cell.name, useSilhouette, false);
 						gl.uniform1f(uniforms.text.u_text_aspect_ratio, aspectRatio);
 						gl.uniform1i(uniforms.text.u_silhouette_enabled, silhouette ? 1 : 0);
 						gl.uniform1i(uniforms.text.u_subtext_enabled, 0);
@@ -2367,7 +2369,7 @@
 						// use nr (not interpolated), so we only get ~2500 unique mass texts (up to 62500 mass)
 						// keep in mind cells go past 62500 for one frame before autosplitting, so not totally foolproof
 						const mass = Math.floor(cell.nr * cell.nr / 100).toString();
-						const { aspectRatio, text } = textFromCache(mass, false);
+						const { aspectRatio, text } = textFromCache(mass, false, true);
 						gl.uniform1f(uniforms.text.u_text_aspect_ratio, aspectRatio);
 						gl.uniform1i(uniforms.text.u_silhouette_enabled, 0);
 						gl.uniform1i(uniforms.text.u_subtext_enabled, 1);
