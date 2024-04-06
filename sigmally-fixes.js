@@ -11,6 +11,14 @@
 // ==/UserScript==
 
 // @ts-check
+/* eslint
+	camelcase: 'error',
+	comma-dangle: ['error', 'always-multiline'],
+	indent: ['error', 'tab', { SwitchCase: 1 }],
+	no-trailing-spaces: 'error',
+	quotes: ['error', 'single'],
+	semi: 'error',
+*/ // a light eslint configuration that doesn't compromise code quality
 'use strict';
 
 (async () => {
@@ -46,18 +54,18 @@
 				return [
 					(parseInt(hex[1], 16) || 0) / 15,
 					(parseInt(hex[2], 16) || 0) / 15,
-					(parseInt(hex[3], 16) || 0) / 15
+					(parseInt(hex[3], 16) || 0) / 15,
 				];
 			} else if (hex.length === 7) {
 				return [
 					(parseInt(hex.slice(1, 3), 16) || 0) / 255,
 					(parseInt(hex.slice(3, 5), 16) || 0) / 255,
-					(parseInt(hex.slice(5, 7), 16) || 0) / 255
+					(parseInt(hex.slice(5, 7), 16) || 0) / 255,
 				];
 			} else {
 				return [0, 0, 0];
 			}
-		}
+		};
 
 		/** @param {[number, number, number]} rgb */
 		aux.rgb2hex = rgb => {
@@ -122,56 +130,58 @@
 		/** @type {object | undefined} */
 		aux.userData = undefined;
 		// this is the best method i've found to get the userData object, since game.js uses strict mode
-		window.fetch = new Proxy(fetch, {
-			apply: (target, thisArg, args) => {
-				let url = args[0];
-				const data = args[1];
-				if (typeof url === 'string') {
-					// game.js doesn't think we're connected to a server, we default to eu0 because that's the default
-					// everywhere else
-					if (url.includes('/userdata/')) url = url.replace('///', '//eu0.sigmally.com/server/');
+		Object.defineProperty(window, 'fetch', {
+			value: new Proxy(fetch, {
+				apply: (target, thisArg, args) => {
+					let url = args[0];
+					const data = args[1];
+					if (typeof url === 'string') {
+						// game.js doesn't think we're connected to a server, we default to eu0 because that's the default
+						// everywhere else
+						if (url.includes('/userdata/')) url = url.replace('///', '//eu0.sigmally.com/server/');
 
-					// patch the current token in the url and body of the request
-					if (aux.token) {
-						// 128 hex characters surrounded by non-hex characters (lookahead and lookbehind)
-						const tokenTest = /(?<![0-9a-fA-F])[0-9a-fA-F]{128}(?![0-9a-fA-F])/g;
-						url = url.replaceAll(tokenTest, aux.token.token);
-						if (typeof data?.body === 'string')
-							data.body = data.body.replaceAll(tokenTest, aux.token.token);
-					}
-
-					args[0] = url;
-					args[1] = data;
-				}
-
-				return target.apply(thisArg, args).then(res => new Proxy(res, {
-					get: (target, prop, _receiver) => {
-						if (prop !== 'json') {
-							const val = target[prop];
-							if (typeof val === 'function')
-								return val.bind(target);
-							else
-								return val;
+						// patch the current token in the url and body of the request
+						if (aux.token) {
+							// 128 hex characters surrounded by non-hex characters (lookahead and lookbehind)
+							const tokenTest = /(?<![0-9a-fA-F])[0-9a-fA-F]{128}(?![0-9a-fA-F])/g;
+							url = url.replaceAll(tokenTest, aux.token.token);
+							if (typeof data?.body === 'string')
+								data.body = data.body.replaceAll(tokenTest, aux.token.token);
 						}
 
-						return () => target.json().then(obj => {
-							if (obj?.body?.user) {
-								aux.userData = obj.body.user;
-								let updated = Number(new Date(aux.userData.updateTime)); // NaN if invalid / undefined
-								if (Number.isNaN(updated))
-									updated = Date.now();
+						args[0] = url;
+						args[1] = data;
+					}
 
-								if (!aux.token || updated >= aux.token.updated) {
-									aux.token = { token: aux.userData.token, updated };
-									tokenChannel.postMessage(aux.token);
-								}
+					return target.apply(thisArg, args).then(res => new Proxy(res, {
+						get: (target, prop, _receiver) => {
+							if (prop !== 'json') {
+								const val = target[prop];
+								if (typeof val === 'function')
+									return val.bind(target);
+								else
+									return val;
 							}
 
-							return obj;
-						});
-					},
-				}));
-			}
+							return () => target.json().then(obj => {
+								if (obj?.body?.user) {
+									aux.userData = obj.body.user;
+									let updated = Number(new Date(aux.userData.updateTime)); // NaN if invalid / undefined
+									if (Number.isNaN(updated))
+										updated = Date.now();
+
+									if (!aux.token || updated >= aux.token.updated) {
+										aux.token = { token: aux.userData.token, updated };
+										tokenChannel.postMessage(aux.token);
+									}
+								}
+
+								return obj;
+							});
+						},
+					}));
+				},
+			}),
 		});
 
 		/** @param {number} ms */
@@ -198,11 +208,11 @@
 			}
 
 			return -1;
-		}
+		};
 
 		// #2 : kill access to using a WebSocket
 		const realWebSocket = WebSocket;
-		window.WebSocket = new Proxy(WebSocket, {
+		Object.defineProperty(window, 'WebSocket', new Proxy(WebSocket, {
 			construct(_target, argArray, _newTarget) {
 				if (argArray[0]?.includes('sigmally.com')) {
 					throw new Error('Nope :) - hooked by Sigmally Fixes');
@@ -210,8 +220,8 @@
 
 				// @ts-expect-error
 				return new oldWS(...argArray);
-			}
-		});
+			},
+		}));
 
 		/** @type {WeakSet<WebSocket>} */
 		const safeWebSockets = new WeakSet();
@@ -315,22 +325,22 @@
 
 		ui.stats = (() => {
 			const container = document.createElement('div');
-			container.style.cssText = `position: fixed; top: 10px; left: 10px; width: 400px; height: fit-content;
-				user-select: none; z-index: 2; transform-origin: top left;`;
+			container.style.cssText = 'position: fixed; top: 10px; left: 10px; width: 400px; height: fit-content; \
+				user-select: none; z-index: 2; transform-origin: top left;';
 			document.body.appendChild(container);
 
 			const score = document.createElement('div');
-			score.style.cssText = `font-family: Ubuntu; font-size: 30px; color: #fff; line-height: 1.0;`;
+			score.style.cssText = 'font-family: Ubuntu; font-size: 30px; color: #fff; line-height: 1.0;';
 			container.appendChild(score);
 
 			const measures = document.createElement('div');
-			measures.style.cssText = `font-family: Ubuntu; font-size: 20px; color: #fff; line-height: 1.1;`;
+			measures.style.cssText = 'font-family: Ubuntu; font-size: 20px; color: #fff; line-height: 1.1;';
 			container.appendChild(measures);
 
 			const misc = document.createElement('div');
 			// white-space: pre; allows using \r\n to insert line breaks
-			misc.style.cssText = `font-family: Ubuntu; font-size: 14px; color: #fff; white-space: pre;
-				line-height: 1.1; opacity: 0.5;`;
+			misc.style.cssText = 'font-family: Ubuntu; font-size: 14px; color: #fff; white-space: pre; \
+				line-height: 1.1; opacity: 0.5;';
 			container.appendChild(misc);
 
 			/** @param {object} statData */
@@ -375,19 +385,19 @@
 
 		ui.leaderboard = (() => {
 			const container = document.createElement('div');
-			container.style.cssText = `position: fixed; top: 10px; right: 10px; width: 200px; height: fit-content;
-				user-select: none; z-index: 2; background: #0006; padding: 15px 5px; transform-origin: top right;
-				display: none;`;
+			container.style.cssText = 'position: fixed; top: 10px; right: 10px; width: 200px; height: fit-content; \
+				user-select: none; z-index: 2; background: #0006; padding: 15px 5px; transform-origin: top right; \
+				display: none;';
 			document.body.appendChild(container);
 
 			const title = document.createElement('div');
-			title.style.cssText = `font-family: Ubuntu; font-size: 30px; color: #fff; text-align: center; width: 100%;`;
+			title.style.cssText = 'font-family: Ubuntu; font-size: 30px; color: #fff; text-align: center; width: 100%;';
 			title.textContent = 'Leaderboard';
 			container.appendChild(title);
 
 			const linesContainer = document.createElement('div');
-			linesContainer.style.cssText = `font-family: Ubuntu; font-size: 20px; line-height: 1.2; width: 100%;
-				height: fit-content; text-align: center; white-space: pre; overflow: hidden;`;
+			linesContainer.style.cssText = 'font-family: Ubuntu; font-size: 20px; line-height: 1.2; width: 100%; \
+				height: fit-content; text-align: center; white-space: pre; overflow: hidden;';
 			container.appendChild(linesContainer);
 
 			const lines = [];
@@ -533,8 +543,8 @@
 
 		ui.minimap = (() => {
 			const canvas = document.createElement('canvas');
-			canvas.style.cssText = `position: absolute; bottom: 0; right: 0; background: #0006; width: 200px;
-				height: 200px; z-index: 2; user-select: none;`;
+			canvas.style.cssText = 'position: absolute; bottom: 0; right: 0; background: #0006; width: 200px; \
+				height: 200px; z-index: 2; user-select: none;';
 			canvas.width = canvas.height = 200;
 			document.body.appendChild(canvas);
 
@@ -546,12 +556,6 @@
 
 		ui.chat = (() => {
 			const chat = {};
-
-			const style = document.createElement('style');
-			style.id = 'sigmally-fixes-style';
-			style.innerHTML = `
-			`;
-			document.head.appendChild(style);
 
 			const block = document.querySelector('#chat_block');
 			if (!block) throw new Error('Can\'t find #chat_block');
@@ -580,8 +584,8 @@
 			if (!input) throw new Error('Can\'t find element #chat_textbox');
 
 			const list = chat.list = document.createElement('div');
-			list.style.cssText = `width: 400px; height: 182px; position: absolute; bottom: 54px; left: 46px;
-				overflow: hidden; user-select: none; z-index: 301;`;
+			list.style.cssText = 'width: 400px; height: 182px; position: absolute; bottom: 54px; left: 46px; \
+				overflow: hidden; user-select: none; z-index: 301;';
 			block.appendChild(list);
 
 			let toggled = true;
@@ -766,7 +770,7 @@
 				cell.jelly.y = aux.exponentialEase(cell.jelly.y, cell.y, 2, dt);
 				cell.jelly.r = aux.exponentialEase(cell.jelly.r, cell.r, 5, dt);
 			}
-		}
+		};
 
 		// clean up dead cells
 		setInterval(() => {
@@ -1235,27 +1239,27 @@
 			dat.setInt32(5, y, true);
 
 			ws.send(buf);
-		}
+		};
 
 		net.w = function() {
 			if (!handshake) return;
 			ws.send(new Uint8Array([ Number(handshake.shuffle.get(21)) ]));
-		}
+		};
 
 		net.qdown = function() {
 			if (!handshake) return;
 			ws.send(new Uint8Array([ Number(handshake.shuffle.get(18)) ]));
-		}
+		};
 
 		net.qup = function() {
 			if (!handshake) return;
 			ws.send(new Uint8Array([ Number(handshake.shuffle.get(19)) ]));
-		}
+		};
 
 		net.split = function() {
 			if (!handshake) return;
 			ws.send(new Uint8Array([ Number(handshake.shuffle.get(17)) ]));
-		}
+		};
 
 		/**
 		 * @param {string} msg
@@ -1273,7 +1277,7 @@
 				dat.setUint8(2 + i, msgBuf[i]);
 
 			ws.send(buf);
-		}
+		};
 
 		/**
 		 * @param {string | undefined} v2
@@ -1281,14 +1285,14 @@
 		 */
 		net.captcha = function(v2, v3) {
 			sendJson(0xdc, { recaptchaV2Token: v2, recaptchaV3Token: v3 });
-		}
+		};
 
 		/**
 		 * @param {{ name: string, skin: string, [x: string]: any }} data
 		 */
 		net.play = function(data) {
 			sendJson(0x00, data);
-		}
+		};
 
 		net.howarewelosingmoney = function() {
 			if (!handshake) return;
@@ -1302,14 +1306,14 @@
 			//
 			// so, no thank you
 			sendJson(0xd0, { ip: '', country: '', proxy: false, user: null, blocker: 'sigmally fixes @8y8x' });
-		}
+		};
 
 		net.connection = function() {
 			if (!ws) return undefined;
 			if (ws.readyState !== WebSocket.OPEN) return undefined;
 			if (!handshake) return undefined;
 			return ws;
-		}
+		};
 
 
 
@@ -1471,7 +1475,7 @@
 				clan: aux.userData?.clan,
 				showClanmates: !showClanmatesElement || showClanmatesElement.checked,
 				password: password?.value,
-			}
+			};
 		}
 
 		/** @type {HTMLButtonElement | null} */
@@ -1521,10 +1525,10 @@
 					play.disabled = spectate.disabled = false;
 					return;
 				}
-	
+
 				if (processing || connection === acceptedConnection)
 					return;
-	
+
 				// start the process of getting a new captcha token
 				acceptedConnection = undefined;
 				processing = true;
@@ -1560,7 +1564,7 @@
 				/** @type {string | undefined} */
 				const v3 = await grecaptcha.execute(CAPTCHA3);
 				if (!v3 || acceptedConnection) return;
-				
+
 				// (c) : send the v3 token to sigmally for validation (sometimes sigmally doesn't accept v3 tokens)
 				const v3Accepted = await fetch('https://' + new URL(connection.url).hostname + '/server/recaptcha/v3', {
 					method: 'POST',
@@ -1573,7 +1577,7 @@
 						return false;
 					});
 				if (!v3Accepted || acceptedConnection) return;
-		
+
 				// (d) : if valid, send the v3 token to this game
 				container.style.display = 'none';
 				connection = net.connection();
@@ -2536,7 +2540,7 @@
 					ctx.fillStyle = '#fff';
 					// add a space to prevent sigmod from detecting names
 					ctx.fillText(name + ' ', x, y - 7 * devicePixelRatio - sectorSize / 6);
-				}
+				};
 
 				// draw clanmates first, below yourself
 				// we sort clanmates by color AND name, to ensure clanmates stay separate
