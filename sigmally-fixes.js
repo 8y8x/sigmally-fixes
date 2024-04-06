@@ -1975,19 +1975,20 @@
 			const ctx = canvas.getContext('2d', { willReadFrequently: true });
 			if (!ctx) throw new Error('canvas.getContext(\'2d\') yields null, for whatever reason');
 
-			const textSize = 72;
-			canvas.height = textSize * 3;
+			const defaultTextSize = 96;
 
 			// declare a little awkwardly, after ctx is definitely not null
 			/**
 			 * @param {string} text
 			 * @param {boolean} silhouette
+			 * @param {number} textSize
 			 */
-			const texture = function texture(text, silhouette) {
+			const texture = function texture(text, silhouette, textSize) {
 				const lineWidth = Math.ceil(textSize / 10);
 
 				ctx.font = textSize + 'px Ubuntu';
 				canvas.width = ctx.measureText(text).width + lineWidth * 2;
+				canvas.height = textSize * 3;
 				ctx.clearRect(0, 0, canvas.width, canvas.height);
 
 				// setting canvas.width resets the canvas state
@@ -2008,6 +2009,7 @@
 				if (!texture) throw new Error('gl.createTexture() yields null');
 				gl.bindTexture(gl.TEXTURE_2D, texture);
 				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, data);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
 				gl.generateMipmap(gl.TEXTURE_2D);
 				return texture;
 			};
@@ -2015,16 +2017,16 @@
 			/**
 			 * @template {boolean} T
 			 * @param {string} text
-			 * @param {T} silhouette
+			 * @param {T} subtext
 			 * @returns {CacheEntry<T>}
 			 */
-			return (text, silhouette) => {
+			return (text, subtext) => {
 				let entry = cache.get(text);
 				if (!entry) {
 					entry = {
-						text: texture(text, false),
+						text: texture(text, false, subtext ? defaultTextSize / 2 : defaultTextSize),
 						aspectRatio: canvas.width / canvas.height, // mind the execution order
-						silhouette: silhouette ? texture(text, true) : undefined,
+						silhouette: subtext ? texture(text, true, defaultTextSize) : undefined,
 						accessed: performance.now(),
 					};
 					cache.set(text, entry);
@@ -2032,8 +2034,8 @@
 					entry.accessed = performance.now();
 				}
 
-				if (silhouette && !entry.silhouette) {
-					entry.silhouette = texture(text, true);
+				if (subtext && !entry.silhouette) {
+					entry.silhouette = texture(text, true, defaultTextSize);
 				}
 
 				return entry;
