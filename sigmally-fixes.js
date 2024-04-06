@@ -97,16 +97,46 @@
 			} catch (_) {}
 		}, 50);
 
+		/*
+			If you have Sigmally open in two tabs and you're playing with an account, one has an outdated token while the other has the latest one.
+			This causes problems because the tab with the old token does not work properly during the game (skin, XP)
+			To fix this, the latest token is sent to the previously opened tab. This way you can collect XP in both tabs and use your selected skin.
+			@czrsd
+		*/
+		/** @type {{ token: string, updated: number } | undefined} */
+		aux.token = undefined;
+		const tokenChannel = new BroadcastChannel('sigfix-token');
+		tokenChannel.addEventListener('message', msg => {
+			/** @type {{ token: string, updated: number }} */
+			const token = msg.data;
+			if (!aux.token || aux.token.updated < token.updated)
+				aux.token = token;
+		});
+
 		/** @type {object | undefined} */
 		aux.userData = undefined;
 		// this is the best method i've found to get the userData object, since game.js uses strict mode
 		window.fetch = new Proxy(fetch, {
 			apply: (target, thisArg, args) => {
 				let url = args[0];
-				if (typeof url !== 'string') return target.apply(thisArg, args);
-				// fix: game.js doesn't think we're connected to a server, we default to eu0 because that's the default
-				// everywhere else
-				if (url.includes('/userdata/')) args[0] = url.replace('///', '//eu0.sigmally.com/server/');
+				const data = args[1];
+				if (typeof url === 'string') {
+					// game.js doesn't think we're connected to a server, we default to eu0 because that's the default
+					// everywhere else
+					if (url.includes('/userdata/')) url = url.replace('///', '//eu0.sigmally.com/server/');
+
+					// patch the current token in the url and body of the request
+					if (aux.token) {
+						// 128 hex characters surrounded by non-hex characters (lookahead and lookbehind)
+						const tokenTest = /(?<![0-9a-fA-F])[0-9a-fA-F]{128}(?![0-9a-fA-F])/g;
+						url = url.replaceAll(tokenTest, aux.token.token);
+						if (typeof data?.body === 'string')
+							data.body = data.body.replaceAll(tokenTest, aux.token.token);
+					}
+
+					args[0] = url;
+					args[1] = data;
+				}
 
 				return target.apply(thisArg, args).then(res => new Proxy(res, {
 					get: (target, prop, _receiver) => {
@@ -119,7 +149,18 @@
 						}
 
 						return () => target.json().then(obj => {
-							aux.userData = obj?.body?.user ?? aux.userData;
+							if (obj?.body?.user) {
+								aux.userData = obj.body.user;
+								let updated = Number(new Date(aux.userData.updateTime)); // NaN if invalid / undefined
+								if (Number.isNaN(updated))
+									updated = Date.now();
+
+								if (!aux.token || updated >= aux.token.updated) {
+									aux.token = { token: aux.userData.token, updated };
+									tokenChannel.postMessage(aux.token);
+								}
+							}
+
 							return obj;
 						});
 					},
@@ -1419,7 +1460,7 @@
 				state: spectating ? 2 : undefined,
 				name: nickElement?.value ?? '',
 				skin: aux.settings?.skin,
-				token: aux.userData?.token,
+				token: aux.token?.token,
 				sub: (aux.userData?.subscription ?? 0) > Date.now(),
 				clan: aux.userData?.clan,
 				showClanmates: !showClanmatesElement || showClanmatesElement.checked,
