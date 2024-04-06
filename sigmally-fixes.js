@@ -8,6 +8,10 @@
 // @license      MIT
 // @grant        none
 // @namespace    https://8y8x.dev/sigmally-fixes
+// @compatible chrome Recommended for all users, works perfectly out of the box
+// @compatible edge Multiboxers may want to disable Ctrl+W
+// @compatible firefox Multiboxers may want to disable Ctrl+W
+// @compatible opera Multiboxers may want to disable Ctrl+W and tweak Ctrl+Tab
 // ==/UserScript==
 
 // @ts-check
