@@ -21,7 +21,13 @@
 		const aux = {};
 
 		/**
-		 * consistent exponential easing relative to 60fps
+		 * consistent exponential easing relative to 60fps.
+		 * for example, with a factor of 2, o=0, n=1:
+		 * - at 60fps, 0.5 is returned.
+		 * - at 30fps (after 2 frames), 0.75 is returned.
+		 * - at 15fps (after 4 frames), 0.875 is returned.
+		 * - at 120fps, 0.292893 is returned. if you called this again with o=0.292893, n=1, you would get 0.5.
+		 *
 		 * @param {number} o
 		 * @param {number} n
 		 * @param {number} factor
@@ -1341,7 +1347,7 @@
 		}
 
 		setInterval(() => {
-			if (!document.hasFocus()) return;
+			if (document.visibilityState === 'hidden') return;
 			mouse();
 			if (forceW > 0) {
 				--forceW;
