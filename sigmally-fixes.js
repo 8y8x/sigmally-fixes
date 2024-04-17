@@ -2050,7 +2050,7 @@
 		let lastFrame = performance.now();
 		function render() {
 			const now = performance.now();
-			const dt = (now - lastFrame) / 1000;
+			const dt = Math.max(now - lastFrame, 0.1) / 1000; // there's a chance (now - lastFrame) can be 0
 			fps += (1 / dt - fps) / 10;
 			lastFrame = now;
 
