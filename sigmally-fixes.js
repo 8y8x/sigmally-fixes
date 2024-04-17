@@ -240,23 +240,7 @@
 			return realWsSend.apply(this, arguments);
 		};
 
-		// #3 : block play and spectate buttons from working (they show extra captchas)
-		let captchaInterval;
-		captchaInterval = setInterval(() => {
-			const grecaptcha = /** @type {any} */ (window).grecaptcha;
-			if (!grecaptcha) return;
-
-			clearInterval(captchaInterval);
-			/** @type {any} */ (window).grecaptcha = new Proxy(grecaptcha, {
-				get: (_target, prop, _receiver) => {
-					if (prop === 'execute') return () => new Promise(_ => {});
-
-					return grecaptcha[prop];
-				},
-			});
-		}, 50);
-
-		// #4 : prevent keys from being registered by the game
+		// #3 : prevent keys from being registered by the game
 		setInterval(() => {
 			onkeydown = null;
 			onkeyup = null;
@@ -1539,9 +1523,39 @@
 				processing = true;
 				play.disabled = spectate.disabled = true;
 
-				// (a) : render a v2 captcha first
-				// grecaptcha.execute may never resolve or may take a long time, so if the user wants to join
-				// immediately, they can skip that wait
+				// (a) : get a v3 token
+				/** @type {string | undefined} */
+				const v3 = await grecaptcha.execute(CAPTCHA3);
+
+				// (b) : send the v3 token to sigmally for validation (sometimes sigmally doesn't accept v3 tokens)
+				const v3Accepted = await fetch('https://' + new URL(connection.url).hostname + '/server/recaptcha/v3', {
+					method: 'POST',
+					body: JSON.stringify({ recaptchaV3Token: v3 }),
+					headers: { 'Content-Type': 'application/json' },
+				})
+					.then(res => res.json()).then(res => !!res?.body?.success)
+					.catch(err => {
+						console.error('Failed to validate v3 token:', err);
+						return false;
+					});
+
+				// (c) : if accepted by this server, send the v3 token to this game
+				if (v3Accepted) {
+					container.style.display = 'none';
+					connection = net.connection();
+					if (connection) {
+						net.captcha(undefined, v3);
+						processing = false;
+						acceptedConnection = connection;
+						play.disabled = spectate.disabled = false;
+					} else {
+						v3Token = v3;
+					}
+
+					return;
+				}
+
+				// (d) : otherwise, render a v2 captcha
 				container.style.display = 'block';
 				if (v2Handle !== undefined) {
 					grecaptcha.reset(v2Handle);
@@ -1563,36 +1577,6 @@
 							}
 						},
 					});
-				}
-
-				// (b) : in the background, get a v3 token
-				/** @type {string | undefined} */
-				const v3 = await grecaptcha.execute(CAPTCHA3);
-				if (!v3 || acceptedConnection) return;
-
-				// (c) : send the v3 token to sigmally for validation (sometimes sigmally doesn't accept v3 tokens)
-				const v3Accepted = await fetch('https://' + new URL(connection.url).hostname + '/server/recaptcha/v3', {
-					method: 'POST',
-					body: JSON.stringify({ recaptchaV3Token: v3 }),
-					headers: { 'Content-Type': 'application/json' },
-				})
-					.then(res => res.json()).then(res => !!res?.body?.success)
-					.catch(err => {
-						console.error('Failed to validate v3 token:', err);
-						return false;
-					});
-				if (!v3Accepted || acceptedConnection) return;
-
-				// (d) : if valid, send the v3 token to this game
-				container.style.display = 'none';
-				connection = net.connection();
-				if (connection) {
-					net.captcha(undefined, v3);
-					processing = false;
-					acceptedConnection = connection;
-					play.disabled = spectate.disabled = false;
-				} else {
-					v3Token = v3;
 				}
 			}, 500));
 
