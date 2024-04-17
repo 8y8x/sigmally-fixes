@@ -1149,6 +1149,7 @@
 
 						let name;
 						[name, off] = readZTString(dat, off);
+						name = aux.parseName(name);
 
 						// why this is copied into every leaderboard entry is beyond my understanding
 						myPosition = dat.getUint32(off, true);
@@ -1162,7 +1163,7 @@
 						if (myPosition - 1 >= lb.length) {
 							/** @type {HTMLInputElement | null} */
 							const inputName = document.querySelector('input#nick');
-							lb.push({ name: inputName?.value ?? '?', sub: false, me: true, place: myPosition });
+							lb.push({ name: aux.parseName(inputName?.value ?? ''), sub: false, me: true, place: myPosition });
 						}
 
 						if (myPosition < world.stats.highestPosition)
