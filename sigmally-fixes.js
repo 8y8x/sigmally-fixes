@@ -1105,20 +1105,18 @@
 		 * @param {number | undefined} dt
 		 */
 		world.move = function(cell, now, dt) {
-			if (cell.r <= 20) {
-				cell.x = cell.nx;
-				cell.y = cell.ny;
-				return;
-			}
-
-			const a = Math.min(Math.max((now - cell.updated) / settings.drawDelay, 0), 1);
 			let nx = cell.nx;
 			let ny = cell.ny;
 			if (cell.dead?.to) {
 				nx = cell.dead.to.x;
 				ny = cell.dead.to.y;
+			} else if (cell.r <= 20) {
+				cell.x = nx;
+				cell.y = ny;
+				return;
 			}
 
+			const a = Math.min(Math.max((now - cell.updated) / settings.drawDelay, 0), 1);
 			cell.x = cell.ox + (nx - cell.ox) * a;
 			cell.y = cell.oy + (ny - cell.oy) * a;
 			cell.r = cell.or + (cell.nr - cell.or) * a;
@@ -2635,9 +2633,9 @@
 			(function cells() {
 				/** @param {Cell} cell */
 				function calcAlpha(cell) {
-					let alpha = Math.min((now - cell.born) / 120, 1);
+					let alpha = Math.min((now - cell.born) / 100, 1);
 					if (cell.dead)
-						alpha = Math.min(alpha, Math.max(1 - (now - cell.dead.at) / 120, 0));
+						alpha = Math.min(alpha, Math.max(1 - (now - cell.dead.at) / 100, 0));
 
 					return alpha;
 				}
