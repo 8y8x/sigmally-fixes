@@ -741,6 +741,12 @@
 		 * @param {number | undefined} dt
 		 */
 		world.move = function(cell, now, dt) {
+			if (cell.r <= 20) {
+				cell.x = cell.nx;
+				cell.y = cell.ny;
+				return;
+			}
+
 			const a = Math.min(Math.max((now - cell.updated) / 120, 0), 1);
 			let nx = cell.nx;
 			let ny = cell.ny;
@@ -2256,7 +2262,7 @@
 
 					gl.uniform1f(uniforms.cell.u_alpha, alpha);
 
-					if (jellyPhysics && !cell.jagged) {
+					if (jellyPhysics && cell.r > 20 && !cell.jagged) {
 						gl.uniform2f(uniforms.cell.u_pos, cell.jelly.x, cell.jelly.y);
 						gl.uniform1f(uniforms.cell.u_inner_radius, cell.r);
 						gl.uniform1f(uniforms.cell.u_outer_radius, cell.jelly.r);
