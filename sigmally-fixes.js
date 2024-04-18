@@ -2086,7 +2086,7 @@
 
 			// get settings
 			const cellColor = aux.sigmod?.cellColor ? aux.hex2rgb(aux.sigmod.cellColor) : undefined;
-			const hidePellets = aux.sigmod?.hideFood;
+			const hidePellets = aux.sigmod?.fps?.hideFood;
 			const mapColor = aux.sigmod?.mapColor ? aux.hex2rgb(aux.sigmod.mapColor) : undefined;
 			const outlineColor = aux.sigmod?.borderColor ? aux.hex2rgb(aux.sigmod.borderColor) : undefined;
 			const pelletColor = aux.sigmod?.foodColor ? aux.hex2rgb(aux.sigmod.foodColor) : undefined;
@@ -2288,8 +2288,6 @@
 					}
 
 					if (cell.r <= 20) {
-						if (hidePellets) return;
-
 						gl.uniform1i(uniforms.cell.u_outline_thick, 0);
 						if (pelletColor) {
 							gl.uniform4f(uniforms.cell.u_color, ...pelletColor, 1);
@@ -2421,6 +2419,7 @@
 						return;
 					}
 
+					if (cell.r <= 20 && hidePellets) return;
 					const alpha = calcAlpha(cell);
 					drawCell(cell, alpha);
 				});
