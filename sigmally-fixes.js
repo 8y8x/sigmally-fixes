@@ -1826,6 +1826,7 @@
 			uniform vec2 u_pos;
 			uniform float u_radius;
 			uniform bool u_subtext_enabled;
+			uniform float u_subtext_offset;
 			uniform float u_text_aspect_ratio;
 
 			out vec2 v_pos;
@@ -1835,7 +1836,7 @@
 
 				vec2 clip_space;
 				if (u_subtext_enabled) {
-					clip_space = a_pos * 0.5 + vec2(0, 0.5);
+					clip_space = a_pos * 0.5 + vec2(u_subtext_offset, 0.5);
 				} else {
 					clip_space = a_pos;
 				}
@@ -1886,7 +1887,7 @@
 		uniforms.text = getUniforms('text', programs.text, [
 			'u_aspect_ratio', 'u_camera_pos', 'u_camera_scale',
 			'u_alpha', 'u_color1', 'u_color2', 'u_pos', 'u_radius', 'u_silhouette', 'u_silhouette_enabled',
-			'u_subtext_enabled', 'u_text_aspect_ratio', 'u_texture',
+			'u_subtext_enabled', 'u_subtext_offset', 'u_text_aspect_ratio', 'u_texture',
 		]);
 
 
@@ -1949,7 +1950,7 @@
 			};
 		})();
 
-		const textFromCache = (() => {
+		const { massTextFromCache, textFromCache } = (() => {
 			/**
 			 * @template {boolean} T
 			 * @typedef {{
@@ -1964,10 +1965,10 @@
 			render.textCache = cache;
 
 			setInterval(() => {
-				// remove text after not being used for 5 minutes
+				// remove text after not being used for 1 minute
 				const now = performance.now();
 				cache.forEach((entry, text) => {
-					if (entry.accessed - now > 300_000) {
+					if (now - entry.accessed > 60_000) {
 						// immediately delete text instead of waiting for GC
 						gl.deleteTexture(entry.text);
 						if (entry.silhouette) gl.deleteTexture(entry.silhouette);
@@ -2020,20 +2021,36 @@
 				return texture;
 			};
 
+			/** @type {Map<string, { aspectRatio: number, texture: WebGLTexture }>} */
+			const massTextCache = new Map();
+			for (let i = 0; i <= 9; ++i) {
+				massTextCache.set(i.toString(), {
+					texture: texture(i.toString(), false, true),
+					aspectRatio: canvas.width / canvas.height, // mind the execution order
+				});
+			}
+
+			/**
+			 * @param {string} digit
+			 * @returns {{ aspectRatio: number, texture: WebGLTexture }}
+			 */
+			const massTextFromCache = digit => {
+				return massTextCache.get(digit) ?? /** @type {any} */ (massTextCache.get('0'));
+			};
+
 			/**
 			 * @template {boolean} T
 			 * @param {string} text
 			 * @param {T} silhouette
-			 * @param {T} subtext
 			 * @returns {CacheEntry<T>}
 			 */
-			return (text, silhouette, subtext) => {
+			const textFromCache = (text, silhouette) => {
 				let entry = cache.get(text);
 				if (!entry) {
 					entry = {
-						text: texture(text, false, subtext),
+						text: texture(text, false, false),
 						aspectRatio: canvas.width / canvas.height, // mind the execution order
-						silhouette: silhouette ? texture(text, true, subtext) : undefined,
+						silhouette: silhouette ? texture(text, true, false) : undefined,
 						accessed: performance.now(),
 					};
 					cache.set(text, entry);
@@ -2041,12 +2058,13 @@
 					entry.accessed = performance.now();
 				}
 
-				if (subtext && !entry.silhouette) {
-					entry.silhouette = texture(text, true, subtext);
-				}
+				if (silhouette && !entry.silhouette)
+					entry.silhouette = texture(text, true, false);
 
 				return entry;
 			};
+
+			return { massTextFromCache, textFromCache };
 		})();
 
 
@@ -2355,7 +2373,7 @@
 					}
 
 					if (showThisName) {
-						const { aspectRatio, text, silhouette } = textFromCache(cell.name, useSilhouette, false);
+						const { aspectRatio, text, silhouette } = textFromCache(cell.name, useSilhouette);
 						gl.uniform1f(uniforms.text.u_text_aspect_ratio, aspectRatio);
 						gl.uniform1i(uniforms.text.u_silhouette_enabled, silhouette ? 1 : 0);
 						gl.uniform1i(uniforms.text.u_subtext_enabled, 0);
@@ -2371,16 +2389,20 @@
 					}
 
 					if (showThisMass) {
-						// use nr (not interpolated), so we only get ~2500 unique mass texts (up to 62500 mass)
-						// keep in mind cells go past 62500 for one frame before autosplitting, so not totally foolproof
-						const mass = Math.floor(cell.nr * cell.nr / 100).toString();
-						const { aspectRatio, text } = textFromCache(mass, false, true);
-						gl.uniform1f(uniforms.text.u_text_aspect_ratio, aspectRatio);
 						gl.uniform1i(uniforms.text.u_silhouette_enabled, 0);
 						gl.uniform1i(uniforms.text.u_subtext_enabled, 1);
 
-						gl.bindTexture(gl.TEXTURE_2D, text);
-						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+						// draw each digit separately, as Ubuntu makes them all the same width.
+						// significantly reduces the size of the text cache
+						const mass = Math.floor(cell.nr * cell.nr / 100).toString();
+						for (let i = 0; i < mass.length; ++i) {
+							const { aspectRatio, texture } = massTextFromCache(mass[i]);
+							gl.uniform1f(uniforms.text.u_text_aspect_ratio, aspectRatio);
+							gl.uniform1f(uniforms.text.u_subtext_offset, (i - (mass.length - 1) / 2) * 0.75);
+
+							gl.bindTexture(gl.TEXTURE_2D, texture);
+							gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+						}
 					}
 				}
 
@@ -2609,6 +2631,6 @@
 
 
 
-	// @ts-expect-error for debugging purposes
+	// @ts-expect-error for debugging purposes. dm me on discord @8y8x to work out stability if you need something
 	window.sigfix = { destructor, aux, ui, world, net, render };
 })();
