@@ -1899,7 +1899,8 @@
 	///////////////////////////////
 	// Define Rendering Routines //
 	///////////////////////////////
-	(() => {
+	const render = (() => {
+		const render = {};
 		const gl = ui.game.gl;
 
 		// #1 : define small misc objects
@@ -1920,6 +1921,7 @@
 		const textureFromCache = (() => {
 			/** @type {Map<string, WebGLTexture | null>} */
 			const cache = new Map();
+			render.textureCache = cache;
 
 			/**
 			 * @param {string} src
@@ -1950,18 +1952,22 @@
 		const textFromCache = (() => {
 			/**
 			 * @template {boolean} T
-			 * @typedef {{ aspectRatio: number, text: WebGLTexture,
-				silhouette: T extends true ? WebGLTexture : WebGLTexture | undefined,
-			  accessed: number }} CacheEntry
+			 * @typedef {{
+			 * 	aspectRatio: number,
+			 * 	text: WebGLTexture,
+			 *	silhouette: T extends true ? WebGLTexture : WebGLTexture | undefined,
+			 * 	accessed: number
+			 * }} CacheEntry
 			 */
 			/** @type {Map<string, CacheEntry<boolean>>} */
 			const cache = new Map();
+			render.textCache = cache;
 
 			setInterval(() => {
-				// remove text after not being used for 10 minutes
+				// remove text after not being used for 5 minutes
 				const now = performance.now();
 				cache.forEach((entry, text) => {
-					if (entry.accessed - now > 600_000) {
+					if (entry.accessed - now > 300_000) {
 						// immediately delete text instead of waiting for GC
 						gl.deleteTexture(entry.text);
 						if (entry.silhouette) gl.deleteTexture(entry.silhouette);
@@ -2048,7 +2054,7 @@
 		// #3 : define the render function
 		let fps = 0;
 		let lastFrame = performance.now();
-		function render() {
+		function renderGame() {
 			const now = performance.now();
 			const dt = Math.max(now - lastFrame, 0.1) / 1000; // there's a chance (now - lastFrame) can be 0
 			fps += (1 / dt - fps) / 10;
@@ -2232,7 +2238,7 @@
 
 					gl.uniform1f(uniforms.cell.u_alpha, alpha);
 
-					if (jellyPhysics) {
+					if (jellyPhysics && !cell.jagged) {
 						gl.uniform2f(uniforms.cell.u_pos, cell.jelly.x, cell.jelly.y);
 						gl.uniform1f(uniforms.cell.u_inner_radius, cell.r);
 						gl.uniform1f(uniforms.cell.u_outer_radius, cell.jelly.r);
@@ -2594,14 +2600,15 @@
 
 			ui.chat.matchTheme();
 
-			requestAnimationFrame(render);
+			requestAnimationFrame(renderGame);
 		}
 
-		requestAnimationFrame(render);
+		renderGame();
+		return render;
 	})();
 
 
 
 	// @ts-expect-error for debugging purposes
-	window.sigfix = { destructor, aux, ui, world, net };
+	window.sigfix = { destructor, aux, ui, world, net, render };
 })();
