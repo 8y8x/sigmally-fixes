@@ -1046,7 +1046,7 @@
 			registerCheckbox('#sfsm-outline-unsplittable', 'outlineUnsplittable');
 			registerCheckbox('#sfsm-cell-outlines', 'cellOutlines');
 
-			const navButton = fromHTML(`<button class="mod_nav_btn">🔥 Sig Fixes</button>`);
+			const navButton = fromHTML('<button class="mod_nav_btn">🔥 Sig Fixes</button>');
 			nav.appendChild(navButton);
 			navButton.addEventListener('click', () => {
 				// basically openModTab() from sigmod
@@ -2372,7 +2372,7 @@
 			const texture = function texture(text, silhouette, subtext) {
 				const textSize = baseTextSize * (subtext ? 0.5 * settings.massScaleFactor : settings.nameScaleFactor);
 				const lineWidth = Math.ceil(textSize / 10);
-				
+
 				let font = '';
 				if (subtext ? settings.massBold : settings.nameBold)
 					font = 'bold';
@@ -2733,7 +2733,7 @@
 							if (skinReplacement && cell.skin.includes(skinReplacement.original + '.png'))
 								skin = skinReplacement.replaceImg;
 						}
-						
+
 						if (settings.selfSkin && (world.mine.includes(cell.id) || world.mineDead.has(cell.id))) {
 							skin = settings.selfSkin;
 						}
