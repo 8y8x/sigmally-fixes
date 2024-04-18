@@ -2727,17 +2727,15 @@
 					}
 
 					gl.uniform1i(uniforms.cell.u_texture_enabled, 0);
-					if (showSkins) {
-						let skin = '';
-						if (cell.skin) {
-							if (skinReplacement && cell.skin.includes(skinReplacement.original + '.png'))
-								skin = skinReplacement.replaceImg;
-						}
+					let skin = '';
+					if (settings.selfSkin && (world.mine.includes(cell.id) || world.mineDead.has(cell.id))) {
+						skin = settings.selfSkin;
+					} else if (showSkins && cell.skin) {
+						if (skinReplacement && cell.skin.includes(skinReplacement.original + '.png'))
+							skin = skinReplacement.replaceImg;
+					}
 
-						if (settings.selfSkin && (world.mine.includes(cell.id) || world.mineDead.has(cell.id))) {
-							skin = settings.selfSkin;
-						}
-
+					if (skin) {
 						const texture = textureFromCache(skin);
 						if (texture) {
 							gl.uniform1i(uniforms.cell.u_texture_enabled, 1);
