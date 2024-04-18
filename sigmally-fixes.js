@@ -1831,6 +1831,7 @@
 
 			uniform vec2 u_pos;
 			uniform float u_radius;
+			uniform bool u_subtext_centered;
 			uniform bool u_subtext_enabled;
 			uniform float u_subtext_offset;
 			uniform float u_text_aspect_ratio;
@@ -1842,7 +1843,7 @@
 
 				vec2 clip_space;
 				if (u_subtext_enabled) {
-					clip_space = a_pos * 0.5 + vec2(u_subtext_offset, 0.5);
+					clip_space = a_pos * 0.5 + vec2(u_subtext_offset, u_subtext_centered ? 0.0 : 0.5);
 				} else {
 					clip_space = a_pos;
 				}
@@ -1893,7 +1894,7 @@
 		uniforms.text = getUniforms('text', programs.text, [
 			'u_aspect_ratio', 'u_camera_pos', 'u_camera_scale',
 			'u_alpha', 'u_color1', 'u_color2', 'u_pos', 'u_radius', 'u_silhouette', 'u_silhouette_enabled',
-			'u_subtext_enabled', 'u_subtext_offset', 'u_text_aspect_ratio', 'u_texture',
+			'u_subtext_centered', 'u_subtext_enabled', 'u_subtext_offset', 'u_text_aspect_ratio', 'u_texture',
 		]);
 
 
@@ -2395,6 +2396,12 @@
 					if (showThisMass) {
 						gl.uniform1i(uniforms.text.u_silhouette_enabled, 0);
 						gl.uniform1i(uniforms.text.u_subtext_enabled, 1);
+
+						if (showThisName) {
+							gl.uniform1i(uniforms.text.u_subtext_centered, 0);
+						} else {
+							gl.uniform1i(uniforms.text.u_subtext_centered, 1);
+						}
 
 						// draw each digit separately, as Ubuntu makes them all the same width.
 						// significantly reduces the size of the text cache
