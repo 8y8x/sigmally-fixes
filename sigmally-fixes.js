@@ -710,6 +710,248 @@
 
 
 
+	/////////////////////////
+	// Create Options Menu //
+	/////////////////////////
+	const settings = (() => {
+		let settings = {
+			cellOutlines: true,
+			drawDelay: 120,
+			jellySkinLag: true,
+			massBold: false,
+			massOpacity: 1,
+			massScaleFactor: 1,
+			nameBold: false,
+			nameScaleFactor: 1,
+			outlineUnsplittable: true,
+			selfSkin: '',
+		};
+
+		try {
+			settings = JSON.parse(localStorage.getItem('sigfix') ?? '');
+		} catch (_) {}
+
+		/** @type {Set<() => void>} */
+		const onSaves = new Set();
+
+		const channel = new BroadcastChannel('sigfix-settings');
+		channel.addEventListener('message', msg => {
+			Object.assign(settings, msg.data);
+			onSaves.forEach(fn => fn());
+		});
+
+		/**
+		 * @param {string} html
+		 * @returns {HTMLElement}
+		 */
+		function fromHTML(html) {
+			const div = document.createElement('div');
+			div.innerHTML = html;
+			return /** @type {HTMLElement} */ (div.firstElementChild);
+		}
+
+		function save() {
+			localStorage.setItem('sigfix', JSON.stringify(settings));
+			channel.postMessage(settings);
+		}
+
+		/**
+		 * @param {string} sliderSelector
+		 * @param {string} displaySelector
+		 * @param {{ [K in keyof typeof settings]: (typeof settings)[K] extends number ? K : never }[keyof typeof settings]} property
+		 * @param {number} decimals
+		 */
+		function registerSlider(sliderSelector, displaySelector, property, decimals) {
+			const slider = /** @type {HTMLInputElement} */ (document.querySelector(sliderSelector));
+			const display = /** @type {HTMLElement} */ (document.querySelector(displaySelector));
+			slider.value = settings[property].toString();
+			display.textContent = settings[property].toFixed(decimals);
+
+			slider.addEventListener('input', () => {
+				settings[property] = parseFloat(slider.value);
+				display.textContent = settings[property].toFixed(decimals);
+				save();
+			});
+
+			onSaves.add(() => {
+				slider.value = settings[property].toString();
+				display.textContent = settings[property].toFixed(decimals);
+			});
+		}
+
+		/**
+		 * @param {string} inputSelector
+		 * @param {{ [K in keyof typeof settings]: (typeof settings)[K] extends string ? K : never }[keyof typeof settings]} property
+		 * @param {boolean} sync
+		 */
+		function registerInput(inputSelector, property, sync) {
+			const input = /** @type {HTMLInputElement} */ (document.querySelector(inputSelector));
+			let value = input.value = settings[property];
+
+			input.addEventListener('change', () => {
+				value = settings[property] = input.value;
+				save();
+			});
+
+			onSaves.add(() => {
+				if (sync)
+					value = input.value = settings[property];
+				else
+					settings[property] = value;
+			});
+		}
+
+		/**
+		 * @param {string} inputSelector
+		 * @param {{ [K in keyof typeof settings]: (typeof settings)[K] extends boolean ? K : never }[keyof typeof settings]} property
+		 */
+		function registerCheckbox(inputSelector, property) {
+			const checkbox = /** @type {HTMLInputElement} */ (document.querySelector(inputSelector));
+			checkbox.checked = settings[property];
+
+			checkbox.addEventListener('change', () => {
+				settings[property] = checkbox.checked;
+				save();
+			});
+
+			onSaves.add(() => {
+				checkbox.checked = settings[property];
+			});
+		}
+
+		// sigmod entry point
+		let sigmodInjection;
+		sigmodInjection = setInterval(() => {
+			const nav = document.querySelector('.mod_menu_navbar');
+			const content = document.querySelector('.mod_menu_content');
+			console.log(nav, content);
+			if (!nav || !content) return;
+
+			clearInterval(sigmodInjection);
+
+			const page = fromHTML(`
+			<div class="mod_tab scroll" style="display: none;">
+				<div class="modRowItems justify-sb">
+					<span>Draw delay</span>
+					<span class="justify-sb">
+						<input class="modInput" id="sf-draw-delay" style="width: 200px;" type="range" min="40" max="300" step="5" value="120" />
+						<span id="sf-draw-delay-display" class="text-center" style="width: 75px;">120</span>
+					</span>
+				</div>
+				<div class="modRowItems justify-sb">
+					<span>Jelly physics skin clipping</span>
+					<div style="width: 75px; text-align: center;">
+						<div class="modCheckbox" style="display: inline-block;">
+							<input id="sf-jelly-skin-lag" type="checkbox" />
+							<label class="cbx" for="sf-jelly-skin-lag"></label>
+						</div>
+					</div>
+				</div>
+
+				<span class="text-center">•</span>
+
+				<div class="modRowItems justify-sb">
+					<span>Name scale factor</span>
+					<span class="justify-sb">
+						<input class="modInput" id="sf-name-scale-factor" style="width: 200px;" type="range" min="0.5" max="2" step="0.05" value="1" />
+						<span id="sf-name-scale-factor-display" class="text-center" style="width: 75px;">1.00</span>
+					</span>
+				</div>
+				<div class="modRowItems justify-sb">
+					<span>Mass scale factor</span>
+					<span class="justify-sb">
+						<input class="modInput" id="sf-mass-scale-factor" style="width: 200px;" type="range" min="0.5" max="4" step="0.05" value="1" />
+						<span id="sf-mass-scale-factor-display" class="text-center" style="width: 75px;">1.00</span>
+					</span>
+				</div>
+				<div class="modRowItems justify-sb">
+					<span>Mass opacity</span>
+					<span class="justify-sb">
+						<input class="modInput" id="sf-mass-opacity" style="width: 200px;" type="range" min="0" max="1" step="0.05" value="1" />
+						<span id="sf-mass-opacity-display" class="text-center" style="width: 75px;">1.00</span>
+					</span>
+				</div>
+				<div class="modRowItems justify-sb">
+					<span>Bold name text / mass text</span>
+					<div style="width: 75px; text-align: center;">
+						<div class="modCheckbox" style="display: inline-block;">
+							<input id="sf-name-bold" type="checkbox" />
+							<label class="cbx" for="sf-name-bold"></label>
+						</div>
+						<div class="modCheckbox" style="display: inline-block;">
+							<input id="sf-mass-bold" type="checkbox" />
+							<label class="cbx" for="sf-mass-bold"></label>
+						</div>
+					</div>
+				</div>
+				
+				<span class="text-center">•</span>
+
+				<div class="modRowItems justify-sb">
+					<span>Self skin URL (not synced)</span>
+					<input class="modInput" id="sf-self-skin" placeholder="https://i.imgur.com/..." type="text" />
+				</div>
+				<div class="modRowItems justify-sb">
+					<span>Outline unsplittable cells</span>
+					<div style="width: 75px; text-align: center;">
+						<div class="modCheckbox" style="display: inline-block;">
+							<input id="sf-outline-unsplittable" type="checkbox" />
+							<label class="cbx" for="sf-outline-unsplittable"></label>
+						</div>
+					</div>
+				</div>
+				<div class="modRowItems justify-sb">
+					<span>Cell outlines</span>
+					<div style="width: 75px; text-align: center;">
+						<div class="modCheckbox" style="display: inline-block;">
+							<input id="sf-cell-outlines" type="checkbox" />
+							<label class="cbx" for="sf-cell-outlines"></label>
+						</div>
+					</div>
+				</div>
+			</div>
+			`);
+			content.appendChild(page);
+
+			registerSlider('#sf-draw-delay', '#sf-draw-delay-display', 'drawDelay', 0);
+			registerCheckbox('#sf-jelly-skin-lag', 'jellySkinLag');
+			registerSlider('#sf-name-scale-factor', '#sf-name-scale-factor-display', 'nameScaleFactor', 2);
+			registerSlider('#sf-mass-scale-factor', '#sf-mass-scale-factor-display', 'massScaleFactor', 2);
+			registerSlider('#sf-mass-opacity', '#sf-mass-opacity-display', 'massOpacity', 2);
+			registerCheckbox('#sf-name-bold', 'nameBold');
+			registerCheckbox('#sf-mass-bold', 'massBold');
+			registerInput('#sf-self-skin', 'selfSkin', false);
+			registerCheckbox('#sf-outline-unsplittable', 'outlineUnsplittable');
+			registerCheckbox('#sf-cell-outlines', 'cellOutlines');
+
+			const navButton = fromHTML(`<button class="mod_nav_btn">🔥 Sig Fixes</button>`);
+			nav.appendChild(navButton);
+			navButton.addEventListener('click', () => {
+				// basically openModTab() from sigmod
+				(/** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.mod_tab'))).forEach(tab => {
+					tab.style.opacity = '0';
+					setTimeout(() => tab.style.display = 'none', 200);
+				});
+
+				(/** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.mod_nav_btn'))).forEach(tab => {
+					tab.classList.remove('mod_selected');
+				});
+
+				navButton.classList.add('mod_selected');
+				setTimeout(() => {
+					page.style.display = 'flex';
+					setTimeout(() => page.style.opacity = '1');
+				}, 200);
+			});
+
+			
+		}, 100);
+
+		return settings;
+	})();
+
+
+
 	///////////////////////////
 	// Setup World Variables //
 	///////////////////////////
@@ -734,6 +976,8 @@
 		world.clanmates = new Set();
 		/** @type {number[]} */
 		world.mine = []; // order matters, as the oldest cells split first
+		/** @type {Set<number>} */
+		world.mineDead = new Set();
 
 		/**
 		 * @param {Cell} cell
@@ -747,7 +991,7 @@
 				return;
 			}
 
-			const a = Math.min(Math.max((now - cell.updated) / 120, 0), 1);
+			const a = Math.min(Math.max((now - cell.updated) / settings.drawDelay, 0), 1);
 			let nx = cell.nx;
 			let ny = cell.ny;
 			if (cell.dead?.to) {
@@ -773,6 +1017,7 @@
 				if (!cell.dead) return;
 				if (now - cell.dead.at >= 120) {
 					world.cells.delete(id);
+					world.mineDead.delete(id);
 				}
 			});
 		}, 100);
@@ -999,8 +1244,10 @@
 								++world.stats.foodEaten;
 
 							const myIdx = world.mine.indexOf(killedId);
-							if (myIdx !== -1)
+							if (myIdx !== -1) {
 								world.mine.splice(myIdx, 1);
+								world.mineDead.add(killedId);
+							}
 
 							world.clanmates.delete(killed);
 						}
@@ -1805,8 +2052,8 @@
 				// d > 0.98   => d2 > 0.9604 (default)
 				// d > 0.96   => d2 > 0.9216 (thick)
 				float outline_d = u_outline_thick ? 0.9216 : 0.9604;
-				float oa = clamp(blur * (d2 - outline_d), 0.0, 1.0);
-				out_color = out_color * (1.0 - oa) + u_outline_color * oa;
+				float oa = clamp(blur * (d2 - outline_d), 0.0, 1.0) * u_outline_color.a;
+				out_color.rgb = out_color.rgb * (1.0 - oa) + u_outline_color.rgb * oa;
 
 				out_color.a *= a * u_alpha;
 			}
@@ -1834,6 +2081,8 @@
 			uniform bool u_subtext_centered;
 			uniform bool u_subtext_enabled;
 			uniform float u_subtext_offset;
+			uniform float u_subtext_scale;
+			uniform float u_text_scale;
 			uniform float u_text_aspect_ratio;
 
 			out vec2 v_pos;
@@ -1843,9 +2092,14 @@
 
 				vec2 clip_space;
 				if (u_subtext_enabled) {
-					clip_space = a_pos * 0.5 + vec2(u_subtext_offset, u_subtext_centered ? 0.0 : 0.5);
+					clip_space = a_pos * 0.5 * u_subtext_scale;
+					clip_space.x += u_subtext_offset * u_subtext_scale;
+					if (!u_subtext_centered) {
+						clip_space.y += 0.5 * u_text_scale;
+						clip_space.y += 0.25 * (u_subtext_scale - 1.0);
+					}
 				} else {
-					clip_space = a_pos;
+					clip_space = a_pos * u_text_scale;
 				}
 
 				clip_space *= u_radius * 0.45 * vec2(u_text_aspect_ratio, 1.0);
@@ -1894,7 +2148,8 @@
 		uniforms.text = getUniforms('text', programs.text, [
 			'u_aspect_ratio', 'u_camera_pos', 'u_camera_scale',
 			'u_alpha', 'u_color1', 'u_color2', 'u_pos', 'u_radius', 'u_silhouette', 'u_silhouette_enabled',
-			'u_subtext_centered', 'u_subtext_enabled', 'u_subtext_offset', 'u_text_aspect_ratio', 'u_texture',
+			'u_subtext_centered', 'u_subtext_enabled', 'u_subtext_offset', 'u_subtext_scale', 'u_text_aspect_ratio',
+			'u_text_scale', 'u_texture',
 		]);
 
 
@@ -1988,7 +2243,7 @@
 			const ctx = canvas.getContext('2d', { willReadFrequently: true });
 			if (!ctx) throw new Error('canvas.getContext(\'2d\') yields null, for whatever reason');
 
-			const defaultTextSize = 96;
+			const baseTextSize = 96;
 
 			// declare a little awkwardly, after ctx is definitely not null
 			/**
@@ -1997,16 +2252,21 @@
 			 * @param {boolean} subtext
 			 */
 			const texture = function texture(text, silhouette, subtext) {
-				const textSize = subtext ? defaultTextSize / 2 : defaultTextSize;
+				const textSize = baseTextSize * (subtext ? 0.5 * settings.massScaleFactor : settings.nameScaleFactor);
 				const lineWidth = Math.ceil(textSize / 10);
+				
+				let font = '';
+				if (subtext ? settings.massBold : settings.nameBold)
+					font = 'bold';
+				font += ' ' + textSize + 'px Ubuntu';
 
-				ctx.font = textSize + 'px Ubuntu';
+				ctx.font = font;
 				canvas.width = ctx.measureText(text).width + lineWidth * 2;
 				canvas.height = textSize * 3;
 				ctx.clearRect(0, 0, canvas.width, canvas.height);
 
 				// setting canvas.width resets the canvas state
-				ctx.font = textSize + 'px Ubuntu';
+				ctx.font = font;
 				ctx.lineJoin = 'round';
 				ctx.lineWidth = lineWidth;
 				ctx.fillStyle = silhouette ? '#000' : '#fff';
@@ -2028,23 +2288,38 @@
 				return texture;
 			};
 
+			let drawnMassBold = false;
+			let drawnMassScaleFactor = -1;
 			/** @type {Map<string, { aspectRatio: number, texture: WebGLTexture }>} */
 			const massTextCache = new Map();
-			for (let i = 0; i <= 9; ++i) {
-				massTextCache.set(i.toString(), {
-					texture: texture(i.toString(), false, true),
-					aspectRatio: canvas.width / canvas.height, // mind the execution order
-				});
+			function createMassTextCache() {
+				massTextCache.clear();
+				for (let i = 0; i <= 9; ++i) {
+					massTextCache.set(i.toString(), {
+						texture: texture(i.toString(), false, true),
+						aspectRatio: canvas.width / canvas.height, // mind the execution order
+					});
+				}
 			}
+
+			createMassTextCache();
 
 			/**
 			 * @param {string} digit
 			 * @returns {{ aspectRatio: number, texture: WebGLTexture }}
 			 */
 			const massTextFromCache = digit => {
+				if (settings.massScaleFactor !== drawnMassScaleFactor || settings.massBold !== drawnMassBold) {
+					createMassTextCache();
+					drawnMassScaleFactor = settings.massScaleFactor;
+					drawnMassBold = settings.massBold;
+				}
+
 				return massTextCache.get(digit) ?? /** @type {any} */ (massTextCache.get('0'));
 			};
 
+			let drawnNamesScaleFactor = -1;
+			let drawnNamesBold = false;
 			/**
 			 * @template {boolean} T
 			 * @param {string} text
@@ -2052,6 +2327,12 @@
 			 * @returns {CacheEntry<T>}
 			 */
 			const textFromCache = (text, silhouette) => {
+				if (drawnNamesScaleFactor !== settings.nameScaleFactor || drawnNamesBold !== settings.nameBold) {
+					cache.clear();
+					drawnNamesScaleFactor = settings.nameScaleFactor;
+					drawnNamesBold = settings.nameBold;
+				}
+
 				let entry = cache.get(text);
 				if (!entry) {
 					entry = {
@@ -2155,6 +2436,8 @@
 				gl.uniform1f(uniforms.text.u_aspect_ratio, aspectRatio);
 				gl.uniform2f(uniforms.text.u_camera_pos, cameraPosX, cameraPosY);
 				gl.uniform1f(uniforms.text.u_camera_scale, cameraScale);
+				gl.uniform1f(uniforms.text.u_subtext_scale, settings.massScaleFactor);
+				gl.uniform1f(uniforms.text.u_text_scale, settings.nameScaleFactor);
 				gl.uniform1i(uniforms.text.u_texture, 0);
 				gl.uniform1i(uniforms.text.u_silhouette, 1);
 			})();
@@ -2265,7 +2548,7 @@
 
 					if (jellyPhysics && cell.r > 20 && !cell.jagged) {
 						gl.uniform2f(uniforms.cell.u_pos, cell.jelly.x, cell.jelly.y);
-						gl.uniform1f(uniforms.cell.u_inner_radius, cell.r);
+						gl.uniform1f(uniforms.cell.u_inner_radius, settings.jellySkinLag ? cell.jelly.r : cell.r);
 						gl.uniform1f(uniforms.cell.u_outer_radius, cell.jelly.r);
 					} else {
 						gl.uniform2f(uniforms.cell.u_pos, cell.x, cell.y);
@@ -2292,19 +2575,27 @@
 						gl.uniform1i(uniforms.cell.u_outline_thick, 0);
 						if (pelletColor) {
 							gl.uniform4f(uniforms.cell.u_color, ...pelletColor, 1);
-							gl.uniform4f(uniforms.cell.u_outline_color, ...pelletColor, 1);
 						} else {
 							gl.uniform4f(uniforms.cell.u_color, ...cell.rgb, 1);
-							gl.uniform4f(uniforms.cell.u_outline_color, ...cell.rgb, 1);
 						}
 					} else {
 						if (cellColor)
 							gl.uniform4f(uniforms.cell.u_color, ...cellColor, 1);
 						else
 							gl.uniform4f(uniforms.cell.u_color, ...cell.rgb, 1);
+					}
 
+					if (cell.r <= 20) {
+						gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 0);
+					} else {
 						const myIndex = world.mine.indexOf(cell.id);
-						if (myIndex === -1 || canSplit[myIndex]) {
+						if (myIndex !== -1 && !canSplit[myIndex] && settings.outlineUnsplittable) {
+							gl.uniform1i(uniforms.cell.u_outline_thick, 1);
+							if (darkTheme)
+								gl.uniform4f(uniforms.cell.u_outline_color, 1, 1, 1, 1);
+							else
+								gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 1);
+						} else if (settings.cellOutlines) {
 							gl.uniform1i(uniforms.cell.u_outline_thick, 0);
 							if (outlineColor) {
 								gl.uniform4f(uniforms.cell.u_outline_color, ...outlineColor, 1);
@@ -2313,19 +2604,21 @@
 									cell.rgb[0] * 0.9, cell.rgb[1] * 0.9, cell.rgb[2] * 0.9, 1);
 							}
 						} else {
-							gl.uniform1i(uniforms.cell.u_outline_thick, 1);
-							if (darkTheme)
-								gl.uniform4f(uniforms.cell.u_outline_color, 1, 1, 1, 1);
-							else
-								gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 1);
+							gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 0);
 						}
 					}
 
 					gl.uniform1i(uniforms.cell.u_texture_enabled, 0);
-					if (showSkins && cell.skin) {
-						let skin = cell.skin;
-						if (skinReplacement && cell.skin.includes(skinReplacement.original + '.png'))
-							skin = skinReplacement.replaceImg;
+					if (showSkins) {
+						let skin = '';
+						if (cell.skin) {
+							if (skinReplacement && cell.skin.includes(skinReplacement.original + '.png'))
+								skin = skinReplacement.replaceImg;
+						}
+						
+						if (settings.selfSkin && (world.mine.includes(cell.id) || world.mineDead.has(cell.id))) {
+							skin = settings.selfSkin;
+						}
 
 						const texture = textureFromCache(skin);
 						if (texture) {
@@ -2394,6 +2687,7 @@
 					}
 
 					if (showThisMass) {
+						gl.uniform1f(uniforms.text.u_alpha, alpha * settings.massOpacity);
 						gl.uniform1i(uniforms.text.u_silhouette_enabled, 0);
 						gl.uniform1i(uniforms.text.u_subtext_enabled, 1);
 
@@ -2644,5 +2938,5 @@
 
 
 	// @ts-expect-error for debugging purposes. dm me on discord @8y8x to work out stability if you need something
-	window.sigfix = { destructor, aux, ui, world, net, render };
+	window.sigfix = { destructor, aux, ui, settings, world, net, render };
 })();
