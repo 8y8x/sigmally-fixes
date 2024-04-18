@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.1.2
-// @description  Easily 2X or 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
+// @version      2.2.0
+// @description  3X your FPS on Sigmally.com ⭐ many bug fixes ⭐ great for multiboxing ⭐ supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
 // @icon         https://8y8x.dev/favicon.ico
