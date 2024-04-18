@@ -740,6 +740,7 @@
 			onSaves.forEach(fn => fn());
 		});
 
+		// #1 : define helper functions
 		/**
 		 * @param {string} html
 		 * @returns {HTMLElement}
@@ -819,12 +820,133 @@
 			});
 		}
 
-		// sigmod entry point
+		// #2 : create options for the vanilla game
+		(() => {
+			const content = /** @type {HTMLElement | null} */ (document.querySelector('#cm_modal__settings .ctrl-modal__content'));
+			if (!content) return;
+
+			const style = document.createElement('style');
+			style.innerHTML = `
+			.sf-setting {
+				display: block;
+				height: 25px;
+				position: relative;
+			}
+
+			.sf-setting .sf-title {
+				position: absolute;
+				left: 0;
+			}
+
+			.sf-setting .sf-option {
+				position: absolute;
+				right: 0;
+			}
+
+			.sf-setting span, .sf-setting input {
+				display: block;
+				float: left;
+				height: 25px;
+				line-height: 25px;
+				margin-left: 5px;
+			}
+
+			.sf-separator {
+				text-align: center;
+				width: 100%;
+			}
+			`;
+			document.head.appendChild(style);
+
+			content.appendChild(fromHTML(`
+			<div class="menu__item">
+				<div style="width: 100%; height: 1px; background: #bfbfbf;"></div>
+			</div>`));
+			content.appendChild(fromHTML(`<div class="menu__item">
+				<div class="sf-setting">
+					<span class="sf-title">Draw Delay</span>
+					<div class="sf-option">
+						<input id="sf-draw-delay" style="width: 100px;" type="range" min="40" max="300" step="5" value="120" />
+						<span id="sf-draw-delay-display" style="width: 40px; text-align: right;">120</span>
+					</div>
+				</div>
+				<div class="sf-setting">
+					<span class="sf-title">Jelly Physics Skin Clipping</span>
+					<div class="sf-option">
+						<input id="sf-jelly-skin-lag" type="checkbox" />
+					</div>
+				</div>
+
+				<div class="sf-separator">•</div>
+
+				<div class="sf-setting">
+					<span class="sf-title">Name Scale Factor</span>
+					<div class="sf-option">
+						<input id="sf-name-scale" style="width: 100px;" type="range" min="0.5" max="2" step="0.05" value="1" />
+						<span id="sf-name-scale-display" style="width: 40px; text-align: right;">1.00</span>
+					</div>
+				</div>
+				<div class="sf-setting">
+					<span class="sf-title">Mass Scale Factor</span>
+					<div class="sf-option">
+						<input id="sf-mass-scale" style="width: 100px;" type="range" min="0.5" max="4" step="0.05" value="1" />
+						<span id="sf-mass-scale-display" style="width: 40px; text-align: right;">1.00</span>
+					</div>
+				</div>
+				<div class="sf-setting">
+					<span class="sf-title">Mass Opacity</span>
+					<div class="sf-option">
+						<input id="sf-mass-opacity" style="width: 100px;" type="range" min="0" max="1" step="0.05" value="1" />
+						<span id="sf-mass-opacity-display" style="width: 40px; text-align: right;">1.00</span>
+					</div>
+				</div>
+				<div class="sf-setting">
+					<span class="sf-title">Bold name text / mass text</span>
+					<div class="sf-option">
+						<input id="sf-name-bold" type="checkbox" />
+						<input id="sf-mass-bold" type="checkbox" />
+					</div>
+				</div>
+
+				<div class="sf-separator">•</div>
+
+				<div class="sf-setting">
+					<span class="sf-title">Self skin URL</span>
+					<div class="sf-option">
+						<input id="sf-self-skin" placeholder="https://i.imgur.com/..." type="text" />
+					</div>
+				</div>
+				<div class="sf-setting">
+					<span class="sf-title">Outline unsplittable cells</span>
+					<div class="sf-option">
+						<input id="sf-outline-unsplittable" type="checkbox" />
+					</div>
+				</div>
+				<div class="sf-setting">
+					<span class="sf-title">Cell outlines</span>
+					<div class="sf-option">
+						<input id="sf-cell-outlines" type="checkbox" />
+					</div>
+				</div>
+			</div>`));
+
+			registerSlider('#sf-draw-delay', '#sf-draw-delay-display', 'drawDelay', 0);
+			registerCheckbox('#sf-jelly-skin-lag', 'jellySkinLag');
+			registerSlider('#sf-name-scale', '#sf-name-scale-display', 'nameScaleFactor', 2);
+			registerSlider('#sf-mass-scale', '#sf-mass-scale-display', 'massScaleFactor', 2);
+			registerSlider('#sf-mass-opacity', '#sf-mass-opacity-display', 'massOpacity', 2);
+			registerCheckbox('#sf-name-bold', 'nameBold');
+			registerCheckbox('#sf-mass-bold', 'massBold');
+			registerInput('#sf-self-skin', 'selfSkin', false);
+			registerCheckbox('#sf-outline-unsplittable', 'outlineUnsplittable');
+			registerCheckbox('#sf-cell-outlines', 'cellOutlines');
+		})();
+
+		// #3 : create options for sigmod
 		let sigmodInjection;
 		sigmodInjection = setInterval(() => {
 			const nav = document.querySelector('.mod_menu_navbar');
 			const content = document.querySelector('.mod_menu_content');
-			console.log(nav, content);
 			if (!nav || !content) return;
 
 			clearInterval(sigmodInjection);
@@ -834,16 +956,16 @@
 				<div class="modRowItems justify-sb">
 					<span>Draw delay</span>
 					<span class="justify-sb">
-						<input class="modInput" id="sf-draw-delay" style="width: 200px;" type="range" min="40" max="300" step="5" value="120" />
-						<span id="sf-draw-delay-display" class="text-center" style="width: 75px;">120</span>
+						<input class="modInput" id="sfsm-draw-delay" style="width: 200px;" type="range" min="40" max="300" step="5" value="120" />
+						<span id="sfsm-draw-delay-display" class="text-center" style="width: 75px;">120</span>
 					</span>
 				</div>
 				<div class="modRowItems justify-sb">
 					<span>Jelly physics skin clipping</span>
 					<div style="width: 75px; text-align: center;">
 						<div class="modCheckbox" style="display: inline-block;">
-							<input id="sf-jelly-skin-lag" type="checkbox" />
-							<label class="cbx" for="sf-jelly-skin-lag"></label>
+							<input id="sfsm-jelly-skin-lag" type="checkbox" />
+							<label class="cbx" for="sfsm-jelly-skin-lag"></label>
 						</div>
 					</div>
 				</div>
@@ -853,34 +975,34 @@
 				<div class="modRowItems justify-sb">
 					<span>Name scale factor</span>
 					<span class="justify-sb">
-						<input class="modInput" id="sf-name-scale-factor" style="width: 200px;" type="range" min="0.5" max="2" step="0.05" value="1" />
-						<span id="sf-name-scale-factor-display" class="text-center" style="width: 75px;">1.00</span>
+						<input class="modInput" id="sfsm-name-scale-factor" style="width: 200px;" type="range" min="0.5" max="2" step="0.05" value="1" />
+						<span id="sfsm-name-scale-factor-display" class="text-center" style="width: 75px;">1.00</span>
 					</span>
 				</div>
 				<div class="modRowItems justify-sb">
 					<span>Mass scale factor</span>
 					<span class="justify-sb">
-						<input class="modInput" id="sf-mass-scale-factor" style="width: 200px;" type="range" min="0.5" max="4" step="0.05" value="1" />
-						<span id="sf-mass-scale-factor-display" class="text-center" style="width: 75px;">1.00</span>
+						<input class="modInput" id="sfsm-mass-scale-factor" style="width: 200px;" type="range" min="0.5" max="4" step="0.05" value="1" />
+						<span id="sfsm-mass-scale-factor-display" class="text-center" style="width: 75px;">1.00</span>
 					</span>
 				</div>
 				<div class="modRowItems justify-sb">
 					<span>Mass opacity</span>
 					<span class="justify-sb">
-						<input class="modInput" id="sf-mass-opacity" style="width: 200px;" type="range" min="0" max="1" step="0.05" value="1" />
-						<span id="sf-mass-opacity-display" class="text-center" style="width: 75px;">1.00</span>
+						<input class="modInput" id="sfsm-mass-opacity" style="width: 200px;" type="range" min="0" max="1" step="0.05" value="1" />
+						<span id="sfsm-mass-opacity-display" class="text-center" style="width: 75px;">1.00</span>
 					</span>
 				</div>
 				<div class="modRowItems justify-sb">
 					<span>Bold name text / mass text</span>
 					<div style="width: 75px; text-align: center;">
 						<div class="modCheckbox" style="display: inline-block;">
-							<input id="sf-name-bold" type="checkbox" />
-							<label class="cbx" for="sf-name-bold"></label>
+							<input id="sfsm-name-bold" type="checkbox" />
+							<label class="cbx" for="sfsm-name-bold"></label>
 						</div>
 						<div class="modCheckbox" style="display: inline-block;">
-							<input id="sf-mass-bold" type="checkbox" />
-							<label class="cbx" for="sf-mass-bold"></label>
+							<input id="sfsm-mass-bold" type="checkbox" />
+							<label class="cbx" for="sfsm-mass-bold"></label>
 						</div>
 					</div>
 				</div>
@@ -889,14 +1011,14 @@
 
 				<div class="modRowItems justify-sb">
 					<span>Self skin URL (not synced)</span>
-					<input class="modInput" id="sf-self-skin" placeholder="https://i.imgur.com/..." type="text" />
+					<input class="modInput" id="sfsm-self-skin" placeholder="https://i.imgur.com/..." type="text" />
 				</div>
 				<div class="modRowItems justify-sb">
 					<span>Outline unsplittable cells</span>
 					<div style="width: 75px; text-align: center;">
 						<div class="modCheckbox" style="display: inline-block;">
-							<input id="sf-outline-unsplittable" type="checkbox" />
-							<label class="cbx" for="sf-outline-unsplittable"></label>
+							<input id="sfsm-outline-unsplittable" type="checkbox" />
+							<label class="cbx" for="sfsm-outline-unsplittable"></label>
 						</div>
 					</div>
 				</div>
@@ -904,8 +1026,8 @@
 					<span>Cell outlines</span>
 					<div style="width: 75px; text-align: center;">
 						<div class="modCheckbox" style="display: inline-block;">
-							<input id="sf-cell-outlines" type="checkbox" />
-							<label class="cbx" for="sf-cell-outlines"></label>
+							<input id="sfsm-cell-outlines" type="checkbox" />
+							<label class="cbx" for="sfsm-cell-outlines"></label>
 						</div>
 					</div>
 				</div>
@@ -913,16 +1035,16 @@
 			`);
 			content.appendChild(page);
 
-			registerSlider('#sf-draw-delay', '#sf-draw-delay-display', 'drawDelay', 0);
-			registerCheckbox('#sf-jelly-skin-lag', 'jellySkinLag');
-			registerSlider('#sf-name-scale-factor', '#sf-name-scale-factor-display', 'nameScaleFactor', 2);
-			registerSlider('#sf-mass-scale-factor', '#sf-mass-scale-factor-display', 'massScaleFactor', 2);
-			registerSlider('#sf-mass-opacity', '#sf-mass-opacity-display', 'massOpacity', 2);
-			registerCheckbox('#sf-name-bold', 'nameBold');
-			registerCheckbox('#sf-mass-bold', 'massBold');
-			registerInput('#sf-self-skin', 'selfSkin', false);
-			registerCheckbox('#sf-outline-unsplittable', 'outlineUnsplittable');
-			registerCheckbox('#sf-cell-outlines', 'cellOutlines');
+			registerSlider('#sfsm-draw-delay', '#sfsm-draw-delay-display', 'drawDelay', 0);
+			registerCheckbox('#sfsm-jelly-skin-lag', 'jellySkinLag');
+			registerSlider('#sfsm-name-scale-factor', '#sfsm-name-scale-factor-display', 'nameScaleFactor', 2);
+			registerSlider('#sfsm-mass-scale-factor', '#sfsm-mass-scale-factor-display', 'massScaleFactor', 2);
+			registerSlider('#sfsm-mass-opacity', '#sfsm-mass-opacity-display', 'massOpacity', 2);
+			registerCheckbox('#sfsm-name-bold', 'nameBold');
+			registerCheckbox('#sfsm-mass-bold', 'massBold');
+			registerInput('#sfsm-self-skin', 'selfSkin', false);
+			registerCheckbox('#sfsm-outline-unsplittable', 'outlineUnsplittable');
+			registerCheckbox('#sfsm-cell-outlines', 'cellOutlines');
 
 			const navButton = fromHTML(`<button class="mod_nav_btn">🔥 Sig Fixes</button>`);
 			nav.appendChild(navButton);
@@ -940,11 +1062,9 @@
 				navButton.classList.add('mod_selected');
 				setTimeout(() => {
 					page.style.display = 'flex';
-					setTimeout(() => page.style.opacity = '1');
+					setTimeout(() => page.style.opacity = '1',10);
 				}, 200);
 			});
-
-			
 		}, 100);
 
 		return settings;
