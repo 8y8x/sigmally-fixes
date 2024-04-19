@@ -1072,6 +1072,49 @@
 
 
 
+	////////////////////////////////
+	// Setup Multi-tab World Sync //
+	////////////////////////////////
+	/** @typedef {{
+	 * 	self: string,
+	 * 	owned: Set<number>,
+	 * 	skin: string,
+	 * }} SyncData
+	 */
+	const sync = (() => {
+		const sync = {};
+		/** @type {Map<string, SyncData>} */
+		sync.others = new Map();
+
+		const channel = new BroadcastChannel('sigfix-worldsync');
+		const self = Date.now() + '-' + Math.random();
+
+		sync.broadcast = () => {
+			/** @type {Set<number>} */
+			const owned = new Set();
+			world.mine.forEach(id => owned.add(id));
+			world.mineDead.forEach(id => owned.add(id));
+
+			/** @type {SyncData} */
+			const syncData = {
+				self,
+				owned,
+				skin: settings.selfSkin,
+			};
+			channel.postMessage(syncData);
+		};
+
+		channel.addEventListener('message', m => {
+			/** @type {SyncData} */
+			const data = m.data;
+			sync.others.set(data.self, data);
+		});
+
+		return sync;
+	})();
+
+
+
 	///////////////////////////
 	// Setup World Variables //
 	///////////////////////////
@@ -1235,6 +1278,8 @@
 			world.cells.clear(); // make sure we won't see overlapping IDs from new cells from the new connection
 			world.clanmates.clear();
 			while (world.mine.length) world.mine.pop();
+			world.mineDead.clear();
+			sync.broadcast();
 
 			setTimeout(connect, 500 * Math.min(reconnectAttempts++ + 1, 10));
 		}
@@ -1463,6 +1508,8 @@
 							world.clanmates.delete(deleted);
 						}
 					}
+
+					sync.broadcast();
 
 					break;
 				}
@@ -2729,22 +2776,31 @@
 						} else {
 							gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 0);
 						}
-					}
 
-					gl.uniform1i(uniforms.cell.u_texture_enabled, 0);
-					let skin = '';
-					if (settings.selfSkin && (world.mine.includes(cell.id) || world.mineDead.has(cell.id))) {
-						skin = settings.selfSkin;
-					} else if (showSkins && cell.skin) {
-						if (skinReplacement && cell.skin.includes(skinReplacement.original + '.png'))
-							skin = skinReplacement.replaceImg;
-					}
+						gl.uniform1i(uniforms.cell.u_texture_enabled, 0);
+						let skin = '';
+						if (settings.selfSkin && (world.mine.includes(cell.id) || world.mineDead.has(cell.id))) {
+							skin = settings.selfSkin;
+						} else {
+							for (const [_, data] of sync.others) {
+								if (data.owned.has(cell.id)) {
+									skin = data.skin;
+									break;
+								}
+							}
 
-					if (skin) {
-						const texture = textureFromCache(skin);
-						if (texture) {
-							gl.uniform1i(uniforms.cell.u_texture_enabled, 1);
-							gl.bindTexture(gl.TEXTURE_2D, texture);
+							if (!skin && showSkins && cell.skin) {
+								if (skinReplacement && cell.skin.includes(skinReplacement.original + '.png'))
+									skin = skinReplacement.replaceImg;
+							}
+						}
+
+						if (skin) {
+							const texture = textureFromCache(skin);
+							if (texture) {
+								gl.uniform1i(uniforms.cell.u_texture_enabled, 1);
+								gl.bindTexture(gl.TEXTURE_2D, texture);
+							}
 						}
 					}
 
@@ -3059,5 +3115,5 @@
 
 
 	// @ts-expect-error for debugging purposes. dm me on discord @8y8x to work out stability if you need something
-	window.sigfix = { destructor, aux, ui, settings, world, net, render };
+	window.sigfix = { destructor, aux, ui, settings, sync, world, net, render };
 })();
