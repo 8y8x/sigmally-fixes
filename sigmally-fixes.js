@@ -1855,6 +1855,11 @@
 				await aux.wait(50);
 			} while (!(CAPTCHA2 && CAPTCHA3 && grecaptcha && grecaptcha.execute && grecaptcha.ready && grecaptcha.render && grecaptcha.reset));
 
+			// prevent game.js from invoking recaptcha, as this can cause a lot of lag whenever sigmod spams the play button
+			// (e.g. when using the respawn keybind)
+			// @ts-expect-error
+			window.grecaptcha = { execute: () => {}, ready: () => {}, render: () => {}, reset: () => {} };
+
 			const container = document.createElement('div');
 			container.id = 'g-recaptcha2';
 			container.style.display = 'none';
