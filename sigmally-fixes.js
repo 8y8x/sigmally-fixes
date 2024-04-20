@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.2.1
+// @version      2.2.2
 // @description  Easily 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -1905,7 +1905,12 @@
 			// prevent game.js from invoking recaptcha, as this can cause a lot of lag whenever sigmod spams the play button
 			// (e.g. when using the respawn keybind)
 			// @ts-expect-error
-			window.grecaptcha = { execute: () => {}, ready: () => {}, render: () => {}, reset: () => {} };
+			window.grecaptcha = {
+				execute: () => new Promise(() => {}),
+				ready: () => {},
+				render: () => {},
+				reset: () => {},
+			};
 
 			const container = document.createElement('div');
 			container.id = 'g-recaptcha2';
