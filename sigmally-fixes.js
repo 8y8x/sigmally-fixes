@@ -2797,6 +2797,8 @@
 							if (!skin && showSkins && cell.skin) {
 								if (skinReplacement && cell.skin.includes(skinReplacement.original + '.png'))
 									skin = skinReplacement.replaceImg;
+								else
+									skin = cell.skin;
 							}
 						}
 
