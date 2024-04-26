@@ -109,11 +109,21 @@
 		 * @type {object | undefined}
 		 */
 		aux.settings = undefined;
-		setInterval(() => {
+		function settings() {
 			try {
 				aux.settings = JSON.parse(localStorage.getItem('settings') ?? '');
 			} catch (_) {}
-		}, 50);
+		}
+
+		settings();
+		setInterval(settings, 50);
+		// apply saved gamemode because sigmally fixes connects before the main game even loads
+		if (aux.settings?.gamemode) {
+			/** @type {HTMLSelectElement | null} */
+			const gamemode = document.querySelector('select#gamemode');
+			if (gamemode)
+				gamemode.value = aux.settings.gamemode;
+		}
 
 		/*
 			If you have Sigmally open in two tabs and you're playing with an account, one has an outdated token while the other has the latest one.
