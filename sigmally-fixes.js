@@ -1995,6 +1995,7 @@
 
 				// (d) : otherwise, render a v2 captcha
 				container.style.display = 'block';
+				play.style.display = spectate.style.display = 'none';
 				if (v2Handle !== undefined) {
 					grecaptcha.reset(v2Handle);
 				} else {
@@ -2002,6 +2003,8 @@
 						sitekey: CAPTCHA2,
 						callback: v2 => {
 							container.style.display = 'none';
+							play.style.display = spectate.style.display = '';
+
 							if (acceptedConnection) return;
 
 							connection = net.connection();
