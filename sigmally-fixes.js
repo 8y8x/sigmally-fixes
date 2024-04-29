@@ -217,7 +217,7 @@
 				throw new Error();
 			} catch (err) {
 				// prevent drawing the game, but do NOT prevent saving settings (which is called on RQA)
-				if (!err.stack.includes('/game.js') || err.stack.includes('HTMLInputElement'))
+				if (!err.stack.includes('/game.js') || err.stack.includes('HTMLInputElement') || err.stack.includes('HTMLSelectElement'))
 					return oldRQA(fn);
 			}
 
