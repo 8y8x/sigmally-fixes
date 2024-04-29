@@ -33,6 +33,22 @@
 		const aux = {};
 
 		/**
+		 * @template T
+		 * @param {T} x
+		 * @param {string} err should be readable and easily translatable
+		 * @returns {T extends (null | undefined | false | 0) ? never : T}
+		 */
+		aux.require = (x, err) => {
+			if (!x) {
+				err = '[Sigmally Fixes]: ' + err;
+				prompt(err, err); // use prompt, so people can paste the error message into google translate
+				throw err;
+			}
+
+			return /** @type {any} */ (x);
+		};
+
+		/**
 		 * consistent exponential easing relative to 60fps.
 		 * for example, with a factor of 2, o=0, n=1:
 		 * - at 60fps, 0.5 is returned.
@@ -278,32 +294,31 @@
 
 		ui.game = (() => {
 			const game = {};
-			/** @type {HTMLCanvasElement | null} */
-			const oldCanvas = document.querySelector('canvas#canvas');
-			if (!oldCanvas)
-				throw new Error('Couldn\'t find canvas');
 
-			// leave the old canvas so the old client can actually run
-			oldCanvas.style.display = 'none';
-			/** @type {HTMLCanvasElement} */
-			const newCanvas = /** @type {any} */ (oldCanvas.cloneNode());
-			newCanvas.id = '';
+			const newCanvas = document.createElement('canvas');
 			newCanvas.style.cssText = `background: #003; width: 100vw; height: 100vh; position: fixed; top: 0; left: 0;
 				z-index: 1;`;
-			oldCanvas.insertAdjacentElement('beforebegin', newCanvas);
 			game.canvas = newCanvas;
+			(document.querySelector('body div') ?? document.body).appendChild(newCanvas);
 
-			// forward macro inputs from the canvas to the old one - this is for sigmod mouse button controls
-			newCanvas.addEventListener('mousedown', e => oldCanvas.dispatchEvent(new MouseEvent('mousedown', e)));
-			newCanvas.addEventListener('mouseup', e => oldCanvas.dispatchEvent(new MouseEvent('mouseup', e)));
-			// forward mouse movements from the old canvas to the new one - this is for sigmod mouse keybinds
-			oldCanvas.addEventListener('mousemove', e => newCanvas.dispatchEvent(new MouseEvent('mousemove', e)));
+			/** @type {HTMLCanvasElement | null} */
+			const oldCanvas = document.querySelector('canvas#canvas');
+			if (oldCanvas) {
+				// leave the old canvas so the old client can actually run
+				oldCanvas.style.display = 'none';
 
-			const gl = newCanvas.getContext('webgl2');
-			if (!gl) {
-				alert('Your browser does not support WebGL2. Please use a different one, or disable Sigmally Fixes.');
-				throw new Error('Couldn\'t get WebGL2 context');
+				// forward macro inputs from the canvas to the old one - this is for sigmod mouse button controls
+				newCanvas.addEventListener('mousedown', e => oldCanvas.dispatchEvent(new MouseEvent('mousedown', e)));
+				newCanvas.addEventListener('mouseup', e => oldCanvas.dispatchEvent(new MouseEvent('mouseup', e)));
+				// forward mouse movements from the old canvas to the new one - this is for sigmod mouse keybinds
+				oldCanvas.addEventListener('mousemove', e => newCanvas.dispatchEvent(new MouseEvent('mousemove', e)));
 			}
+
+			const gl = aux.require(
+				newCanvas.getContext('webgl2'),
+				'Couldn\'t get WebGL2 context. This is probably your browser being dumb and it should resolve itself ' +
+				'after a while.'
+			);
 
 			game.gl = gl;
 
@@ -428,13 +443,26 @@
 			return { container, title, linesContainer, lines, update };
 		})();
 
-		/** @type {HTMLElement | null} */
-		const mainMenu = document.querySelector('#__line1')?.parentElement ?? null;
-		if (!mainMenu) throw new Error('Can\'t find main menu');
+		/** @type {HTMLElement} */
+		const mainMenu = aux.require(
+			document.querySelector('#__line1')?.parentElement,
+			'Can\'t find the main menu UI. Try reloading the page?',
+		);
+
+		/** @type {HTMLElement} */
+		const statsContainer = aux.require(
+			document.querySelector('#__line2'),
+			'Can\'t find the death screen UI. Try reloading the page?',
+		);
+
+		/** @type {HTMLElement} */
+		const continueButton = aux.require(
+			document.querySelector('#continue_button'),
+			'Can\'t find the continue button (on death). Try reloading the page?',
+		);
+
 		/** @type {HTMLElement | null} */
 		const menuLinks = document.querySelector('#menu-links');
-		/** @type {HTMLElement | null} */
-		const menuWrapper = document.querySelector('#menu-wrapper');
 		/** @type {HTMLElement | null} */
 		const overlay = document.querySelector('#overlays');
 
@@ -448,14 +476,12 @@
 				mainMenu.style.display = '';
 				if (overlay) overlay.style.display = '';
 				if (menuLinks) menuLinks.style.display = '';
-				if (menuWrapper) menuWrapper.style.display = '';
 
 				ui.deathScreen.hide();
 			} else {
 				mainMenu.style.display = 'none';
 				if (overlay) overlay.style.display = 'none';
 				if (menuLinks) menuLinks.style.display = 'none';
-				if (menuWrapper) menuWrapper.style.display = 'none';
 			}
 		};
 
@@ -464,13 +490,9 @@
 		ui.deathScreen = (() => {
 			const deathScreen = {};
 
-			const statsContainer = document.querySelector('#__line2');
-			const continueButton = /** @type {HTMLElement | null} */ (document.querySelector('#continue_button'));
-			if (continueButton) {
-				continueButton.addEventListener('click', () => {
-					ui.toggleEscOverlay(true);
-				});
-			}
+			continueButton.addEventListener('click', () => {
+				ui.toggleEscOverlay(true);
+			});
 
 			// i'm not gonna buy a boost to try and figure out how this thing works
 			/** @type {HTMLElement | null} */
@@ -509,7 +531,7 @@
 						+ `${seconds ? seconds + ' s' : ''}`;
 				}
 
-				statsContainer?.classList.remove('line--hidden');
+				statsContainer.classList.remove('line--hidden');
 				ui.toggleEscOverlay(false);
 				if (overlay) overlay.style.display = '';
 
@@ -546,8 +568,11 @@
 			canvas.width = canvas.height = 200;
 			document.body.appendChild(canvas);
 
-			const ctx = canvas.getContext('2d');
-			if (!ctx) throw new Error('Can\'t get 2d context for minimap');
+			const ctx = aux.require(
+				canvas.getContext('2d'),
+				'Unable to get 2D context for the minimap. This is probably your browser being dumb, maybe reload ' +
+				'the page?'
+			);
 
 			return { canvas, ctx };
 		})();
@@ -555,33 +580,42 @@
 		ui.chat = (() => {
 			const chat = {};
 
-			const block = document.querySelector('#chat_block');
-			if (!block) throw new Error('Can\'t find #chat_block');
+			const block = aux.require(
+				document.querySelector('#chat_block'),
+				'Can\'t find the chat UI. Try reloading the page?'
+			);
 
 			/**
 			 * @param {ParentNode} root
 			 * @param {string} selector
 			 */
 			function clone(root, selector) {
-				const old = root.querySelector(selector);
-				if (!old) throw new Error(`Can't find element ${selector}`);
+				/** @type {HTMLElement} */
+				const old = aux.require(
+					root.querySelector(selector),
+					`Can't find this chat element: ${selector}. Try reloading the page?`,
+				);
 
 				const el = /** @type {HTMLElement} */ (old.cloneNode(true));
 				el.id = '';
-				old.replaceWith(el);
+				old.style.display = 'none';
+				old.insertAdjacentElement('afterend', el);
 
 				return el;
 			}
 
+			// can't just replace the chat box - otherwise sigmod can't hide it - so we make its children invisible
 			// elements grabbed with clone() are only styled by their class, not id
-			const toggle = chat.toggle = clone(document, '#chat_vsbltyBtn');
-			const input = chat.input = /** @type {HTMLInputElement} */ (document.querySelector('#chat_textbox'));
-			const scrollbar = chat.scrollbar = clone(document, '#chat_scrollbar');
-			const thumb = chat.thumb = clone(scrollbar, '#chat_thumb');
+			const toggle = clone(document, '#chat_vsbltyBtn');
+			const scrollbar = clone(document, '#chat_scrollbar');
+			const thumb = clone(scrollbar, '#chat_thumb');
+			
+			const input = chat.input = /** @type {HTMLInputElement} */ (aux.require(
+				document.querySelector('#chat_textbox'),
+				'Can\'t find the chat textbox. Try reloading the page?',
+			));
 
-			if (!input) throw new Error('Can\'t find element #chat_textbox');
-
-			const list = chat.list = document.createElement('div');
+			const list = document.createElement('div');
 			list.style.cssText = 'width: 400px; height: 182px; position: absolute; bottom: 54px; left: 46px; \
 				overflow: hidden; user-select: none; z-index: 301;';
 			block.appendChild(list);
@@ -1895,11 +1929,17 @@
 			};
 		}
 
-		/** @type {HTMLButtonElement | null} */
-		const play = document.querySelector('button#play-btn');
-		/** @type {HTMLButtonElement | null} */
-		const spectate = document.querySelector('button#spectate-btn');
-		if (!play || !spectate) throw new Error('Can\'t find play or spectate button');
+		/** @type {HTMLButtonElement} */
+		const play = aux.require(
+			document.querySelector('button#play-btn'),
+			'Can\'t find the play button. Try reloading the page?',
+		);
+		/** @type {HTMLButtonElement} */
+		const spectate = aux.require(
+			document.querySelector('button#spectate-btn'),
+			'Can\'t find the spectate button. Try reloading the page?',
+		);
+
 		play.disabled = spectate.disabled = true;
 
 		(async () => {
@@ -2052,17 +2092,22 @@
 		 * @param {WebGLShader} fShader
 		 */
 		function program(name, vShader, fShader) {
-			const p = gl.createProgram();
-			if (!p)
-				throw new Error('GL program is null'); // highly doubt will ever happen in practice
+			const p = aux.require(
+				gl.createProgram(),
+				'Can\'t make a WebGL2 program. This is likely your browser being dumb and it should resolve itself ' +
+				'after a while.'
+			);
 
 			gl.attachShader(p, vShader);
 			gl.attachShader(p, fShader);
 			gl.linkProgram(p);
 
 			// note: linking errors should not happen in production
-			if (!gl.getProgramParameter(p, gl.LINK_STATUS))
-				throw new Error(`failed to link program ${name}:\n${gl.getProgramInfoLog(p)}`);
+			aux.require(
+				gl.getProgramParameter(p, gl.LINK_STATUS),
+				`Can\'t link WebGL2 program "${name}". You might be on a weird browser.\n\nFull error log:\n` +
+				gl.getProgramInfoLog(p),
+			);
 
 			return p;
 		}
@@ -2073,16 +2118,21 @@
 		 * @param {string} source
 		 */
 		function shader(name, type, source) {
-			const s = gl.createShader(type);
-			if (!s)
-				throw new Error('GL shader is null'); // highly doubt will ever happen in practice
+			const s = aux.require(
+				gl.createShader(type),
+				'Can\'t make a WebGL2 shader. This is likely your browser being dumb and it should resolve itself ' +
+				'after a while.'
+			);
 
 			gl.shaderSource(s, source);
 			gl.compileShader(s);
 
 			// note: compilation errors should not happen in production
-			if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
-				throw new Error(`failed to compile shader ${name}:\n${gl.getShaderInfoLog(s)}`);
+			aux.require(
+				gl.getShaderParameter(s, gl.COMPILE_STATUS),
+				`Can\'t compile WebGL2 shader "${name}". You might be on a weird browser.\n\nFull error log:\n` +
+				gl.getShaderInfoLog(s),
+			);
 
 			return s;
 		}
@@ -2098,9 +2148,10 @@
 			/** @type {{ [x in T]?: WebGLUniformLocation }} */
 			const uniforms = {};
 			names.forEach(name => {
-				const loc = gl.getUniformLocation(program, name);
-				if (!loc)
-					throw new Error(`uniform ${name} in ${programName} not found`);
+				const loc = aux.require(
+					gl.getUniformLocation(program, name),
+					`Can\'t find WebGL2 uniform "${name}" in program "${programName}".`,
+				);
 
 				uniforms[name] = loc;
 			});
@@ -2387,7 +2438,11 @@
 				const image = new Image();
 				image.crossOrigin = 'anonymous';
 				image.addEventListener('load', () => {
-					const texture = gl.createTexture();
+					const texture = aux.require(
+						gl.createTexture(),
+						'Can\'t create a WebGL2 texture. This is probably due to a glitch with your GPU driver or ' +
+						'your browser. Try reloading the page?',
+					);
 					gl.bindTexture(gl.TEXTURE_2D, texture);
 					gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
 					gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
@@ -2428,8 +2483,11 @@
 			}, 60_000);
 
 			const canvas = document.createElement('canvas');
-			const ctx = canvas.getContext('2d', { willReadFrequently: true });
-			if (!ctx) throw new Error('canvas.getContext(\'2d\') yields null, for whatever reason');
+			const ctx = aux.require(
+				canvas.getContext('2d', { willReadFrequently: true }),
+				'Unable to get 2D context for text drawing. This is probably your browser being weird, maybe reload ' +
+				'the page?',
+			);
 
 			const baseTextSize = 96;
 
@@ -2467,8 +2525,11 @@
 
 				const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-				const texture = gl.createTexture();
-				if (!texture) throw new Error('gl.createTexture() yields null');
+				const texture = aux.require(
+					gl.createTexture(),
+					'Can\'t create a WebGL2 texture. This is probably due to a glitch with your GPU driver or your ' +
+					'browser. Try reloading the page?',
+				);
 				gl.bindTexture(gl.TEXTURE_2D, texture);
 				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, data);
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST_MIPMAP_LINEAR);
