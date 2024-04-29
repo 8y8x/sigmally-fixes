@@ -466,6 +466,10 @@
 		/** @type {HTMLElement | null} */
 		const overlay = document.querySelector('#overlays');
 
+		// sigmod uses this to detect if the menu is closed or not, otherwise this is unnecessary
+		/** @type {HTMLElement | null} */
+		const menuWrapper = document.querySelector('#menu-wrapper');
+
 		let escOverlayVisible = true;
 		/**
 		 * @param {boolean} [show]
@@ -476,12 +480,14 @@
 				mainMenu.style.display = '';
 				if (overlay) overlay.style.display = '';
 				if (menuLinks) menuLinks.style.display = '';
+				if (menuWrapper) menuWrapper.style.display = '';
 
 				ui.deathScreen.hide();
 			} else {
 				mainMenu.style.display = 'none';
 				if (overlay) overlay.style.display = 'none';
 				if (menuLinks) menuLinks.style.display = 'none';
+				if (menuWrapper) menuWrapper.style.display = 'none';
 			}
 		};
 
