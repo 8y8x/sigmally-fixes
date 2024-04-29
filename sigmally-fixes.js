@@ -2856,6 +2856,7 @@
 							gl.uniform4f(uniforms.cell.u_color, ...cell.rgb, 1);
 					}
 
+					gl.uniform1i(uniforms.cell.u_texture_enabled, 0);
 					if (cell.r <= 20) {
 						gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 0);
 					} else {
@@ -2878,7 +2879,6 @@
 							gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 0);
 						}
 
-						gl.uniform1i(uniforms.cell.u_texture_enabled, 0);
 						let skin = '';
 						if (settings.selfSkin && (world.mine.includes(cell.id) || world.mineDead.has(cell.id))) {
 							skin = settings.selfSkin;
