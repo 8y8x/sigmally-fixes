@@ -2911,8 +2911,8 @@
 				/** @type {Cell[]} */
 				const sorted = [];
 				world.cells.forEach(cell => {
-					if (cell.r > 75) {
-						// not an important cell, will draw sorted later
+					if (cell.r > 20) {
+						// cell is probably important, order should be sorted
 						sorted.push(cell);
 						return;
 					}
