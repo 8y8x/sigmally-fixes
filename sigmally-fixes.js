@@ -914,14 +914,15 @@
 			</div>`));
 			content.appendChild(fromHTML(`<div class="menu__item">
 				<div class="sf-setting">
-					<span class="sf-title">Draw Delay</span>
+					<span class="sf-title">Draw delay</span>
 					<div class="sf-option">
-						<input id="sf-draw-delay" style="width: 100px;" type="range" min="40" max="300" step="5" value="120" />
+						<input id="sf-draw-delay" style="width: 100px;" type="range" min="40" max="300" step="5" value="120" list="sf-draw-delay-markers" />
+						<datalist id="sf-draw-delay-markers"> <option value="120"></option> </datalist>
 						<span id="sf-draw-delay-display" style="width: 40px; text-align: right;">120</span>
 					</div>
 				</div>
 				<div class="sf-setting">
-					<span class="sf-title">Jelly Physics Skin Clipping</span>
+					<span class="sf-title">Jelly physics effects on skins</span>
 					<div class="sf-option">
 						<input id="sf-jelly-skin-lag" type="checkbox" />
 					</div>
@@ -930,23 +931,26 @@
 				<div class="sf-separator">•</div>
 
 				<div class="sf-setting">
-					<span class="sf-title">Name Scale Factor</span>
+					<span class="sf-title">Name scale factor</span>
 					<div class="sf-option">
-						<input id="sf-name-scale" style="width: 100px;" type="range" min="0.5" max="2" step="0.05" value="1" />
+						<input id="sf-name-scale" style="width: 100px;" type="range" min="0.5" max="2" step="0.05" value="1" list="sf-name-scale-markers" />
+						<datalist id="sf-name-scale-markers"> <option value="1"></option> </datalist>
 						<span id="sf-name-scale-display" style="width: 40px; text-align: right;">1.00</span>
 					</div>
 				</div>
 				<div class="sf-setting">
-					<span class="sf-title">Mass Scale Factor</span>
+					<span class="sf-title">Mass scale factor</span>
 					<div class="sf-option">
-						<input id="sf-mass-scale" style="width: 100px;" type="range" min="0.5" max="4" step="0.05" value="1" />
+						<input id="sf-mass-scale" style="width: 100px;" type="range" min="0.5" max="4" step="0.05" value="1" list="sf-mass-scale-markers" />
+						<datalist id="sf-mass-scale-markers"> <option value="1"></option> </datalist>
 						<span id="sf-mass-scale-display" style="width: 40px; text-align: right;">1.00</span>
 					</div>
 				</div>
 				<div class="sf-setting">
-					<span class="sf-title">Mass Opacity</span>
+					<span class="sf-title">Mass opacity</span>
 					<div class="sf-option">
-						<input id="sf-mass-opacity" style="width: 100px;" type="range" min="0" max="1" step="0.05" value="1" />
+						<input id="sf-mass-opacity" style="width: 100px;" type="range" min="0" max="1" step="0.05" value="1" list="sf-mass-opacity-markers" />
+						<datalist id="sf-mass-opacity-markers"> <option value="1"></option> </datalist>
 						<span id="sf-mass-opacity-display" style="width: 40px; text-align: right;">1.00</span>
 					</div>
 				</div>
@@ -1006,12 +1010,15 @@
 				<div class="modRowItems justify-sb">
 					<span>Draw delay</span>
 					<span class="justify-sb">
-						<input class="modInput" id="sfsm-draw-delay" style="width: 200px;" type="range" min="40" max="300" step="5" value="120" />
+						<input id="sfsm-draw-delay" style="width: 200px;" type="range" min="40" max="300" step="5" value="120" list="sfsm-draw-delay-markers" />
+						<datalist id="sfsm-draw-delay-markers">
+							<option value="120"></option>
+						</datalist>
 						<span id="sfsm-draw-delay-display" class="text-center" style="width: 75px;">120</span>
 					</span>
 				</div>
 				<div class="modRowItems justify-sb">
-					<span>Jelly physics skin clipping</span>
+					<span>Jelly physics effect on skins</span>
 					<div style="width: 75px; text-align: center;">
 						<div class="modCheckbox" style="display: inline-block;">
 							<input id="sfsm-jelly-skin-lag" type="checkbox" />
@@ -1025,21 +1032,30 @@
 				<div class="modRowItems justify-sb">
 					<span>Name scale factor</span>
 					<span class="justify-sb">
-						<input class="modInput" id="sfsm-name-scale-factor" style="width: 200px;" type="range" min="0.5" max="2" step="0.05" value="1" />
+						<input id="sfsm-name-scale-factor" style="width: 200px;" type="range" min="0.5" max="2" step="0.05" value="1" list="sfsm-name-scale-factor-markers" />
+						<datalist id="sfsm-name-scale-factor-markers">
+							<option value="1"></option>
+						</datalist>
 						<span id="sfsm-name-scale-factor-display" class="text-center" style="width: 75px;">1.00</span>
 					</span>
 				</div>
 				<div class="modRowItems justify-sb">
 					<span>Mass scale factor</span>
 					<span class="justify-sb">
-						<input class="modInput" id="sfsm-mass-scale-factor" style="width: 200px;" type="range" min="0.5" max="4" step="0.05" value="1" />
+						<input id="sfsm-mass-scale-factor" style="width: 200px;" type="range" min="0.5" max="4" step="0.05" value="1" list="sfsm-mass-scale-factor-markers" />
+						<datalist id="sfsm-mass-scale-factor-markers">
+							<option value="1"></option>
+						</datalist>
 						<span id="sfsm-mass-scale-factor-display" class="text-center" style="width: 75px;">1.00</span>
 					</span>
 				</div>
 				<div class="modRowItems justify-sb">
 					<span>Mass opacity</span>
 					<span class="justify-sb">
-						<input class="modInput" id="sfsm-mass-opacity" style="width: 200px;" type="range" min="0" max="1" step="0.05" value="1" />
+						<input id="sfsm-mass-opacity" style="width: 200px;" type="range" min="0" max="1" step="0.05" value="1" list="sfsm-mass-opacity-markers" />
+						<datalist id="sfsm-mass-opacity-markers">
+							<option value="1"></option>
+						</datalist>
 						<span id="sfsm-mass-opacity-display" class="text-center" style="width: 75px;">1.00</span>
 					</span>
 				</div>
