@@ -1256,11 +1256,11 @@
 		const firstGamemode = document.querySelector('#gamemode option');
 
 		function connect() {
-			let server = gamemode?.value ?? firstGamemode?.value ?? 'us0.sigmally.com/ws/';
+			let server = 'wss://' + (gamemode?.value ?? firstGamemode?.value ?? 'us0.sigmally.com/ws/');
 			if (location.search.startsWith('?ip='))
-				server = location.search.slice('?ip='.length); // in csrf we trust
+				server = location.search.slice('?ip='.length);
 
-			ws = new destructor.realWebSocket('wss://' + server);
+			ws = new destructor.realWebSocket(server);
 			destructor.safeWebSockets.add(ws);
 			ws.binaryType = 'arraybuffer';
 			ws.addEventListener('close', wsClose);
