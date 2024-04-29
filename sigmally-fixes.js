@@ -768,6 +768,7 @@
 			cellOutlines: true,
 			drawDelay: 120,
 			jellySkinLag: true,
+			jellyWobble: true,
 			massBold: false,
 			massOpacity: 1,
 			massScaleFactor: 1,
@@ -778,7 +779,7 @@
 		};
 
 		try {
-			settings = JSON.parse(localStorage.getItem('sigfix') ?? '');
+			Object.assign(settings, JSON.parse(localStorage.getItem('sigfix') ?? ''));
 		} catch (_) {}
 
 		/** @type {Set<() => void>} */
@@ -927,6 +928,12 @@
 						<input id="sf-jelly-skin-lag" type="checkbox" />
 					</div>
 				</div>
+				<div class="sf-setting">
+					<span class="sf-title">Jelly physics wobble effect</span>
+					<div class="sf-option">
+						<input id="sf-jelly-wobble" type="checkbox" />
+					</div>
+				</div>
 
 				<div class="sf-separator">•</div>
 
@@ -986,6 +993,7 @@
 
 			registerSlider('#sf-draw-delay', '#sf-draw-delay-display', 'drawDelay', 0);
 			registerCheckbox('#sf-jelly-skin-lag', 'jellySkinLag');
+			registerCheckbox('#sf-jelly-wobble', 'jellyWobble');
 			registerSlider('#sf-name-scale', '#sf-name-scale-display', 'nameScaleFactor', 2);
 			registerSlider('#sf-mass-scale', '#sf-mass-scale-display', 'massScaleFactor', 2);
 			registerSlider('#sf-mass-opacity', '#sf-mass-opacity-display', 'massOpacity', 2);
@@ -1023,6 +1031,15 @@
 						<div class="modCheckbox" style="display: inline-block;">
 							<input id="sfsm-jelly-skin-lag" type="checkbox" />
 							<label class="cbx" for="sfsm-jelly-skin-lag"></label>
+						</div>
+					</div>
+				</div>
+				<div class="modRowItems justify-sb">
+					<span>Jelly physics wobble effect</span>
+					<div style="width: 75px; text-align: center;">
+						<div class="modCheckbox" style="display: inline-block;">
+							<input id="sfsm-jelly-wobble" type="checkbox" />
+							<label class="cbx" for="sfsm-jelly-wobble"></label>
 						</div>
 					</div>
 				</div>
@@ -1103,6 +1120,7 @@
 
 			registerSlider('#sfsm-draw-delay', '#sfsm-draw-delay-display', 'drawDelay', 0);
 			registerCheckbox('#sfsm-jelly-skin-lag', 'jellySkinLag');
+			registerCheckbox('#sfsm-jelly-wobble', 'jellyWobble');
 			registerSlider('#sfsm-name-scale-factor', '#sfsm-name-scale-factor-display', 'nameScaleFactor', 2);
 			registerSlider('#sfsm-mass-scale-factor', '#sfsm-mass-scale-factor-display', 'massScaleFactor', 2);
 			registerSlider('#sfsm-mass-opacity', '#sfsm-mass-opacity-display', 'massOpacity', 2);
@@ -1193,7 +1211,7 @@
 	 * updated: number, born: number, dead: { to: Cell | undefined, at: number } | undefined,
 	 * jagged: boolean,
 	 * name: string, skin: string, sub: boolean,
-	 * jelly: { x: number, y: number, r: number },
+	 * jelly: { x: number, y: number, r: number, wobble: Float32Array },
 	 * }} Cell */
 	const world = (() => {
 		const world = {};
@@ -1236,6 +1254,18 @@
 				cell.jelly.r = aux.exponentialEase(cell.jelly.r, cell.r, 5, dt);
 			}
 		};
+
+		/** @returns {Float32Array} */
+		world.wobble = function() {
+			const speed = [Math.random(), Math.random(), Math.random()];
+			const shift = [Math.random(), Math.random(), Math.random()];
+			return new Float32Array([
+				// speed should be between 1-4, can be positive or negative
+				speed[0] * 6 - 3 + Math.sign(speed[0] - 0.5), shift[0],
+				speed[1] * 6 - 3 + Math.sign(speed[1] - 0.5), shift[1],
+				speed[2] * 6 - 3 + Math.sign(speed[2] - 0.5), shift[2],
+			]);
+		}
 
 		// clean up dead cells
 		setInterval(() => {
@@ -1550,7 +1580,10 @@
 								updated: now, born: now, dead: undefined,
 								jagged,
 								name, skin, sub,
-								jelly: { x, y, r },
+								jelly: {
+									x, y, r,
+									wobble: world.wobble(),
+								},
 							};
 
 							world.cells.set(id, cell);
@@ -2296,13 +2329,25 @@
 			uniform bool u_outline_thick;
 			uniform sampler2D u_texture;
 			uniform bool u_texture_enabled;
+			uniform float u_time;
+			uniform float u_wobble[6];
+			uniform bool u_wobble_enabled;
 
 			out vec4 out_color;
 
 			void main() {
 				float blur = 0.5 * u_outer_radius * (540.0 * u_camera_scale);
 				float d2 = v_pos.x * v_pos.x + v_pos.y * v_pos.y;
-				float a = clamp(-blur * (d2 - 1.0), 0.0, 1.0);
+				float wobble_delta = 0.0;
+				if (u_wobble_enabled && d2 > 0.9) {
+					float theta = atan(v_pos.y, v_pos.x);
+					wobble_delta = sin(2.0 * (theta + u_time * u_wobble[0] + u_wobble[1]))
+						+ sin(3.0 * (theta + u_time * u_wobble[2] + u_wobble[3]))
+						+ sin(5.0 * (theta + u_time * u_wobble[4] + u_wobble[5]));
+					wobble_delta *= 0.75 / u_outer_radius;
+				}
+
+				float a = clamp(-blur * (d2 - (1.0 + wobble_delta)), 0.0, 1.0);
 
 				if (u_texture_enabled) {
 					out_color = texture(u_texture, v_t_coord);
@@ -2313,7 +2358,7 @@
 				// d > 0.98   => d2 > 0.9604 (default)
 				// d > 0.96   => d2 > 0.9216 (thick)
 				float outline_d = u_outline_thick ? 0.9216 : 0.9604;
-				float oa = clamp(blur * (d2 - outline_d), 0.0, 1.0) * u_outline_color.a;
+				float oa = clamp(blur * (d2 - (outline_d + wobble_delta)), 0.0, 1.0) * u_outline_color.a;
 				out_color.rgb = out_color.rgb * (1.0 - oa) + u_outline_color.rgb * oa;
 
 				out_color.a *= a * u_alpha;
@@ -2323,7 +2368,7 @@
 		uniforms.cell = getUniforms('cell', programs.cell, [
 			'u_aspect_ratio', 'u_camera_pos', 'u_camera_scale',
 			'u_alpha', 'u_color', 'u_outline_color', 'u_outline_thick', 'u_inner_radius', 'u_outer_radius', 'u_pos',
-			'u_texture_enabled',
+			'u_texture_enabled', 'u_time', 'u_wobble', 'u_wobble_enabled',
 		]);
 
 
@@ -2430,7 +2475,7 @@
 		// #1 : define small misc objects
 		const square = gl.createBuffer();
 		gl.bindBuffer(gl.ARRAY_BUFFER, square);
-		gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+		gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1.01,-1.01, 1.01,-1.01, -1.01,1.01, 1.01,1.01]), gl.STATIC_DRAW);
 
 		const vao = gl.createVertexArray();
 		gl.bindVertexArray(vao);
@@ -2631,6 +2676,7 @@
 		// #3 : define the render function
 		let fps = 0;
 		let lastFrame = performance.now();
+		const start = lastFrame;
 		function renderGame() {
 			const now = performance.now();
 			const dt = Math.max(now - lastFrame, 0.1) / 1000; // there's a chance (now - lastFrame) can be 0
@@ -2702,6 +2748,7 @@
 				gl.uniform1f(uniforms.cell.u_aspect_ratio, aspectRatio);
 				gl.uniform2f(uniforms.cell.u_camera_pos, cameraPosX, cameraPosY);
 				gl.uniform1f(uniforms.cell.u_camera_scale, cameraScale);
+				gl.uniform1f(uniforms.cell.u_time, (now - start) / 1000);
 
 				gl.useProgram(programs.text);
 				gl.uniform1f(uniforms.text.u_aspect_ratio, aspectRatio);
@@ -2825,6 +2872,13 @@
 						gl.uniform2f(uniforms.cell.u_pos, cell.x, cell.y);
 						gl.uniform1f(uniforms.cell.u_inner_radius, cell.r);
 						gl.uniform1f(uniforms.cell.u_outer_radius, cell.r);
+					}
+
+					if (jellyPhysics && settings.jellyWobble) {
+						gl.uniform1i(uniforms.cell.u_wobble_enabled, 1);
+						gl.uniform1fv(uniforms.cell.u_wobble, cell.jelly.wobble);
+					} else {
+						gl.uniform1i(uniforms.cell.u_wobble_enabled, 0);
 					}
 
 					if (cell.jagged) {
