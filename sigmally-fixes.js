@@ -1608,6 +1608,10 @@
 						}
 					}
 
+					if (world.mine.length === 0 && world.stats.spawnedAt !== undefined) {
+						ui.deathScreen.show(world.stats);
+					}
+
 					sync.broadcast();
 
 					break;
@@ -3104,10 +3108,6 @@
 
 				if (score > world.stats.highestScore) {
 					world.stats.highestScore = score;
-				}
-
-				if (world.mine.length === 0 && world.stats.spawnedAt !== undefined) {
-					ui.deathScreen.show(world.stats);
 				}
 			})();
 
