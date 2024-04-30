@@ -774,8 +774,8 @@
 			massScaleFactor: 1,
 			nameBold: false,
 			nameScaleFactor: 1,
-			outlineUnsplittable: true,
 			selfSkin: '',
+			unsplittableOpacity: 1,
 		};
 
 		try {
@@ -894,6 +894,14 @@
 				right: 0;
 			}
 
+			.sf-setting.double {
+				height: 50px;
+			}
+
+			.sf-setting.double .sf-option {
+				top: 25px;
+			}
+
 			.sf-setting span, .sf-setting input {
 				display: block;
 				float: left;
@@ -971,16 +979,18 @@
 
 				<div class="sf-separator">•</div>
 
-				<div class="sf-setting">
-					<span class="sf-title">Self skin URL</span>
+				<div class="sf-setting double">
+					<span class="sf-title">Self skin URL (not synced)</span>
 					<div class="sf-option">
 						<input id="sf-self-skin" placeholder="https://i.imgur.com/..." type="text" />
 					</div>
 				</div>
-				<div class="sf-setting">
-					<span class="sf-title">Outline unsplittable cells</span>
+				<div class="sf-setting double">
+					<span class="sf-title">Unsplittable cell outline opacity</span>
 					<div class="sf-option">
-						<input id="sf-outline-unsplittable" type="checkbox" />
+						<input id="sf-unsplittable-opacity" style="width: 100px;" type="range" min="0" max="1" step="0.05" value="1" list="sf-unsplittable-opacity-markers" />
+						<datalist id="sf-unsplittable-opacity-markers"> <option value="1"></option> </datalist>
+						<span id="sf-unsplittable-opacity-display" style="width: 40px; text-align: right;">1.00</span>
 					</div>
 				</div>
 				<div class="sf-setting">
@@ -1000,7 +1010,7 @@
 			registerCheckbox('#sf-name-bold', 'nameBold');
 			registerCheckbox('#sf-mass-bold', 'massBold');
 			registerInput('#sf-self-skin', 'selfSkin', false);
-			registerCheckbox('#sf-outline-unsplittable', 'outlineUnsplittable');
+			registerSlider('#sf-unsplittable-opacity', '#sf-unsplittable-opacity-display', 'unsplittableOpacity', 2);
 			registerCheckbox('#sf-cell-outlines', 'cellOutlines');
 		})();
 
@@ -1097,13 +1107,14 @@
 					<input class="modInput" id="sfsm-self-skin" placeholder="https://i.imgur.com/..." type="text" />
 				</div>
 				<div class="modRowItems justify-sb">
-					<span>Outline unsplittable cells</span>
-					<div style="width: 75px; text-align: center;">
-						<div class="modCheckbox" style="display: inline-block;">
-							<input id="sfsm-outline-unsplittable" type="checkbox" />
-							<label class="cbx" for="sfsm-outline-unsplittable"></label>
-						</div>
-					</div>
+					<span>Unsplittable cell outline opacity</span>
+					<span class="justify-sb">
+						<input id="sfsm-unsplittable-opacity" style="width: 200px;" type="range" min="0" max="1" step="0.05" value="1" list="sfsm-unsplittable-opacity-markers" />
+						<datalist id="sfsm-unsplittable-opacity-markers">
+							<option value="1"></option>
+						</datalist>
+						<span id="sfsm-unsplittable-opacity-display" class="text-center" style="width: 75px;">1.00</span>
+					</span>
 				</div>
 				<div class="modRowItems justify-sb">
 					<span>Cell outlines</span>
@@ -1127,7 +1138,7 @@
 			registerCheckbox('#sfsm-name-bold', 'nameBold');
 			registerCheckbox('#sfsm-mass-bold', 'massBold');
 			registerInput('#sfsm-self-skin', 'selfSkin', false);
-			registerCheckbox('#sfsm-outline-unsplittable', 'outlineUnsplittable');
+			registerSlider('#sfsm-unsplittable-opacity', '#sfsm-unsplittable-opacity-display', 'unsplittableOpacity', 2);
 			registerCheckbox('#sfsm-cell-outlines', 'cellOutlines');
 
 			const navButton = fromHTML('<button class="mod_nav_btn">🔥 Sig Fixes</button>');
@@ -2919,12 +2930,12 @@
 						gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 0);
 					} else {
 						const myIndex = world.mine.indexOf(cell.id);
-						if (myIndex !== -1 && !canSplit[myIndex] && settings.outlineUnsplittable) {
+						if (myIndex !== -1 && !canSplit[myIndex] && settings.unsplittableOpacity > 0) {
 							gl.uniform1i(uniforms.cell.u_outline_thick, 1);
 							if (darkTheme)
-								gl.uniform4f(uniforms.cell.u_outline_color, 1, 1, 1, 1);
+								gl.uniform4f(uniforms.cell.u_outline_color, 1, 1, 1, settings.unsplittableOpacity);
 							else
-								gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 1);
+								gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, settings.unsplittableOpacity);
 						} else if (settings.cellOutlines) {
 							gl.uniform1i(uniforms.cell.u_outline_thick, 0);
 							if (outlineColor) {
