@@ -19,6 +19,7 @@
 	comma-dangle: ['error', 'always-multiline'],
 	indent: ['error', 'tab', { SwitchCase: 1 }],
 	max-len: ['error', { code: 120 }],
+	no-console: ['error', { allow: ['warn', 'error'] }],
 	no-trailing-spaces: 'error',
 	quotes: ['error', 'single'],
 	semi: 'error',
@@ -1367,9 +1368,6 @@
 		// #2 : connecting/reconnecting the websocket
 		/** @type {HTMLSelectElement | null} */
 		const gamemode = document.querySelector('#gamemode');
-		if (!gamemode)
-			console.warn('#gamemode element no longer exists, falling back to us-1');
-
 		/** @type {HTMLOptionElement | null} */
 		const firstGamemode = document.querySelector('#gamemode option');
 
@@ -1381,7 +1379,7 @@
 			try {
 				ws = new destructor.realWebSocket(server);
 			} catch (err) {
-				console.error(err);
+				console.error('can\'t make WebSocket:', err);
 				aux.require(null, 'The server is invalid. Try changing the server, reloading the page, or clearing ' +
 					'your browser cache and cookies.');
 			}
@@ -1421,7 +1419,7 @@
 
 		/** @param {Event} err */
 		function wsError(err) {
-			console.warn('WebSocket error:', err);
+			console.error('WebSocket error:', err);
 		}
 
 		function wsOpen() {
