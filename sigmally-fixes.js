@@ -18,6 +18,7 @@
 	camelcase: 'error',
 	comma-dangle: ['error', 'always-multiline'],
 	indent: ['error', 'tab', { SwitchCase: 1 }],
+	max-len: ['error', { code: 120 }],
 	no-trailing-spaces: 'error',
 	quotes: ['error', 'single'],
 	semi: 'error',
@@ -141,9 +142,10 @@
 		}
 
 		/*
-			If you have Sigmally open in two tabs and you're playing with an account, one has an outdated token while the other has the latest one.
-			This causes problems because the tab with the old token does not work properly during the game (skin, XP)
-			To fix this, the latest token is sent to the previously opened tab. This way you can collect XP in both tabs and use your selected skin.
+			If you have Sigmally open in two tabs and you're playing with an account, one has an outdated token while
+			the other has the latest one. This causes problems because the tab with the old token does not work properly
+			during the game (skin, XP) To fix this, the latest token is sent to the previously opened tab. This way you
+			can collect XP in both tabs and use your selected skin.
 			@czrsd
 		*/
 		/** @type {{ token: string, updated: number } | undefined} */
@@ -165,8 +167,8 @@
 					let url = args[0];
 					const data = args[1];
 					if (typeof url === 'string') {
-						// game.js doesn't think we're connected to a server, we default to eu0 because that's the default
-						// everywhere else
+						// game.js doesn't think we're connected to a server, we default to eu0 because that's the
+						// default everywhere else
 						if (url.includes('/userdata/')) url = url.replace('///', '//eu0.sigmally.com/server/');
 
 						// patch the current token in the url and body of the request
@@ -195,7 +197,8 @@
 							return () => target.json().then(obj => {
 								if (obj?.body?.user) {
 									aux.userData = obj.body.user;
-									let updated = Number(new Date(aux.userData.updateTime)); // NaN if invalid / undefined
+									// NaN if invalid / undefined
+									let updated = Number(new Date(aux.userData.updateTime));
 									if (Number.isNaN(updated))
 										updated = Date.now();
 
@@ -232,7 +235,7 @@
 				throw new Error();
 			} catch (err) {
 				// prevent drawing the game, but do NOT prevent saving settings (which is called on RQA)
-				if (!err.stack.includes('/game.js') || err.stack.includes('HTMLInputElement') || err.stack.includes('HTMLSelectElement'))
+				if (!err.stack.includes('/game.js') || err.stack.includes('HTML'))
 					return oldRQA(fn);
 			}
 
@@ -316,7 +319,7 @@
 			const gl = aux.require(
 				newCanvas.getContext('webgl2'),
 				'Couldn\'t get WebGL2 context. This is probably your browser being dumb and it should resolve itself ' +
-				'after a while.'
+				'after a while.',
 			);
 
 			game.gl = gl;
@@ -576,7 +579,7 @@
 			const ctx = aux.require(
 				canvas.getContext('2d'),
 				'Unable to get 2D context for the minimap. This is probably your browser being dumb, maybe reload ' +
-				'the page?'
+				'the page?',
 			);
 
 			return { canvas, ctx };
@@ -587,7 +590,7 @@
 
 			const block = aux.require(
 				document.querySelector('#chat_block'),
-				'Can\'t find the chat UI. Try reloading the page?'
+				'Can\'t find the chat UI. Try reloading the page?',
 			);
 
 			/**
@@ -614,7 +617,7 @@
 			const toggle = clone(document, '#chat_vsbltyBtn');
 			const scrollbar = clone(document, '#chat_scrollbar');
 			const thumb = clone(scrollbar, '#chat_thumb');
-			
+
 			const input = chat.input = /** @type {HTMLInputElement} */ (aux.require(
 				document.querySelector('#chat_textbox'),
 				'Can\'t find the chat textbox. Try reloading the page?',
@@ -807,9 +810,14 @@
 		}
 
 		/**
+		 * @template O, T
+		 * @typedef {{ [K in keyof O]: O[K] extends T ? K : never }[keyof O]} PropertyOfType
+		 */
+
+		/**
 		 * @param {string} sliderSelector
 		 * @param {string} displaySelector
-		 * @param {{ [K in keyof typeof settings]: (typeof settings)[K] extends number ? K : never }[keyof typeof settings]} property
+		 * @param {PropertyOfType<typeof settings, number>} property
 		 * @param {number} decimals
 		 */
 		function registerSlider(sliderSelector, displaySelector, property, decimals) {
@@ -832,7 +840,7 @@
 
 		/**
 		 * @param {string} inputSelector
-		 * @param {{ [K in keyof typeof settings]: (typeof settings)[K] extends string ? K : never }[keyof typeof settings]} property
+		 * @param {PropertyOfType<typeof settings, string>} property
 		 * @param {boolean} sync
 		 */
 		function registerInput(inputSelector, property, sync) {
@@ -854,7 +862,7 @@
 
 		/**
 		 * @param {string} inputSelector
-		 * @param {{ [K in keyof typeof settings]: (typeof settings)[K] extends boolean ? K : never }[keyof typeof settings]} property
+		 * @param {PropertyOfType<typeof settings, boolean>} property
 		 */
 		function registerCheckbox(inputSelector, property) {
 			const checkbox = /** @type {HTMLInputElement} */ (document.querySelector(inputSelector));
@@ -872,8 +880,11 @@
 
 		// #2 : create options for the vanilla game
 		(() => {
-			const content = /** @type {HTMLElement | null} */ (document.querySelector('#cm_modal__settings .ctrl-modal__content'));
-			if (!content) return;
+			/** @type {HTMLElement} */
+			const content = aux.require(
+				document.querySelector('#cm_modal__settings .ctrl-modal__content'),
+				'Can\'t find the default settings UI. Try reloading the page, or disabling other scripts?',
+			);
 
 			const style = document.createElement('style');
 			style.innerHTML = `
@@ -924,9 +935,10 @@
 				<div class="sf-setting">
 					<span class="sf-title">Draw delay</span>
 					<div class="sf-option">
-						<input id="sf-draw-delay" style="width: 100px;" type="range" min="40" max="300" step="5" value="120" list="sf-draw-delay-markers" />
+						<input id="sf-draw-delay" style="width: 100px;" type="range"
+							min="40" max="300" step="5" value="120" list="sf-draw-delay-markers" />
 						<datalist id="sf-draw-delay-markers"> <option value="120"></option> </datalist>
-						<span id="sf-draw-delay-display" style="width: 40px; text-align: right;">120</span>
+						<span id="sf-draw-delay-display" style="width: 40px; text-align: right;"></span>
 					</div>
 				</div>
 				<div class="sf-setting">
@@ -947,25 +959,28 @@
 				<div class="sf-setting">
 					<span class="sf-title">Name scale factor</span>
 					<div class="sf-option">
-						<input id="sf-name-scale" style="width: 100px;" type="range" min="0.5" max="2" step="0.05" value="1" list="sf-name-scale-markers" />
+						<input id="sf-name-scale" style="width: 100px;" type="range"
+							min="0.5" max="2" step="0.05" value="1" list="sf-name-scale-markers" />
 						<datalist id="sf-name-scale-markers"> <option value="1"></option> </datalist>
-						<span id="sf-name-scale-display" style="width: 40px; text-align: right;">1.00</span>
+						<span id="sf-name-scale-display" style="width: 40px; text-align: right;"></span>
 					</div>
 				</div>
 				<div class="sf-setting">
 					<span class="sf-title">Mass scale factor</span>
 					<div class="sf-option">
-						<input id="sf-mass-scale" style="width: 100px;" type="range" min="0.5" max="4" step="0.05" value="1" list="sf-mass-scale-markers" />
+						<input id="sf-mass-scale" style="width: 100px;" type="range"
+							min="0.5" max="4" step="0.05" value="1" list="sf-mass-scale-markers" />
 						<datalist id="sf-mass-scale-markers"> <option value="1"></option> </datalist>
-						<span id="sf-mass-scale-display" style="width: 40px; text-align: right;">1.00</span>
+						<span id="sf-mass-scale-display" style="width: 40px; text-align: right;"></span>
 					</div>
 				</div>
 				<div class="sf-setting">
 					<span class="sf-title">Mass opacity</span>
 					<div class="sf-option">
-						<input id="sf-mass-opacity" style="width: 100px;" type="range" min="0" max="1" step="0.05" value="1" list="sf-mass-opacity-markers" />
+						<input id="sf-mass-opacity" style="width: 100px;" type="range"
+							min="0" max="1" step="0.05" value="1" list="sf-mass-opacity-markers" />
 						<datalist id="sf-mass-opacity-markers"> <option value="1"></option> </datalist>
-						<span id="sf-mass-opacity-display" style="width: 40px; text-align: right;">1.00</span>
+						<span id="sf-mass-opacity-display" style="width: 40px; text-align: right;"></span>
 					</div>
 				</div>
 				<div class="sf-setting">
@@ -987,9 +1002,10 @@
 				<div class="sf-setting double">
 					<span class="sf-title">Unsplittable cell outline opacity</span>
 					<div class="sf-option">
-						<input id="sf-unsplittable-opacity" style="width: 100px;" type="range" min="0" max="1" step="0.05" value="1" list="sf-unsplittable-opacity-markers" />
+						<input id="sf-unsplittable-opacity" style="width: 100px;" type="range"
+							min="0" max="1" step="0.05" value="1" list="sf-unsplittable-opacity-markers" />
 						<datalist id="sf-unsplittable-opacity-markers"> <option value="1"></option> </datalist>
-						<span id="sf-unsplittable-opacity-display" style="width: 40px; text-align: right;">1.00</span>
+						<span id="sf-unsplittable-opacity-display" style="width: 40px; text-align: right;"></span>
 					</div>
 				</div>
 				<div class="sf-setting">
@@ -1027,11 +1043,12 @@
 				<div class="modRowItems justify-sb">
 					<span>Draw delay</span>
 					<span class="justify-sb">
-						<input id="sfsm-draw-delay" style="width: 200px;" type="range" min="40" max="300" step="5" value="120" list="sfsm-draw-delay-markers" />
+						<input id="sfsm-draw-delay" style="width: 200px;" type="range"
+							min="40" max="300" step="5" value="120" list="sfsm-draw-delay-markers" />
 						<datalist id="sfsm-draw-delay-markers">
 							<option value="120"></option>
 						</datalist>
-						<span id="sfsm-draw-delay-display" class="text-center" style="width: 75px;">120</span>
+						<span id="sfsm-draw-delay-display" class="text-center" style="width: 75px;"></span>
 					</span>
 				</div>
 				<div class="modRowItems justify-sb">
@@ -1058,31 +1075,34 @@
 				<div class="modRowItems justify-sb">
 					<span>Name scale factor</span>
 					<span class="justify-sb">
-						<input id="sfsm-name-scale-factor" style="width: 200px;" type="range" min="0.5" max="2" step="0.05" value="1" list="sfsm-name-scale-factor-markers" />
+						<input id="sfsm-name-scale-factor" style="width: 200px;" type="range"
+							min="0.5" max="2" step="0.05" value="1" list="sfsm-name-scale-factor-markers" />
 						<datalist id="sfsm-name-scale-factor-markers">
 							<option value="1"></option>
 						</datalist>
-						<span id="sfsm-name-scale-factor-display" class="text-center" style="width: 75px;">1.00</span>
+						<span id="sfsm-name-scale-factor-display" class="text-center" style="width: 75px;"></span>
 					</span>
 				</div>
 				<div class="modRowItems justify-sb">
 					<span>Mass scale factor</span>
 					<span class="justify-sb">
-						<input id="sfsm-mass-scale-factor" style="width: 200px;" type="range" min="0.5" max="4" step="0.05" value="1" list="sfsm-mass-scale-factor-markers" />
+						<input id="sfsm-mass-scale-factor" style="width: 200px;" type="range"
+							min="0.5" max="4" step="0.05" value="1" list="sfsm-mass-scale-factor-markers" />
 						<datalist id="sfsm-mass-scale-factor-markers">
 							<option value="1"></option>
 						</datalist>
-						<span id="sfsm-mass-scale-factor-display" class="text-center" style="width: 75px;">1.00</span>
+						<span id="sfsm-mass-scale-factor-display" class="text-center" style="width: 75px;"></span>
 					</span>
 				</div>
 				<div class="modRowItems justify-sb">
 					<span>Mass opacity</span>
 					<span class="justify-sb">
-						<input id="sfsm-mass-opacity" style="width: 200px;" type="range" min="0" max="1" step="0.05" value="1" list="sfsm-mass-opacity-markers" />
+						<input id="sfsm-mass-opacity" style="width: 200px;" type="range"
+							min="0" max="1" step="0.05" value="1" list="sfsm-mass-opacity-markers" />
 						<datalist id="sfsm-mass-opacity-markers">
 							<option value="1"></option>
 						</datalist>
-						<span id="sfsm-mass-opacity-display" class="text-center" style="width: 75px;">1.00</span>
+						<span id="sfsm-mass-opacity-display" class="text-center" style="width: 75px;"></span>
 					</span>
 				</div>
 				<div class="modRowItems justify-sb">
@@ -1108,11 +1128,12 @@
 				<div class="modRowItems justify-sb">
 					<span>Unsplittable cell outline opacity</span>
 					<span class="justify-sb">
-						<input id="sfsm-unsplittable-opacity" style="width: 200px;" type="range" min="0" max="1" step="0.05" value="1" list="sfsm-unsplittable-opacity-markers" />
+						<input id="sfsm-unsplittable-opacity" style="width: 200px;" type="range"
+							min="0" max="1" step="0.05" value="1" list="sfsm-unsplittable-opacity-markers" />
 						<datalist id="sfsm-unsplittable-opacity-markers">
 							<option value="1"></option>
 						</datalist>
-						<span id="sfsm-unsplittable-opacity-display" class="text-center" style="width: 75px;">1.00</span>
+						<span id="sfsm-unsplittable-opacity-display" class="text-center" style="width: 75px;"></span>
 					</span>
 				</div>
 				<div class="modRowItems justify-sb">
@@ -1137,7 +1158,8 @@
 			registerCheckbox('#sfsm-name-bold', 'nameBold');
 			registerCheckbox('#sfsm-mass-bold', 'massBold');
 			registerInput('#sfsm-self-skin', 'selfSkin', false);
-			registerSlider('#sfsm-unsplittable-opacity', '#sfsm-unsplittable-opacity-display', 'unsplittableOpacity', 2);
+			registerSlider(
+				'#sfsm-unsplittable-opacity', '#sfsm-unsplittable-opacity-display', 'unsplittableOpacity', 2);
 			registerCheckbox('#sfsm-cell-outlines', 'cellOutlines');
 
 			const navButton = fromHTML('<button class="mod_nav_btn">🔥 Sig Fixes</button>');
@@ -1275,7 +1297,7 @@
 				speed[1] * 6 - 3 + Math.sign(speed[1] - 0.5), shift[1],
 				speed[2] * 6 - 3 + Math.sign(speed[2] - 0.5), shift[2],
 			]);
-		}
+		};
 
 		// clean up dead cells
 		setInterval(() => {
@@ -1685,7 +1707,12 @@
 						if (myPosition - 1 >= lb.length) {
 							/** @type {HTMLInputElement | null} */
 							const inputName = document.querySelector('input#nick');
-							lb.push({ name: aux.parseName(inputName?.value ?? ''), sub: false, me: true, place: myPosition });
+							lb.push({
+								me: true,
+								name: aux.parseName(inputName?.value ?? ''),
+								place: myPosition,
+								sub: false,
+							});
 						}
 
 						if (myPosition < world.stats.highestPosition)
@@ -2030,10 +2057,11 @@
 				CAPTCHA3 = /** @type {any} */ (window).CAPTCHA3;
 
 				await aux.wait(50);
-			} while (!(CAPTCHA2 && CAPTCHA3 && grecaptcha && grecaptcha.execute && grecaptcha.ready && grecaptcha.render && grecaptcha.reset));
+			} while (!(CAPTCHA2 && CAPTCHA3 && grecaptcha && 'execute' in grecaptcha
+				&& 'ready' in grecaptcha && 'render' in grecaptcha && 'reset' in grecaptcha));
 
-			// prevent game.js from invoking recaptcha, as this can cause a lot of lag whenever sigmod spams the play button
-			// (e.g. when using the respawn keybind)
+			// prevent game.js from invoking recaptcha, as this can cause a lot of lag whenever sigmod spams the play
+			// button (e.g. when using the respawn keybind)
 			// @ts-expect-error
 			window.grecaptcha = {
 				execute: () => new Promise(() => {}),
@@ -2175,7 +2203,7 @@
 			const p = aux.require(
 				gl.createProgram(),
 				'Can\'t make a WebGL2 program. This is likely your browser being dumb and it should resolve itself ' +
-				'after a while.'
+				'after a while.',
 			);
 
 			gl.attachShader(p, vShader);
@@ -2201,7 +2229,7 @@
 			const s = aux.require(
 				gl.createShader(type),
 				'Can\'t make a WebGL2 shader. This is likely your browser being dumb and it should resolve itself ' +
-				'after a while.'
+				'after a while.',
 			);
 
 			gl.shaderSource(s, source);
@@ -2500,13 +2528,21 @@
 		// #1 : define small misc objects
 		const square = gl.createBuffer();
 		gl.bindBuffer(gl.ARRAY_BUFFER, square);
-		gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1.01,-1.01, 1.01,-1.01, -1.01,1.01, 1.01,1.01]), gl.STATIC_DRAW);
+		gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+			// 1.01, rather than 1, to account for jelly physics wobbles
+			-1.01, -1.01,
+			1.01, -1.01,
+			-1.01, 1.01,
+			1.01, 1.01,
+		]), gl.STATIC_DRAW);
 
 		const vao = gl.createVertexArray();
 		gl.bindVertexArray(vao);
 		gl.enableVertexAttribArray(0);
 		gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
 
+		// no point in breaking this across multiple lines
+		// eslint-disable-next-line max-len
 		const gridSrc = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAAAAXNSR0IArs4c6QAAAKVJREFUaEPtkkEKwlAUxBzw/jeWL4J4gECkSrqftC/pzjnn9gfP3ofcf/mWbY8OuVLBilypxutbKlIRyUC/liQWYyuC1UnDikhiMbYiWJ00rIgkFmMrgtVJw4pIYjG2IlidNKyIJBZjK4LVScOKSGIxtiJYnTSsiCQWYyuC1UnDikhiMbYiWJ00rIgkFmMrgtVJw4pIYjG2IlidNPwU2TbpHV/DPgFxJfgvliP9RQAAAABJRU5ErkJggg==';
 
 
@@ -3155,7 +3191,7 @@
 					if (sigmodMinimap.style.width !== '200px' || sigmodMinimap.style.height !== '200px')
 						sigmodMinimap.style.width = sigmodMinimap.style.height = '200px';
 
-					if (sigmodMinimap.width !== 200 * devicePixelRatio || sigmodMinimap.height !== 200 * devicePixelRatio)
+					if (sigmodMinimap.width !== canvas.width || sigmodMinimap.height !== canvas.height)
 						sigmodMinimap.width = sigmodMinimap.height = 200 * devicePixelRatio;
 				}
 
