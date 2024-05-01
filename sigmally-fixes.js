@@ -1352,11 +1352,18 @@
 		const firstGamemode = document.querySelector('#gamemode option');
 
 		function connect() {
-			let server = 'wss://' + (gamemode?.value ?? firstGamemode?.value ?? 'us0.sigmally.com/ws/');
+			let server = 'wss://' + (gamemode?.value || firstGamemode?.value || 'ca0.sigmally.com/ws/');
 			if (location.search.startsWith('?ip='))
 				server = location.search.slice('?ip='.length);
 
-			ws = new destructor.realWebSocket(server);
+			try {
+				ws = new destructor.realWebSocket(server);
+			} catch (err) {
+				console.error(err);
+				aux.require(null, 'The server is invalid. Try changing the server, reloading the page, or clearing ' +
+					'your browser cache and cookies.');
+			}
+
 			destructor.safeWebSockets.add(ws);
 			ws.binaryType = 'arraybuffer';
 			ws.addEventListener('close', wsClose);
