@@ -1924,9 +1924,13 @@
 					break;
 				case 'Space': {
 					if (!e.repeat) {
-						// send immediately, otherwise tabbing out would slow down setInterval and cause late splits
-						mouse();
-						net.split();
+						// send mouse position immediately, so the split will go in the correct direction.
+						// setTimeout is used to ensure that our mouse position is actually updated (it comes after
+						// keydown events)
+						setTimeout(() => {
+							mouse();
+							net.split();
+						});
 					}
 					break;
 				}
