@@ -2462,18 +2462,18 @@
 			out vec2 v_pos;
 
 			void main() {
-				v_pos = a_pos;
+				v_pos = a_pos / 1.01; // correct for jelly physics wobble effect
 
 				vec2 clip_space;
 				if (u_subtext_enabled) {
-					clip_space = a_pos * 0.5 * u_subtext_scale;
+					clip_space = v_pos * 0.5 * u_subtext_scale;
 					clip_space.x += u_subtext_offset * u_subtext_scale;
 					if (!u_subtext_centered) {
 						clip_space.y += 0.5 * u_text_scale;
 						clip_space.y += 0.25 * (u_subtext_scale - 1.0);
 					}
 				} else {
-					clip_space = a_pos * u_text_scale;
+					clip_space = v_pos * u_text_scale;
 				}
 
 				clip_space *= u_radius * 0.45 * vec2(u_text_aspect_ratio, 1.0);
