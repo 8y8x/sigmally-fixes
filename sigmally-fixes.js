@@ -142,6 +142,23 @@
 				gamemode.value = aux.settings.gamemode;
 		}
 
+		const trimCtx = aux.require(
+			document.createElement('canvas').getContext('2d'),
+			'Unable to get 2D context for text utilities. This is probably your browser being dumb, maybe reload ' +
+			'the page?',
+		);
+		trimCtx.font = '20px Ubuntu';
+		/**
+		 * trims text to a max of 250px at 20px font, same as vanilla sigmally
+		 * @param {string} text
+		 */
+		aux.trim = text => {
+			while (trimCtx.measureText(text).width > 250)
+				text = text.slice(0, -1);
+
+			return text;
+		};
+
 		/*
 			If you have Sigmally open in two tabs and you're playing with an account, one has an outdated token while
 			the other has the latest one. This causes problems because the tab with the old token does not work properly
@@ -699,11 +716,11 @@
 				const container = document.createElement('div');
 				const author = document.createElement('span');
 				author.style.cssText = `color: ${aux.rgb2hex(rgb)}; padding-right: 0.75em;`;
-				author.textContent = authorName;
+				author.textContent = aux.trim(authorName);
 				container.appendChild(author);
 
 				const msg = document.createElement('span');
-				msg.textContent = text;
+				msg.textContent = aux.trim(text);
 				container.appendChild(msg);
 
 				while (list.children.length > 100)
@@ -2710,10 +2727,11 @@
 
 				let entry = cache.get(text);
 				if (!entry) {
+					const shortened = aux.trim(text);
 					entry = {
-						text: texture(text, false, false),
+						text: texture(shortened, false, false),
 						aspectRatio: canvas.width / canvas.height, // mind the execution order
-						silhouette: silhouette ? texture(text, true, false) : undefined,
+						silhouette: silhouette ? texture(shortened, true, false) : undefined,
 						accessed: performance.now(),
 					};
 					cache.set(text, entry);
@@ -2722,7 +2740,7 @@
 				}
 
 				if (silhouette && !entry.silhouette)
-					entry.silhouette = texture(text, true, false);
+					entry.silhouette = texture(aux.trim(text), true, false);
 
 				return entry;
 			};
