@@ -1221,7 +1221,8 @@
 		/** @type {Map<string, SyncData>} */
 		sync.others = new Map();
 
-		const channel = new BroadcastChannel('sigfix-worldsync');
+		const frame = new BroadcastChannel('sigfix-frame');
+		const worldsync = new BroadcastChannel('sigfix-worldsync');
 		const self = Date.now() + '-' + Math.random();
 
 		sync.broadcast = () => {
@@ -1236,10 +1237,20 @@
 				owned,
 				skin: settings.selfSkin,
 			};
-			channel.postMessage(syncData);
+			worldsync.postMessage(syncData);
 		};
 
-		channel.addEventListener('message', m => {
+		sync.frame = () => {
+			frame.postMessage(undefined);
+		};
+
+		frame.addEventListener('message', () => {
+			// only update the world if we aren't rendering ourselves (example case: games open on two monitors)
+			if (document.visibilityState === 'hidden')
+				world.update();
+		});
+
+		worldsync.addEventListener('message', m => {
 			/** @type {SyncData} */
 			const data = m.data;
 			sync.others.set(data.self, data);
@@ -1305,6 +1316,49 @@
 				cell.jelly.r = aux.exponentialEase(cell.jelly.r, cell.r, 5, dt);
 			}
 		};
+
+		let last = performance.now();
+		world.update = function() {
+			const now = performance.now();
+			const dt = (now - last) / 1000;
+			last = now;
+
+			world.cells.forEach(cell => world.move(cell, now, dt));
+
+			// move camera
+			let avgX = 0;
+			let avgY = 0;
+			let totalR = 0;
+			let totalCells = 0;
+
+			world.mine.forEach(id => {
+				const cell = world.cells.get(id);
+				if (!cell || cell.dead) return;
+
+				avgX += cell.x;
+				avgY += cell.y;
+				totalR += cell.r;
+				++totalCells;
+			});
+
+			avgX /= totalCells;
+			avgY /= totalCells;
+
+			let xyEaseFactor;
+			if (totalCells > 0) {
+				world.camera.tx = avgX;
+				world.camera.ty = avgY;
+				world.camera.tscale = Math.min(64 / totalR) ** 0.4 * input.zoom;
+
+				xyEaseFactor = 2;
+			} else {
+				xyEaseFactor = 20;
+			}
+
+			world.camera.x = aux.exponentialEase(world.camera.x, world.camera.tx, xyEaseFactor, dt);
+			world.camera.y = aux.exponentialEase(world.camera.y, world.camera.ty, xyEaseFactor, dt);
+			world.camera.scale = aux.exponentialEase(world.camera.scale, world.camera.tscale, 9, dt);
+		}
 
 		/** @returns {Float32Array} */
 		world.wobble = function() {
@@ -2874,42 +2928,8 @@
 			})();
 
 			(function updateCells() {
-				world.cells.forEach(cell => world.move(cell, now, dt));
-			})();
-
-			(function moveCamera() {
-				let avgX = 0;
-				let avgY = 0;
-				let totalR = 0;
-				let totalCells = 0;
-
-				world.mine.forEach(id => {
-					const cell = world.cells.get(id);
-					if (!cell || cell.dead) return;
-
-					avgX += cell.x;
-					avgY += cell.y;
-					totalR += cell.r;
-					++totalCells;
-				});
-
-				avgX /= totalCells;
-				avgY /= totalCells;
-
-				let xyEaseFactor;
-				if (totalCells > 0) {
-					world.camera.tx = avgX;
-					world.camera.ty = avgY;
-					world.camera.tscale = Math.min(64 / totalR) ** 0.4 * input.zoom;
-
-					xyEaseFactor = 2;
-				} else {
-					xyEaseFactor = 20;
-				}
-
-				world.camera.x = aux.exponentialEase(world.camera.x, world.camera.tx, xyEaseFactor, dt);
-				world.camera.y = aux.exponentialEase(world.camera.y, world.camera.ty, xyEaseFactor, dt);
-				world.camera.scale = aux.exponentialEase(world.camera.scale, world.camera.tscale, 9, dt);
+				world.update();
+				sync.frame();
 			})();
 
 			(function cells() {
