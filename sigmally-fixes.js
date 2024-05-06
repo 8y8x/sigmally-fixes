@@ -330,8 +330,9 @@
 				// forward macro inputs from the canvas to the old one - this is for sigmod mouse button controls
 				newCanvas.addEventListener('mousedown', e => oldCanvas.dispatchEvent(new MouseEvent('mousedown', e)));
 				newCanvas.addEventListener('mouseup', e => oldCanvas.dispatchEvent(new MouseEvent('mouseup', e)));
-				// forward mouse movements from the old canvas to the new one - this is for sigmod mouse keybinds
-				oldCanvas.addEventListener('mousemove', e => newCanvas.dispatchEvent(new MouseEvent('mousemove', e)));
+				// forward mouse movements from the old canvas to the window - this is for sigmod keybinds that move
+				// the mouse
+				oldCanvas.addEventListener('mousemove', e => dispatchEvent(new MouseEvent('mousemove', e)));
 			}
 
 			const gl = aux.require(
@@ -1929,8 +1930,12 @@
 		}, 40);
 
 		// sigmod freezes the player by overlaying an invisible div, so we just listen for canvas movements instead
-		ui.game.canvas.addEventListener('mousemove', e => {
+		addEventListener('mousemove', e => {
 			if (ui.escOverlayVisible()) return;
+			// sigmod freezes the player by overlaying an invisible div, so we respect it
+			if (e.target instanceof HTMLDivElement
+				&& /** @type {CSSUnitValue | undefined} */ (e.target.attributeStyleMap.get('z-index'))?.value === 99)
+				return;
 			mouseX = e.clientX;
 			mouseY = e.clientY;
 		});
