@@ -122,6 +122,16 @@
 		}, 50);
 
 		/**
+		 * @param {string} selector
+		 * @param {boolean} value
+		 */
+		aux.setting = (selector, value) => {
+			/** @type {HTMLInputElement | null} */
+			const el = document.querySelector(selector);
+			return el ? el.checked : value;
+		}
+
+		/**
 		 * Only changes sometimes, like when your skin is updated
 		 * @type {object | undefined}
 		 */
@@ -400,13 +410,7 @@
 			}
 
 			function matchTheme() {
-				let color = '#fff';
-
-				/** @type {HTMLInputElement | null} */
-				const darkTheme = document.querySelector('input#darkTheme');
-				if (darkTheme && !darkTheme.checked)
-					color = '#000';
-
+				let color = aux.setting('input#darkTheme', true) ? '#fff' : '#000';
 				score.style.color = color;
 				measures.style.color = color;
 				misc.style.color = color;
@@ -744,13 +748,7 @@
 			};
 
 			chat.matchTheme = () => {
-				/** @type {HTMLInputElement | null} */
-				const darkTheme = document.querySelector('input#darkTheme');
-				if (!darkTheme || darkTheme.checked) {
-					list.style.color = '#fffc';
-				} else {
-					list.style.color = '#000c';
-				}
+				list.style.color = aux.setting('input#darkTheme', true) ? '#fffc' : '#000c';
 			};
 
 			return chat;
@@ -1335,6 +1333,8 @@
 				const cell = world.cells.get(id);
 				if (!cell || cell.dead) return;
 
+				if (jellyPhysics) {
+				}
 				avgX += cell.x;
 				avgY += cell.y;
 				totalR += cell.r;
@@ -2095,8 +2095,6 @@
 			const nickElement = document.querySelector('input#nick');
 			/** @type {HTMLInputElement | null} */
 			const password = document.querySelector('input#password');
-			/** @type {HTMLInputElement | null} */
-			const showClanmatesElement = document.querySelector('input#showClanmates');
 
 			return {
 				state: spectating ? 2 : undefined,
@@ -2105,7 +2103,7 @@
 				token: aux.token?.token,
 				sub: (aux.userData?.subscription ?? 0) > Date.now(),
 				clan: aux.userData?.clan,
-				showClanmates: !showClanmatesElement || showClanmatesElement.checked,
+				showClanmates: aux.setting('input#showClanmates', true),
 				password: password?.value,
 			};
 		}
@@ -2845,24 +2843,14 @@
 					nameColor2 = aux.hex2rgb(aux.sigmod.gradientName.color2);
 			}
 
-			/**
-			 * @param {string} selector
-			 * @param {boolean} value
-			 */
-			function setting(selector, value) {
-				/** @type {HTMLInputElement | null} */
-				const el = document.querySelector(selector);
-				return el ? el.checked : value;
-			}
-
-			const darkTheme = setting('input#darkTheme', true);
-			const jellyPhysics = setting('input#jellyPhysics', false);
-			const showBorder = setting('input#showBorder', true);
-			const showGrid = setting('input#showGrid', true);
-			const showMass = setting('input#showMass', false);
-			const showMinimap = setting('input#showMinimap', true);
-			const showNames = setting('input#showNames', true);
-			const showSkins = setting('input#showSkins', true);
+			const darkTheme = aux.setting('input#darkTheme', true);
+			const jellyPhysics = aux.setting('input#jellyPhysics', false);
+			const showBorder = aux.setting('input#showBorder', true);
+			const showGrid = aux.setting('input#showGrid', true);
+			const showMass = aux.setting('input#showMass', false);
+			const showMinimap = aux.setting('input#showMinimap', true);
+			const showNames = aux.setting('input#showNames', true);
+			const showSkins = aux.setting('input#showSkins', true);
 
 			/** @type {HTMLInputElement | null} */
 			const nickElement = document.querySelector('input#nick');
