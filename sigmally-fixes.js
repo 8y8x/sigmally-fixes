@@ -1333,8 +1333,6 @@
 				const cell = world.cells.get(id);
 				if (!cell || cell.dead) return;
 
-				if (jellyPhysics) {
-				}
 				avgX += cell.x;
 				avgY += cell.y;
 				totalR += cell.r;
