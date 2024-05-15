@@ -455,6 +455,9 @@
 					line.textContent = `${entry.place ?? i + 1}. ${entry.name}`;
 					if (entry.me)
 						line.style.color = '#faa';
+					else if (aux?.sigmod?.friends_settings?.highlight_friends
+						&& aux.sigmod?.friend_names?.has(entry.name))
+						line.style.color = aux.sigmod?.friends_settings?.highlight_color || '#fff';
 					else if (entry.sub)
 						line.style.color = '#ffc826';
 					else
@@ -718,9 +721,14 @@
 			chat.add = (authorName, rgb, text) => {
 				lastWasBarrier = false;
 
+				let color = aux.rgb2hex(rgb);
+				if (aux?.sigmod?.friends_settings?.highlight_friends && aux.sigmod?.friend_names?.has(authorName)) {
+					color = aux.sigmod?.friends_settings?.highlight_color || color;
+				}
+
 				const container = document.createElement('div');
 				const author = document.createElement('span');
-				author.style.cssText = `color: ${aux.rgb2hex(rgb)}; padding-right: 0.75em;`;
+				author.style.cssText = `color: ${color}; padding-right: 0.75em;`;
 				author.textContent = aux.trim(authorName);
 				container.appendChild(author);
 
