@@ -2140,6 +2140,7 @@
 
 			// prevent game.js from invoking recaptcha, as this can cause a lot of lag whenever sigmod spams the play
 			// button (e.g. when using the respawn keybind)
+			input.grecaptcha = grecaptcha;
 			// @ts-expect-error
 			window.grecaptcha = {
 				execute: () => new Promise(() => {}),
