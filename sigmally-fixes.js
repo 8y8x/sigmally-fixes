@@ -3365,5 +3365,5 @@
 
 
 	// @ts-expect-error for debugging purposes. dm me on discord @8y8x to work out stability if you need something
-	window.sigfix = { destructor, aux, ui, settings, sync, world, net, render };
+	window.sigfix = { destructor, aux, ui, settings, sync, world, net, input, render };
 })();
