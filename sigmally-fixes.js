@@ -1450,12 +1450,17 @@
 		const firstGamemode = document.querySelector('#gamemode option');
 
 		function connect() {
-			let server = 'wss://' + (gamemode?.value || firstGamemode?.value || 'ca0.sigmally.com/ws/');
+			let server = gamemode?.value || firstGamemode?.value || 'ca0.sigmally.com/ws/';
 			if (location.search.startsWith('?ip='))
 				server = location.search.slice('?ip='.length);
 
+			let protocol = 'wss://';
+			if (server.startsWith('localhost')) {
+				protocol = 'ws://';
+			}
+
 			try {
-				ws = new destructor.realWebSocket(server);
+				ws = new destructor.realWebSocket(protocol + server);
 			} catch (err) {
 				console.error('can\'t make WebSocket:', err);
 				aux.require(null, 'The server is invalid. Try changing the server, reloading the page, or clearing ' +
