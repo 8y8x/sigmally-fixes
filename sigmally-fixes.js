@@ -353,6 +353,15 @@
 
 			game.gl = gl;
 
+			// indicate that we will restore the context
+			newCanvas.addEventListener('webglcontextlost', e => {
+				e.preventDefault(); // signal that we want to restore the context
+				// cleanup old caches (after render), as we can't do this within initWebGL()
+				render.resetTextCache();
+				render.resetTextureCache();
+			});
+			newCanvas.addEventListener('webglcontextrestored', () => initWebGL());
+
 			game.viewportScale = 1;
 			function resize() {
 				newCanvas.width = Math.floor(innerWidth * devicePixelRatio);
@@ -2255,26 +2264,26 @@
 
 
 
-	//////////////////////////////
-	// Configure WebGL Programs //
-	//////////////////////////////
-	const { programs, uniforms } = (() => {
-		// #1 : init webgl context, define helper functions
-		const gl = ui.game.gl;
-		gl.enable(gl.BLEND);
-		gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+	//////////////////////////
+	// Configure WebGL Data //
+	//////////////////////////
+	const { init: initWebGL, obj: glObj, programs, uniforms } = (() => {
+		// note: WebGL functions only really return null if the context is lost - in which case, data will be replaced
+		// anyway after it's restored. so, we cast everything to a non-null type.
+		const obj = {};
+		const programs = {};
+		const uniforms = {};
 
+		const gl = ui.game.gl;
+
+		// define helper functions
 		/**
 		 * @param {string} name
 		 * @param {WebGLShader} vShader
 		 * @param {WebGLShader} fShader
 		 */
 		function program(name, vShader, fShader) {
-			const p = aux.require(
-				gl.createProgram(),
-				'Can\'t make a WebGL2 program. This is likely your browser being dumb and it should resolve itself ' +
-				'after a while.',
-			);
+			const p = /** @type {WebGLProgram} */ (gl.createProgram());
 
 			gl.attachShader(p, vShader);
 			gl.attachShader(p, fShader);
@@ -2282,7 +2291,7 @@
 
 			// note: linking errors should not happen in production
 			aux.require(
-				gl.getProgramParameter(p, gl.LINK_STATUS),
+				gl.getProgramParameter(p, gl.LINK_STATUS) || !gl.isContextLost(),
 				`Can\'t link WebGL2 program "${name}". You might be on a weird browser.\n\nFull error log:\n` +
 				gl.getProgramInfoLog(p),
 			);
@@ -2296,18 +2305,13 @@
 		 * @param {string} source
 		 */
 		function shader(name, type, source) {
-			const s = aux.require(
-				gl.createShader(type),
-				'Can\'t make a WebGL2 shader. This is likely your browser being dumb and it should resolve itself ' +
-				'after a while.',
-			);
-
+			const s = /** @type {WebGLShader} */ (gl.createShader(type));
 			gl.shaderSource(s, source);
 			gl.compileShader(s);
 
 			// note: compilation errors should not happen in production
 			aux.require(
-				gl.getShaderParameter(s, gl.COMPILE_STATUS),
+				gl.getShaderParameter(s, gl.COMPILE_STATUS) || !gl.isContextLost(),
 				`Can\'t compile WebGL2 shader "${name}". You might be on a weird browser.\n\nFull error log:\n` +
 				gl.getShaderInfoLog(s),
 			);
@@ -2326,10 +2330,9 @@
 			/** @type {{ [x in T]?: WebGLUniformLocation }} */
 			const uniforms = {};
 			names.forEach(name => {
-				const loc = aux.require(
-					gl.getUniformLocation(program, name),
-					`Can\'t find WebGL2 uniform "${name}" in program "${programName}".`,
-				);
+				const loc = /** @type {WebGLUniformLocation} */ (gl.getUniformLocation(program, name));
+				aux.require(
+					loc || !gl.isContextLost(), `Can\'t find WebGL2 uniform "${name}" in program "${programName}".`);
 
 				uniforms[name] = loc;
 			});
@@ -2339,251 +2342,273 @@
 
 
 
-		// #2 : create programs
-		const programs = {};
-		const uniforms = {};
+		function init() {
+			gl.enable(gl.BLEND);
+			gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-		programs.bg = program(
-			'bg',
-			shader('bg.vShader', gl.VERTEX_SHADER, `#version 300 es
-			layout(location = 0) in vec2 a_pos;
+			// create programs and uniforms
+			programs.bg = program(
+				'bg',
+				shader('bg.vShader', gl.VERTEX_SHADER, `#version 300 es
+				layout(location = 0) in vec2 a_pos;
 
-			uniform float u_aspect_ratio;
-			uniform vec2 u_camera_pos;
-			uniform float u_camera_scale;
+				uniform float u_aspect_ratio;
+				uniform vec2 u_camera_pos;
+				uniform float u_camera_scale;
 
-			out vec2 v_world_pos;
+				out vec2 v_world_pos;
 
-			void main() {
-				gl_Position = vec4(a_pos, 0, 1);
+				void main() {
+					gl_Position = vec4(a_pos, 0, 1);
 
-				v_world_pos = a_pos * vec2(u_aspect_ratio, 1.0) / u_camera_scale;
-				v_world_pos += u_camera_pos * vec2(1.0, -1.0);
-			}
-			`),
-			shader('bg.fShader', gl.FRAGMENT_SHADER, `#version 300 es
-			precision highp float;
-			in vec2 v_world_pos;
+					v_world_pos = a_pos * vec2(u_aspect_ratio, 1.0) / u_camera_scale;
+					v_world_pos += u_camera_pos * vec2(1.0, -1.0);
+				}
+				`),
+				shader('bg.fShader', gl.FRAGMENT_SHADER, `#version 300 es
+				precision highp float;
+				in vec2 v_world_pos;
 
-			uniform float u_camera_scale;
+				uniform float u_camera_scale;
 
-			uniform vec4 u_border_color;
-			uniform float[4] u_border_lrtb;
-			uniform bool u_dark_theme_enabled;
-			uniform bool u_grid_enabled;
-			uniform sampler2D u_texture;
+				uniform vec4 u_border_color;
+				uniform float[4] u_border_lrtb;
+				uniform bool u_dark_theme_enabled;
+				uniform bool u_grid_enabled;
+				uniform sampler2D u_texture;
 
-			out vec4 out_color;
+				out vec4 out_color;
 
-			void main() {
-				if (u_grid_enabled) {
-					vec2 t_coord = v_world_pos / 50.0;
-					out_color = texture(u_texture, t_coord);
-					// fade grid pixels so when they become <1px wide, they're invisible
-					float alpha = clamp(u_camera_scale * 540.0 * 50.0, 0.0, 1.0) * 0.1;
-					if (u_dark_theme_enabled) {
-						out_color *= vec4(1, 1, 1, alpha);
+				void main() {
+					if (u_grid_enabled) {
+						vec2 t_coord = v_world_pos / 50.0;
+						out_color = texture(u_texture, t_coord);
+						// fade grid pixels so when they become <1px wide, they're invisible
+						float alpha = clamp(u_camera_scale * 540.0 * 50.0, 0.0, 1.0) * 0.1;
+						if (u_dark_theme_enabled) {
+							out_color *= vec4(1, 1, 1, alpha);
+						} else {
+							out_color *= vec4(0, 0, 0, alpha);
+						}
+					}
+
+					// force border to always be visible, otherwise it flickers
+					float thickness = max(3.0 / (u_camera_scale * 540.0), 25.0);
+
+					// make a larger inner rectangle and a normal inverted outer rectangle
+					float inner_alpha = min(
+						min((v_world_pos.x + thickness) - u_border_lrtb[0], u_border_lrtb[1] - (v_world_pos.x - thickness)),
+						min((v_world_pos.y + thickness) - u_border_lrtb[2], u_border_lrtb[3] - (v_world_pos.y - thickness))
+					);
+					float outer_alpha = max(
+						max(u_border_lrtb[0] - v_world_pos.x, v_world_pos.x - u_border_lrtb[1]),
+						max(u_border_lrtb[2] - v_world_pos.y, v_world_pos.y - u_border_lrtb[3])
+					);
+					float alpha = clamp(min(inner_alpha, outer_alpha), 0.0, 1.0);
+
+					out_color = out_color * (1.0 - alpha) + u_border_color * alpha;
+				}
+				`),
+			);
+			uniforms.bg = getUniforms('bg', programs.bg, [
+				'u_aspect_ratio', 'u_camera_pos', 'u_camera_scale',
+				'u_border_color', 'u_border_lrtb', 'u_dark_theme_enabled', 'u_grid_enabled',
+			]);
+
+
+
+			programs.cell = program(
+				'cell',
+				shader('cell.vShader', gl.VERTEX_SHADER, `#version 300 es
+				layout(location = 0) in vec2 a_pos;
+
+				uniform float u_aspect_ratio;
+				uniform vec2 u_camera_pos;
+				uniform float u_camera_scale;
+
+				uniform float u_inner_radius;
+				uniform float u_outer_radius;
+				uniform vec2 u_pos;
+
+				out vec2 v_pos;
+				out vec2 v_t_coord;
+
+				void main() {
+					v_pos = a_pos;
+					v_t_coord = a_pos / (u_inner_radius / u_outer_radius) * 0.5 + 0.5;
+
+					vec2 clip_pos = -u_camera_pos + u_pos + a_pos * u_outer_radius;
+					clip_pos *= u_camera_scale * vec2(1.0 / u_aspect_ratio, -1.0);
+					gl_Position = vec4(clip_pos, 0, 1);
+				}
+				`),
+				shader('cell.fShader', gl.FRAGMENT_SHADER, `#version 300 es
+				precision highp float;
+				in vec2 v_pos;
+				in vec2 v_t_coord;
+
+				uniform float u_camera_scale;
+
+				uniform float u_alpha;
+				uniform vec4 u_color;
+				uniform float u_outer_radius;
+				uniform vec4 u_outline_color;
+				uniform bool u_outline_thick;
+				uniform sampler2D u_texture;
+				uniform bool u_texture_enabled;
+				uniform float u_time;
+				uniform float u_wobble[6];
+				uniform bool u_wobble_enabled;
+
+				out vec4 out_color;
+
+				void main() {
+					float blur = 0.5 * u_outer_radius * (540.0 * u_camera_scale);
+					float d2 = v_pos.x * v_pos.x + v_pos.y * v_pos.y;
+					float wobble_delta = 0.0;
+					if (u_wobble_enabled && d2 > 0.9) {
+						float theta = atan(v_pos.y, v_pos.x);
+						wobble_delta = sin(2.0 * (theta + u_time * u_wobble[0] + u_wobble[1]))
+							+ sin(3.0 * (theta + u_time * u_wobble[2] + u_wobble[3]))
+							+ sin(5.0 * (theta + u_time * u_wobble[4] + u_wobble[5]));
+						wobble_delta *= 0.75 / u_outer_radius;
+					}
+
+					float a = clamp(-blur * (d2 - (1.0 + wobble_delta)), 0.0, 1.0);
+
+					if (u_texture_enabled) {
+						out_color = texture(u_texture, v_t_coord);
+					}
+					out_color = vec4(out_color.rgb, 1) * out_color.a + u_color * (1.0 - out_color.a);
+
+					// outline
+					// d > 0.98   => d2 > 0.9604 (default)
+					// d > 0.96   => d2 > 0.9216 (thick)
+					float outline_d = u_outline_thick ? 0.9216 : 0.9604;
+					float oa = clamp(blur * (d2 - (outline_d + wobble_delta)), 0.0, 1.0) * u_outline_color.a;
+					out_color.rgb = out_color.rgb * (1.0 - oa) + u_outline_color.rgb * oa;
+
+					out_color.a *= a * u_alpha;
+				}
+				`),
+			);
+			uniforms.cell = getUniforms('cell', programs.cell, [
+				'u_aspect_ratio', 'u_camera_pos', 'u_camera_scale',
+				'u_alpha', 'u_color', 'u_outline_color', 'u_outline_thick', 'u_inner_radius', 'u_outer_radius', 'u_pos',
+				'u_texture_enabled', 'u_time', 'u_wobble', 'u_wobble_enabled',
+			]);
+
+
+
+			programs.text = program(
+				'text',
+				shader('text.vShader', gl.VERTEX_SHADER, `#version 300 es
+				layout(location = 0) in vec2 a_pos;
+
+				uniform float u_aspect_ratio;
+				uniform vec2 u_camera_pos;
+				uniform float u_camera_scale;
+
+				uniform vec2 u_pos;
+				uniform float u_radius;
+				uniform bool u_subtext_centered;
+				uniform bool u_subtext_enabled;
+				uniform float u_subtext_offset;
+				uniform float u_subtext_scale;
+				uniform float u_text_scale;
+				uniform float u_text_aspect_ratio;
+
+				out vec2 v_pos;
+
+				void main() {
+					v_pos = a_pos / 1.01; // correct for jelly physics wobble effect
+
+					vec2 clip_space;
+					if (u_subtext_enabled) {
+						clip_space = v_pos * 0.5 * u_subtext_scale;
+						clip_space.x += u_subtext_offset * u_subtext_scale;
+						if (!u_subtext_centered) {
+							clip_space.y += 0.5 * u_text_scale;
+							clip_space.y += 0.25 * (u_subtext_scale - 1.0);
+						}
 					} else {
-						out_color *= vec4(0, 0, 0, alpha);
+						clip_space = v_pos * u_text_scale;
 					}
+
+					clip_space *= u_radius * 0.45 * vec2(u_text_aspect_ratio, 1.0);
+					clip_space += -u_camera_pos + u_pos;
+					clip_space *= u_camera_scale * vec2(1.0 / u_aspect_ratio, -1.0);
+					gl_Position = vec4(clip_space, 0, 1);
 				}
+				`),
+				shader('text.fShader', gl.FRAGMENT_SHADER, `#version 300 es
+				precision highp float;
+				in vec2 v_pos;
 
-				// force border to always be visible, otherwise it flickers
-				float thickness = max(3.0 / (u_camera_scale * 540.0), 25.0);
+				uniform float u_alpha;
+				uniform vec3 u_color1;
+				uniform vec3 u_color2;
+				uniform bool u_silhouette_enabled;
 
-				// make a larger inner rectangle and a normal inverted outer rectangle
-				float inner_alpha = min(
-					min((v_world_pos.x + thickness) - u_border_lrtb[0], u_border_lrtb[1] - (v_world_pos.x - thickness)),
-					min((v_world_pos.y + thickness) - u_border_lrtb[2], u_border_lrtb[3] - (v_world_pos.y - thickness))
-				);
-				float outer_alpha = max(
-					max(u_border_lrtb[0] - v_world_pos.x, v_world_pos.x - u_border_lrtb[1]),
-					max(u_border_lrtb[2] - v_world_pos.y, v_world_pos.y - u_border_lrtb[3])
-				);
-				float alpha = clamp(min(inner_alpha, outer_alpha), 0.0, 1.0);
+				uniform sampler2D u_texture;
+				uniform sampler2D u_silhouette;
 
-				out_color = out_color * (1.0 - alpha) + u_border_color * alpha;
-			}
-			`),
-		);
-		uniforms.bg = getUniforms('bg', programs.bg, [
-			'u_aspect_ratio', 'u_camera_pos', 'u_camera_scale',
-			'u_border_color', 'u_border_lrtb', 'u_dark_theme_enabled', 'u_grid_enabled',
-		]);
+				out vec4 out_color;
 
+				void main() {
+					vec2 t_coord = v_pos * 0.5 + 0.5;
 
+					float c2_alpha = (t_coord.x + t_coord.y) / 2.0;
+					vec4 color = vec4(u_color1 * (1.0 - c2_alpha) + u_color2 * c2_alpha, 1);
+					vec4 normal = texture(u_texture, t_coord);
 
-		programs.cell = program(
-			'cell',
-			shader('cell.vShader', gl.VERTEX_SHADER, `#version 300 es
-			layout(location = 0) in vec2 a_pos;
+					if (u_silhouette_enabled) {
+						vec4 silhouette = texture(u_silhouette, t_coord);
 
-			uniform float u_aspect_ratio;
-			uniform vec2 u_camera_pos;
-			uniform float u_camera_scale;
-
-			uniform float u_inner_radius;
-			uniform float u_outer_radius;
-			uniform vec2 u_pos;
-
-			out vec2 v_pos;
-			out vec2 v_t_coord;
-
-			void main() {
-				v_pos = a_pos;
-				v_t_coord = a_pos / (u_inner_radius / u_outer_radius) * 0.5 + 0.5;
-
-				vec2 clip_pos = -u_camera_pos + u_pos + a_pos * u_outer_radius;
-				clip_pos *= u_camera_scale * vec2(1.0 / u_aspect_ratio, -1.0);
-				gl_Position = vec4(clip_pos, 0, 1);
-			}
-			`),
-			shader('cell.fShader', gl.FRAGMENT_SHADER, `#version 300 es
-			precision highp float;
-			in vec2 v_pos;
-			in vec2 v_t_coord;
-
-			uniform float u_camera_scale;
-
-			uniform float u_alpha;
-			uniform vec4 u_color;
-			uniform float u_outer_radius;
-			uniform vec4 u_outline_color;
-			uniform bool u_outline_thick;
-			uniform sampler2D u_texture;
-			uniform bool u_texture_enabled;
-			uniform float u_time;
-			uniform float u_wobble[6];
-			uniform bool u_wobble_enabled;
-
-			out vec4 out_color;
-
-			void main() {
-				float blur = 0.5 * u_outer_radius * (540.0 * u_camera_scale);
-				float d2 = v_pos.x * v_pos.x + v_pos.y * v_pos.y;
-				float wobble_delta = 0.0;
-				if (u_wobble_enabled && d2 > 0.9) {
-					float theta = atan(v_pos.y, v_pos.x);
-					wobble_delta = sin(2.0 * (theta + u_time * u_wobble[0] + u_wobble[1]))
-						+ sin(3.0 * (theta + u_time * u_wobble[2] + u_wobble[3]))
-						+ sin(5.0 * (theta + u_time * u_wobble[4] + u_wobble[5]));
-					wobble_delta *= 0.75 / u_outer_radius;
-				}
-
-				float a = clamp(-blur * (d2 - (1.0 + wobble_delta)), 0.0, 1.0);
-
-				if (u_texture_enabled) {
-					out_color = texture(u_texture, v_t_coord);
-				}
-				out_color = vec4(out_color.rgb, 1) * out_color.a + u_color * (1.0 - out_color.a);
-
-				// outline
-				// d > 0.98   => d2 > 0.9604 (default)
-				// d > 0.96   => d2 > 0.9216 (thick)
-				float outline_d = u_outline_thick ? 0.9216 : 0.9604;
-				float oa = clamp(blur * (d2 - (outline_d + wobble_delta)), 0.0, 1.0) * u_outline_color.a;
-				out_color.rgb = out_color.rgb * (1.0 - oa) + u_outline_color.rgb * oa;
-
-				out_color.a *= a * u_alpha;
-			}
-			`),
-		);
-		uniforms.cell = getUniforms('cell', programs.cell, [
-			'u_aspect_ratio', 'u_camera_pos', 'u_camera_scale',
-			'u_alpha', 'u_color', 'u_outline_color', 'u_outline_thick', 'u_inner_radius', 'u_outer_radius', 'u_pos',
-			'u_texture_enabled', 'u_time', 'u_wobble', 'u_wobble_enabled',
-		]);
-
-
-
-		programs.text = program(
-			'text',
-			shader('text.vShader', gl.VERTEX_SHADER, `#version 300 es
-			layout(location = 0) in vec2 a_pos;
-
-			uniform float u_aspect_ratio;
-			uniform vec2 u_camera_pos;
-			uniform float u_camera_scale;
-
-			uniform vec2 u_pos;
-			uniform float u_radius;
-			uniform bool u_subtext_centered;
-			uniform bool u_subtext_enabled;
-			uniform float u_subtext_offset;
-			uniform float u_subtext_scale;
-			uniform float u_text_scale;
-			uniform float u_text_aspect_ratio;
-
-			out vec2 v_pos;
-
-			void main() {
-				v_pos = a_pos / 1.01; // correct for jelly physics wobble effect
-
-				vec2 clip_space;
-				if (u_subtext_enabled) {
-					clip_space = v_pos * 0.5 * u_subtext_scale;
-					clip_space.x += u_subtext_offset * u_subtext_scale;
-					if (!u_subtext_centered) {
-						clip_space.y += 0.5 * u_text_scale;
-						clip_space.y += 0.25 * (u_subtext_scale - 1.0);
+						// #fff - #000 => color (text)
+						// #fff - #fff => #fff (respect emoji)
+						// #888 - #888 => #888 (respect emoji)
+						// #fff - #888 => #888 + color/2 (blur/antialias)
+						out_color = silhouette + (normal - silhouette) * color;
+					} else {
+						out_color = normal * color;
 					}
-				} else {
-					clip_space = v_pos * u_text_scale;
+
+					out_color.a *= u_alpha;
 				}
+				`),
+			);
+			uniforms.text = getUniforms('text', programs.text, [
+				'u_aspect_ratio', 'u_camera_pos', 'u_camera_scale',
+				'u_alpha', 'u_color1', 'u_color2', 'u_pos', 'u_radius', 'u_silhouette', 'u_silhouette_enabled',
+				'u_subtext_centered', 'u_subtext_enabled', 'u_subtext_offset', 'u_subtext_scale', 'u_text_aspect_ratio',
+				'u_text_scale', 'u_texture',
+			]);
 
-				clip_space *= u_radius * 0.45 * vec2(u_text_aspect_ratio, 1.0);
-				clip_space += -u_camera_pos + u_pos;
-				clip_space *= u_camera_scale * vec2(1.0 / u_aspect_ratio, -1.0);
-				gl_Position = vec4(clip_space, 0, 1);
-			}
-			`),
-			shader('text.fShader', gl.FRAGMENT_SHADER, `#version 300 es
-			precision highp float;
-			in vec2 v_pos;
+			// create objects
+			obj.square = gl.createBuffer();
+			gl.bindBuffer(gl.ARRAY_BUFFER, obj.square);
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([ -1, -1,  1, -1,  -1, 1,  1, 1 ]), gl.STATIC_DRAW);
 
-			uniform float u_alpha;
-			uniform vec3 u_color1;
-			uniform vec3 u_color2;
-			uniform bool u_silhouette_enabled;
+			obj.square = gl.createBuffer();
+			gl.bindBuffer(gl.ARRAY_BUFFER, obj.square);
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+				// 1.01, rather than 1, to account for jelly physics wobbles
+				-1.01, -1.01,
+				1.01, -1.01,
+				-1.01, 1.01,
+				1.01, 1.01,
+			]), gl.STATIC_DRAW);
 
-			uniform sampler2D u_texture;
-			uniform sampler2D u_silhouette;
+			const vao = gl.createVertexArray();
+			gl.bindVertexArray(vao);
+			gl.enableVertexAttribArray(0);
+			gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+		}
 
-			out vec4 out_color;
+		init();
 
-			void main() {
-				vec2 t_coord = v_pos * 0.5 + 0.5;
-
-				float c2_alpha = (t_coord.x + t_coord.y) / 2.0;
-				vec4 color = vec4(u_color1 * (1.0 - c2_alpha) + u_color2 * c2_alpha, 1);
-				vec4 normal = texture(u_texture, t_coord);
-
-				if (u_silhouette_enabled) {
-					vec4 silhouette = texture(u_silhouette, t_coord);
-
-					// #fff - #000 => color (text)
-					// #fff - #fff => #fff (respect emoji)
-					// #888 - #888 => #888 (respect emoji)
-					// #fff - #888 => #888 + color/2 (blur/antialias)
-					out_color = silhouette + (normal - silhouette) * color;
-				} else {
-					out_color = normal * color;
-				}
-
-				out_color.a *= u_alpha;
-			}
-			`),
-		);
-		uniforms.text = getUniforms('text', programs.text, [
-			'u_aspect_ratio', 'u_camera_pos', 'u_camera_scale',
-			'u_alpha', 'u_color1', 'u_color2', 'u_pos', 'u_radius', 'u_silhouette', 'u_silhouette_enabled',
-			'u_subtext_centered', 'u_subtext_enabled', 'u_subtext_offset', 'u_subtext_scale', 'u_text_aspect_ratio',
-			'u_text_scale', 'u_texture',
-		]);
-
-
-
-		return { programs, uniforms };
+		return { init, obj, programs, uniforms };
 	})();
 
 
@@ -2594,23 +2619,9 @@
 	const render = (() => {
 		const render = {};
 		const gl = ui.game.gl;
+		const obj = glObj;
 
 		// #1 : define small misc objects
-		const square = gl.createBuffer();
-		gl.bindBuffer(gl.ARRAY_BUFFER, square);
-		gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
-			// 1.01, rather than 1, to account for jelly physics wobbles
-			-1.01, -1.01,
-			1.01, -1.01,
-			-1.01, 1.01,
-			1.01, 1.01,
-		]), gl.STATIC_DRAW);
-
-		const vao = gl.createVertexArray();
-		gl.bindVertexArray(vao);
-		gl.enableVertexAttribArray(0);
-		gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-
 		// no point in breaking this across multiple lines
 		// eslint-disable-next-line max-len
 		const gridSrc = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAAAAXNSR0IArs4c6QAAAKVJREFUaEPtkkEKwlAUxBzw/jeWL4J4gECkSrqftC/pzjnn9gfP3ofcf/mWbY8OuVLBilypxutbKlIRyUC/liQWYyuC1UnDikhiMbYiWJ00rIgkFmMrgtVJw4pIYjG2IlidNKyIJBZjK4LVScOKSGIxtiJYnTSsiCQWYyuC1UnDikhiMbYiWJ00rIgkFmMrgtVJw4pIYjG2IlidNPwU2TbpHV/DPgFxJfgvliP9RQAAAABJRU5ErkJggg==';
@@ -2618,48 +2629,50 @@
 
 
 		// #2 : define helper functions
-		const textureFromCache = (() => {
+		const { resetTextureCache, textureFromCache } = (() => {
 			/** @type {Map<string, WebGLTexture | null>} */
 			const cache = new Map();
 			render.textureCache = cache;
 
-			/**
-			 * @param {string} src
-			 */
-			return src => {
-				const cached = cache.get(src);
-				if (cached !== undefined)
-					return cached ?? undefined;
+			return {
+				resetTextureCache: () => cache.clear(),
+				/**
+				 * @param {string} src
+				 */
+				textureFromCache: src => {
+					const cached = cache.get(src);
+					if (cached !== undefined)
+						return cached ?? undefined;
 
-				cache.set(src, null);
+					cache.set(src, null);
 
-				const image = new Image();
-				image.crossOrigin = 'anonymous';
-				image.addEventListener('load', () => {
-					const texture = aux.require(
-						gl.createTexture(),
-						'Can\'t create a WebGL2 texture. This is probably due to a glitch with your GPU driver or ' +
-						'your browser. Try reloading the page?',
-					);
-					gl.bindTexture(gl.TEXTURE_2D, texture);
-					gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
-					gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
-					gl.generateMipmap(gl.TEXTURE_2D);
-					cache.set(src, texture);
-				});
-				image.src = src;
+					const image = new Image();
+					image.crossOrigin = 'anonymous';
+					image.addEventListener('load', () => {
+						const texture = /** @type {WebGLTexture} */ (gl.createTexture());
+						if (!texture) return;
 
-				return undefined;
+						gl.bindTexture(gl.TEXTURE_2D, texture);
+						gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+						gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
+						gl.generateMipmap(gl.TEXTURE_2D);
+						cache.set(src, texture);
+					});
+					image.src = src;
+
+					return undefined;
+				}
 			};
 		})();
+		render.resetTextureCache = resetTextureCache;
 
-		const { massTextFromCache, textFromCache } = (() => {
+		const { massTextFromCache, resetTextCache, textFromCache } = (() => {
 			/**
 			 * @template {boolean} T
 			 * @typedef {{
 			 * 	aspectRatio: number,
-			 * 	text: WebGLTexture,
-			 *	silhouette: T extends true ? WebGLTexture : WebGLTexture | undefined,
+			 * 	text: WebGLTexture | null,
+			 *	silhouette: WebGLTexture | null | undefined,
 			 * 	accessed: number
 			 * }} CacheEntry
 			 */
@@ -2674,7 +2687,7 @@
 					if (now - entry.accessed > 60_000) {
 						// immediately delete text instead of waiting for GC
 						gl.deleteTexture(entry.text);
-						if (entry.silhouette) gl.deleteTexture(entry.silhouette);
+						if (entry.silhouette !== undefined) gl.deleteTexture(entry.silhouette);
 						cache.delete(text);
 					}
 				});
@@ -2689,18 +2702,21 @@
 
 			const baseTextSize = 96;
 
-			// declare a little awkwardly, after ctx is definitely not null
 			/**
 			 * @param {string} text
 			 * @param {boolean} silhouette
-			 * @param {boolean} subtext
+			 * @param {boolean} mass
+			 * @returns {WebGLTexture | null}
 			 */
-			const texture = function texture(text, silhouette, subtext) {
-				const textSize = baseTextSize * (subtext ? 0.5 * settings.massScaleFactor : settings.nameScaleFactor);
+			const texture = (text, silhouette, mass) => {
+				const texture = gl.createTexture();
+				if (!texture) return texture;
+
+				const textSize = baseTextSize * (mass ? 0.5 * settings.massScaleFactor : settings.nameScaleFactor);
 				const lineWidth = Math.ceil(textSize / 10);
 
 				let font = '';
-				if (subtext ? settings.massBold : settings.nameBold)
+				if (mass ? settings.massBold : settings.nameBold)
 					font = 'bold';
 				font += ' ' + textSize + 'px Ubuntu';
 
@@ -2723,11 +2739,6 @@
 
 				const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-				const texture = aux.require(
-					gl.createTexture(),
-					'Can\'t create a WebGL2 texture. This is probably due to a glitch with your GPU driver or your ' +
-					'browser. Try reloading the page?',
-				);
 				gl.bindTexture(gl.TEXTURE_2D, texture);
 				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, data);
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST_MIPMAP_LINEAR);
@@ -2737,36 +2748,37 @@
 
 			let drawnMassBold = false;
 			let drawnMassScaleFactor = -1;
-			/** @type {Map<string, { aspectRatio: number, texture: WebGLTexture }>} */
-			const massTextCache = new Map();
-			function createMassTextCache() {
-				massTextCache.clear();
-				for (let i = 0; i <= 9; ++i) {
-					massTextCache.set(i.toString(), {
-						texture: texture(i.toString(), false, true),
-						aspectRatio: canvas.width / canvas.height, // mind the execution order
-					});
-				}
-			}
-
-			createMassTextCache();
+			let massAspectRatio = 1; // assumption: all mass digits are the same aspect ratio - true in the Ubuntu font
+			/** @type {(WebGLTexture | undefined)[]} */
+			const massTextCache = [];
 
 			/**
 			 * @param {string} digit
-			 * @returns {{ aspectRatio: number, texture: WebGLTexture }}
+			 * @returns {{ aspectRatio: number, texture: WebGLTexture | null }}
 			 */
 			const massTextFromCache = digit => {
 				if (settings.massScaleFactor !== drawnMassScaleFactor || settings.massBold !== drawnMassBold) {
-					createMassTextCache();
+					while (massTextCache.pop());
 					drawnMassScaleFactor = settings.massScaleFactor;
 					drawnMassBold = settings.massBold;
 				}
 
-				return massTextCache.get(digit) ?? /** @type {any} */ (massTextCache.get('0'));
+				let cached = massTextCache[digit];
+				if (!cached) {
+					cached = massTextCache[digit] = texture(digit, false, true);
+					massAspectRatio = canvas.width / canvas.height;
+				}
+
+				return { aspectRatio: massAspectRatio, texture: cached };
 			};
 
-			let drawnNamesScaleFactor = -1;
+			const resetTextCache = () => {
+				cache.clear();
+				while (massTextCache.pop());
+			};
+
 			let drawnNamesBold = false;
+			let drawnNamesScaleFactor = -1;
 			/**
 			 * @template {boolean} T
 			 * @param {string} text
@@ -2794,14 +2806,15 @@
 					entry.accessed = performance.now();
 				}
 
-				if (silhouette && !entry.silhouette)
+				if (silhouette && entry.silhouette === undefined)
 					entry.silhouette = texture(aux.trim(text), true, false);
 
 				return entry;
 			};
 
-			return { massTextFromCache, textFromCache };
+			return { massTextFromCache, resetTextCache, textFromCache };
 		})();
+		render.resetTextCache = resetTextCache;
 
 
 
@@ -2814,6 +2827,11 @@
 			const dt = Math.max(now - lastFrame, 0.1) / 1000; // there's a chance (now - lastFrame) can be 0
 			fps += (1 / dt - fps) / 10;
 			lastFrame = now;
+
+			if (gl.isContextLost()) {
+				requestAnimationFrame(renderGame);
+				return;
+			}
 
 			// get settings
 			const cellColor = aux.sigmod?.cellColor ? aux.hex2rgb(aux.sigmod.cellColor) : undefined;
