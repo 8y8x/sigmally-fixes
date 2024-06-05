@@ -129,7 +129,7 @@
 			/** @type {HTMLInputElement | null} */
 			const el = document.querySelector(selector);
 			return el ? el.checked : value;
-		}
+		};
 
 		/**
 		 * Only changes sometimes, like when your skin is updated
@@ -1388,7 +1388,7 @@
 			world.camera.x = aux.exponentialEase(world.camera.x, world.camera.tx, xyEaseFactor, dt);
 			world.camera.y = aux.exponentialEase(world.camera.y, world.camera.ty, xyEaseFactor, dt);
 			world.camera.scale = aux.exponentialEase(world.camera.scale, world.camera.tscale, 9, dt);
-		}
+		};
 
 		/** @returns {Float32Array} */
 		world.wobble = function() {
@@ -2290,7 +2290,7 @@
 	//////////////////////////
 	// Configure WebGL Data //
 	//////////////////////////
-	const { init: initWebGL, obj: glObj, programs, uniforms } = (() => {
+	const { init: initWebGL, programs, uniforms } = (() => {
 		// note: WebGL functions only really return null if the context is lost - in which case, data will be replaced
 		// anyway after it's restored. so, we cast everything to a non-null type.
 		const obj = {};
@@ -2420,8 +2420,10 @@
 
 					// make a larger inner rectangle and a normal inverted outer rectangle
 					float inner_alpha = min(
-						min((v_world_pos.x + thickness) - u_border_lrtb[0], u_border_lrtb[1] - (v_world_pos.x - thickness)),
-						min((v_world_pos.y + thickness) - u_border_lrtb[2], u_border_lrtb[3] - (v_world_pos.y - thickness))
+						min((v_world_pos.x + thickness) - u_border_lrtb[0],
+							u_border_lrtb[1] - (v_world_pos.x - thickness)),
+						min((v_world_pos.y + thickness) - u_border_lrtb[2],
+							u_border_lrtb[3] - (v_world_pos.y - thickness))
 					);
 					float outer_alpha = max(
 						max(u_border_lrtb[0] - v_world_pos.x, v_world_pos.x - u_border_lrtb[1]),
@@ -2608,13 +2610,9 @@
 				'u_text_scale', 'u_texture',
 			]);
 
-			// create objects
-			obj.square = gl.createBuffer();
-			gl.bindBuffer(gl.ARRAY_BUFFER, obj.square);
-			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([ -1, -1,  1, -1,  -1, 1,  1, 1 ]), gl.STATIC_DRAW);
-
-			obj.square = gl.createBuffer();
-			gl.bindBuffer(gl.ARRAY_BUFFER, obj.square);
+			// create and bind objects
+			const square = gl.createBuffer();
+			gl.bindBuffer(gl.ARRAY_BUFFER, square);
 			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
 				// 1.01, rather than 1, to account for jelly physics wobbles
 				-1.01, -1.01,
@@ -2631,7 +2629,7 @@
 
 		init();
 
-		return { init, obj, programs, uniforms };
+		return { init, programs, uniforms };
 	})();
 
 
@@ -2642,7 +2640,6 @@
 	const render = (() => {
 		const render = {};
 		const gl = ui.game.gl;
-		const obj = glObj;
 
 		// #1 : define small misc objects
 		// no point in breaking this across multiple lines
@@ -2684,7 +2681,7 @@
 					image.src = src;
 
 					return undefined;
-				}
+				},
 			};
 		})();
 		render.resetTextureCache = resetTextureCache;
