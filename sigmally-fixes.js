@@ -455,9 +455,6 @@
 					line.textContent = `${entry.place ?? i + 1}. ${entry.name}`;
 					if (entry.me)
 						line.style.color = '#faa';
-					else if (aux?.sigmod?.friends_settings?.highlight_friends
-						&& aux.sigmod?.friend_names?.has(entry.name))
-						line.style.color = aux.sigmod?.friends_settings?.highlight_color || '#fff';
 					else if (entry.sub)
 						line.style.color = '#ffc826';
 					else
@@ -721,14 +718,9 @@
 			chat.add = (authorName, rgb, text) => {
 				lastWasBarrier = false;
 
-				let color = aux.rgb2hex(rgb);
-				if (aux?.sigmod?.friends_settings?.highlight_friends && aux.sigmod?.friend_names?.has(authorName)) {
-					color = aux.sigmod?.friends_settings?.highlight_color || color;
-				}
-
 				const container = document.createElement('div');
 				const author = document.createElement('span');
-				author.style.cssText = `color: ${color}; padding-right: 0.75em;`;
+				author.style.cssText = `color: ${aux.rgb2hex(rgb)}; padding-right: 0.75em;`;
 				author.textContent = aux.trim(authorName);
 				container.appendChild(author);
 
@@ -1450,17 +1442,12 @@
 		const firstGamemode = document.querySelector('#gamemode option');
 
 		function connect() {
-			let server = gamemode?.value || firstGamemode?.value || 'ca0.sigmally.com/ws/';
+			let server = 'wss://' + (gamemode?.value || firstGamemode?.value || 'ca0.sigmally.com/ws/');
 			if (location.search.startsWith('?ip='))
 				server = location.search.slice('?ip='.length);
 
-			let protocol = 'wss://';
-			if (server.startsWith('localhost')) {
-				protocol = 'ws://';
-			}
-
 			try {
-				ws = new destructor.realWebSocket(protocol + server);
+				ws = new destructor.realWebSocket(server);
 			} catch (err) {
 				console.error('can\'t make WebSocket:', err);
 				aux.require(null, 'The server is invalid. Try changing the server, reloading the page, or clearing ' +
@@ -2145,7 +2132,6 @@
 
 			// prevent game.js from invoking recaptcha, as this can cause a lot of lag whenever sigmod spams the play
 			// button (e.g. when using the respawn keybind)
-			input.grecaptcha = grecaptcha;
 			// @ts-expect-error
 			window.grecaptcha = {
 				execute: () => new Promise(() => {}),
@@ -3370,5 +3356,5 @@
 
 
 	// @ts-expect-error for debugging purposes. dm me on discord @8y8x to work out stability if you need something
-	window.sigfix = { destructor, aux, ui, settings, sync, world, net, input, render };
+	window.sigfix = { destructor, aux, ui, settings, sync, world, net, render };
 })();
