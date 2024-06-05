@@ -793,6 +793,7 @@
 	/////////////////////////
 	const settings = (() => {
 		let settings = {
+			cellOpacity: 1,
 			cellOutlines: true,
 			drawDelay: 120,
 			jellySkinLag: true,
@@ -967,16 +968,34 @@
 						<span id="sf-draw-delay-display" style="width: 40px; text-align: right;"></span>
 					</div>
 				</div>
-				<div class="sf-setting">
-					<span class="sf-title">Jelly physics effects on skins</span>
+				<div class="sf-setting double">
+					<span class="sf-title">Self skin URL (not synced)</span>
 					<div class="sf-option">
-						<input id="sf-jelly-skin-lag" type="checkbox" />
+						<input id="sf-self-skin" placeholder="https://i.imgur.com/..." type="text" />
+					</div>
+				</div>
+				<div class="sf-setting double">
+					<span class="sf-title">Unsplittable cell outline opacity</span>
+					<div class="sf-option">
+						<input id="sf-unsplittable-opacity" style="width: 100px;" type="range"
+							min="0" max="1" step="0.01" value="1" list="sf-unsplittable-opacity-markers" />
+						<datalist id="sf-unsplittable-opacity-markers"> <option value="1"></option> </datalist>
+						<span id="sf-unsplittable-opacity-display" style="width: 40px; text-align: right;"></span>
 					</div>
 				</div>
 				<div class="sf-setting">
-					<span class="sf-title">Jelly physics wobble effect</span>
+					<span class="sf-title">Cell outlines</span>
 					<div class="sf-option">
-						<input id="sf-jelly-wobble" type="checkbox" />
+						<input id="sf-cell-outlines" type="checkbox" />
+					</div>
+				</div>
+				<div class="sf-setting">
+					<span class="sf-title">Cell opacity</span>
+					<div class="sf-option">
+						<input id="sf-cell-opacity" style="width: 100px;" type="range"
+							min="0" max="1" step="0.01" value="1" list="sf-cell-opacity-markers" />
+						<datalist id="sf-cell-opacity-markers"> <option value="1"></option> </datalist>
+						<span id="sf-cell-opacity-display" style="width: 40px; text-align: right;"></span>
 					</div>
 				</div>
 
@@ -986,7 +1005,7 @@
 					<span class="sf-title">Name scale factor</span>
 					<div class="sf-option">
 						<input id="sf-name-scale" style="width: 100px;" type="range"
-							min="0.5" max="2" step="0.05" value="1" list="sf-name-scale-markers" />
+							min="0.5" max="2" step="0.01" value="1" list="sf-name-scale-markers" />
 						<datalist id="sf-name-scale-markers"> <option value="1"></option> </datalist>
 						<span id="sf-name-scale-display" style="width: 40px; text-align: right;"></span>
 					</div>
@@ -995,7 +1014,7 @@
 					<span class="sf-title">Mass scale factor</span>
 					<div class="sf-option">
 						<input id="sf-mass-scale" style="width: 100px;" type="range"
-							min="0.5" max="4" step="0.05" value="1" list="sf-mass-scale-markers" />
+							min="0.5" max="4" step="0.01" value="1" list="sf-mass-scale-markers" />
 						<datalist id="sf-mass-scale-markers"> <option value="1"></option> </datalist>
 						<span id="sf-mass-scale-display" style="width: 40px; text-align: right;"></span>
 					</div>
@@ -1004,7 +1023,7 @@
 					<span class="sf-title">Mass opacity</span>
 					<div class="sf-option">
 						<input id="sf-mass-opacity" style="width: 100px;" type="range"
-							min="0" max="1" step="0.05" value="1" list="sf-mass-opacity-markers" />
+							min="0" max="1" step="0.01" value="1" list="sf-mass-opacity-markers" />
 						<datalist id="sf-mass-opacity-markers"> <option value="1"></option> </datalist>
 						<span id="sf-mass-opacity-display" style="width: 40px; text-align: right;"></span>
 					</div>
@@ -1019,40 +1038,32 @@
 
 				<div class="sf-separator">•</div>
 
-				<div class="sf-setting double">
-					<span class="sf-title">Self skin URL (not synced)</span>
+				<div class="sf-setting">
+					<span class="sf-title">Jelly physics effects on skins</span>
 					<div class="sf-option">
-						<input id="sf-self-skin" placeholder="https://i.imgur.com/..." type="text" />
-					</div>
-				</div>
-				<div class="sf-setting double">
-					<span class="sf-title">Unsplittable cell outline opacity</span>
-					<div class="sf-option">
-						<input id="sf-unsplittable-opacity" style="width: 100px;" type="range"
-							min="0" max="1" step="0.05" value="1" list="sf-unsplittable-opacity-markers" />
-						<datalist id="sf-unsplittable-opacity-markers"> <option value="1"></option> </datalist>
-						<span id="sf-unsplittable-opacity-display" style="width: 40px; text-align: right;"></span>
+						<input id="sf-jelly-skin-lag" type="checkbox" />
 					</div>
 				</div>
 				<div class="sf-setting">
-					<span class="sf-title">Cell outlines</span>
+					<span class="sf-title">Jelly physics wobble effect</span>
 					<div class="sf-option">
-						<input id="sf-cell-outlines" type="checkbox" />
+						<input id="sf-jelly-wobble" type="checkbox" />
 					</div>
 				</div>
 			</div>`));
 
 			registerSlider('#sf-draw-delay', '#sf-draw-delay-display', 'drawDelay', 0);
-			registerCheckbox('#sf-jelly-skin-lag', 'jellySkinLag');
-			registerCheckbox('#sf-jelly-wobble', 'jellyWobble');
+			registerInput('#sf-self-skin', 'selfSkin', false);
+			registerSlider('#sf-unsplittable-opacity', '#sf-unsplittable-opacity-display', 'unsplittableOpacity', 2);
+			registerCheckbox('#sf-cell-outlines', 'cellOutlines');
+			registerSlider('#sf-cell-opacity', '#sf-cell-opacity-display', 'cellOpacity', 2);
 			registerSlider('#sf-name-scale', '#sf-name-scale-display', 'nameScaleFactor', 2);
 			registerSlider('#sf-mass-scale', '#sf-mass-scale-display', 'massScaleFactor', 2);
 			registerSlider('#sf-mass-opacity', '#sf-mass-opacity-display', 'massOpacity', 2);
 			registerCheckbox('#sf-name-bold', 'nameBold');
 			registerCheckbox('#sf-mass-bold', 'massBold');
-			registerInput('#sf-self-skin', 'selfSkin', false);
-			registerSlider('#sf-unsplittable-opacity', '#sf-unsplittable-opacity-display', 'unsplittableOpacity', 2);
-			registerCheckbox('#sf-cell-outlines', 'cellOutlines');
+			registerCheckbox('#sf-jelly-skin-lag', 'jellySkinLag');
+			registerCheckbox('#sf-jelly-wobble', 'jellyWobble');
 		})();
 
 		// #3 : create options for sigmod
@@ -1078,22 +1089,39 @@
 					</span>
 				</div>
 				<div class="modRowItems justify-sb">
-					<span>Jelly physics effect on skins</span>
+					<span>Self skin URL (not synced)</span>
+					<input class="modInput" id="sfsm-self-skin" placeholder="https://i.imgur.com/..." type="text" />
+				</div>
+				<div class="modRowItems justify-sb">
+					<span>Unsplittable cell outline opacity</span>
+					<span class="justify-sb">
+						<input id="sfsm-unsplittable-opacity" style="width: 200px;" type="range"
+							min="0" max="1" step="0.01" value="1" list="sfsm-unsplittable-opacity-markers" />
+						<datalist id="sfsm-unsplittable-opacity-markers">
+							<option value="1"></option>
+						</datalist>
+						<span id="sfsm-unsplittable-opacity-display" class="text-center" style="width: 75px;"></span>
+					</span>
+				</div>
+				<div class="modRowItems justify-sb">
+					<span>Cell outlines</span>
 					<div style="width: 75px; text-align: center;">
 						<div class="modCheckbox" style="display: inline-block;">
-							<input id="sfsm-jelly-skin-lag" type="checkbox" />
-							<label class="cbx" for="sfsm-jelly-skin-lag"></label>
+							<input id="sfsm-cell-outlines" type="checkbox" />
+							<label class="cbx" for="sfsm-cell-outlines"></label>
 						</div>
 					</div>
 				</div>
 				<div class="modRowItems justify-sb">
-					<span>Jelly physics wobble effect</span>
-					<div style="width: 75px; text-align: center;">
-						<div class="modCheckbox" style="display: inline-block;">
-							<input id="sfsm-jelly-wobble" type="checkbox" />
-							<label class="cbx" for="sfsm-jelly-wobble"></label>
-						</div>
-					</div>
+					<span>Cell opacity</span>
+					<span class="justify-sb">
+						<input id="sfsm-cell-opacity" style="width: 200px;" type="range"
+							min="0" max="1" step="0.01" value="1" list="sfsm-cell-opacity-markers" />
+						<datalist id="sfsm-cell-opacity-markers">
+							<option value="1"></option>
+						</datalist>
+						<span id="sfsm-cell-opacity-display" class="text-center" style="width: 75px;"></span>
+					</span>
 				</div>
 
 				<span class="text-center">•</span>
@@ -1102,7 +1130,7 @@
 					<span>Name scale factor</span>
 					<span class="justify-sb">
 						<input id="sfsm-name-scale-factor" style="width: 200px;" type="range"
-							min="0.5" max="2" step="0.05" value="1" list="sfsm-name-scale-factor-markers" />
+							min="0.5" max="2" step="0.01" value="1" list="sfsm-name-scale-factor-markers" />
 						<datalist id="sfsm-name-scale-factor-markers">
 							<option value="1"></option>
 						</datalist>
@@ -1113,7 +1141,7 @@
 					<span>Mass scale factor</span>
 					<span class="justify-sb">
 						<input id="sfsm-mass-scale-factor" style="width: 200px;" type="range"
-							min="0.5" max="4" step="0.05" value="1" list="sfsm-mass-scale-factor-markers" />
+							min="0.5" max="4" step="0.01" value="1" list="sfsm-mass-scale-factor-markers" />
 						<datalist id="sfsm-mass-scale-factor-markers">
 							<option value="1"></option>
 						</datalist>
@@ -1124,7 +1152,7 @@
 					<span>Mass opacity</span>
 					<span class="justify-sb">
 						<input id="sfsm-mass-opacity" style="width: 200px;" type="range"
-							min="0" max="1" step="0.05" value="1" list="sfsm-mass-opacity-markers" />
+							min="0" max="1" step="0.01" value="1" list="sfsm-mass-opacity-markers" />
 						<datalist id="sfsm-mass-opacity-markers">
 							<option value="1"></option>
 						</datalist>
@@ -1148,26 +1176,20 @@
 				<span class="text-center">•</span>
 
 				<div class="modRowItems justify-sb">
-					<span>Self skin URL (not synced)</span>
-					<input class="modInput" id="sfsm-self-skin" placeholder="https://i.imgur.com/..." type="text" />
-				</div>
-				<div class="modRowItems justify-sb">
-					<span>Unsplittable cell outline opacity</span>
-					<span class="justify-sb">
-						<input id="sfsm-unsplittable-opacity" style="width: 200px;" type="range"
-							min="0" max="1" step="0.05" value="1" list="sfsm-unsplittable-opacity-markers" />
-						<datalist id="sfsm-unsplittable-opacity-markers">
-							<option value="1"></option>
-						</datalist>
-						<span id="sfsm-unsplittable-opacity-display" class="text-center" style="width: 75px;"></span>
-					</span>
-				</div>
-				<div class="modRowItems justify-sb">
-					<span>Cell outlines</span>
+					<span>Jelly physics effect on skins</span>
 					<div style="width: 75px; text-align: center;">
 						<div class="modCheckbox" style="display: inline-block;">
-							<input id="sfsm-cell-outlines" type="checkbox" />
-							<label class="cbx" for="sfsm-cell-outlines"></label>
+							<input id="sfsm-jelly-skin-lag" type="checkbox" />
+							<label class="cbx" for="sfsm-jelly-skin-lag"></label>
+						</div>
+					</div>
+				</div>
+				<div class="modRowItems justify-sb">
+					<span>Jelly physics wobble effect</span>
+					<div style="width: 75px; text-align: center;">
+						<div class="modCheckbox" style="display: inline-block;">
+							<input id="sfsm-jelly-wobble" type="checkbox" />
+							<label class="cbx" for="sfsm-jelly-wobble"></label>
 						</div>
 					</div>
 				</div>
@@ -1176,17 +1198,18 @@
 			content.appendChild(page);
 
 			registerSlider('#sfsm-draw-delay', '#sfsm-draw-delay-display', 'drawDelay', 0);
-			registerCheckbox('#sfsm-jelly-skin-lag', 'jellySkinLag');
-			registerCheckbox('#sfsm-jelly-wobble', 'jellyWobble');
+			registerInput('#sfsm-self-skin', 'selfSkin', false);
+			registerSlider(
+				'#sfsm-unsplittable-opacity', '#sfsm-unsplittable-opacity-display', 'unsplittableOpacity', 2);
+			registerCheckbox('#sfsm-cell-outlines', 'cellOutlines');
+			registerSlider('#sfsm-cell-opacity', '#sfsm-cell-opacity-display', 'cellOpacity', 2);
 			registerSlider('#sfsm-name-scale-factor', '#sfsm-name-scale-factor-display', 'nameScaleFactor', 2);
 			registerSlider('#sfsm-mass-scale-factor', '#sfsm-mass-scale-factor-display', 'massScaleFactor', 2);
 			registerSlider('#sfsm-mass-opacity', '#sfsm-mass-opacity-display', 'massOpacity', 2);
 			registerCheckbox('#sfsm-name-bold', 'nameBold');
 			registerCheckbox('#sfsm-mass-bold', 'massBold');
-			registerInput('#sfsm-self-skin', 'selfSkin', false);
-			registerSlider(
-				'#sfsm-unsplittable-opacity', '#sfsm-unsplittable-opacity-display', 'unsplittableOpacity', 2);
-			registerCheckbox('#sfsm-cell-outlines', 'cellOutlines');
+			registerCheckbox('#sfsm-jelly-skin-lag', 'jellySkinLag');
+			registerCheckbox('#sfsm-jelly-wobble', 'jellyWobble');
 
 			const navButton = fromHTML('<button class="mod_nav_btn">🔥 Sig Fixes</button>');
 			nav.appendChild(navButton);
@@ -2968,7 +2991,7 @@
 				function drawCell(cell, alpha) {
 					gl.useProgram(programs.cell);
 
-					gl.uniform1f(uniforms.cell.u_alpha, alpha);
+					gl.uniform1f(uniforms.cell.u_alpha, alpha * settings.cellOpacity);
 
 					if (jellyPhysics && cell.r > 20 && !cell.jagged) {
 						gl.uniform2f(uniforms.cell.u_pos, cell.jelly.x, cell.jelly.y);
