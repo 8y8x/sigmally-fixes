@@ -8,9 +8,6 @@
 // @grant        none
 // @namespace    https://8y8x.dev/sigmally-fixes
 // @compatible   chrome Recommended for all users, works perfectly out of the box
-// @compatible   edge Multiboxers may want to disable Ctrl+W
-// @compatible   firefox Multiboxers may want to disable Ctrl+W
-// @compatible   opera Multiboxers may want to disable Ctrl+W and tweak Ctrl+Tab
 // ==/UserScript==
 
 // @ts-check
@@ -2893,6 +2890,11 @@
 			const nick = nickElement?.value ?? '?';
 
 			// note: most routines are named, for benchmarking purposes
+			(function updateCells() {
+				world.update();
+				sync.frame();
+			})();
+
 			(function setGlobalUniforms() {
 				const aspectRatio = ui.game.canvas.width / ui.game.canvas.height;
 				const cameraPosX = world.camera.x;
@@ -2949,11 +2951,6 @@
 				gl.uniform1i(uniforms.bg.u_grid_enabled, Number(showGrid));
 
 				gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-			})();
-
-			(function updateCells() {
-				world.update();
-				sync.frame();
 			})();
 
 			(function cells() {
