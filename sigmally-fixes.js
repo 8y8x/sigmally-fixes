@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.2.8
+// @version      2.2.9
 // @description  Easily 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -315,7 +315,7 @@
 			if (!title) return;
 
 			const watermark = document.createElement('span');
-			watermark.innerHTML = '<a href="https://greasyfork.org/scripts/483587">Sigmally Fixes</a> by yx';
+			watermark.innerHTML = '<a href="https://greasyfork.org/scripts/483587/versions" target="_blank">Sigmally Fixes 2.2.9</a> by yx';
 			title.insertAdjacentElement('afterend', watermark);
 		})();
 
