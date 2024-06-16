@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.2.9
+// @version      2.2.10
 // @description  Easily 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -359,11 +359,9 @@
 			});
 			newCanvas.addEventListener('webglcontextrestored', () => initWebGL());
 
-			game.viewportScale = 1;
 			function resize() {
 				newCanvas.width = Math.floor(innerWidth * devicePixelRatio);
 				newCanvas.height = Math.floor(innerHeight * devicePixelRatio);
-				game.viewportScale = Math.max(innerWidth / 1920, innerHeight / 1080);
 				game.gl.viewport(0, 0, newCanvas.width, newCanvas.height);
 			}
 
@@ -1756,7 +1754,7 @@
 				case 0x11: { // update camera pos
 					world.camera.tx = dat.getFloat32(off, true);
 					world.camera.ty = dat.getFloat32(off + 4, true);
-					world.camera.tscale = dat.getFloat32(off + 8, true) * ui.game.viewportScale * input.zoom;
+					world.camera.tscale = dat.getFloat32(off + 8, true) * input.zoom;
 					break;
 				}
 
@@ -1984,16 +1982,16 @@
 		// sigmod's macro feed runs at a slower interval but presses many times in that interval. allowing queueing 2 w
 		// presses makes it faster (it would be better if people disabled that macro, but no one would do that)
 		let forceW = 0;
-		let mouseX = 960;
-		let mouseY = 540;
+		let mouseX = 0; // -1 <= mouseX <= 1
+		let mouseY = 0; // -1 <= mouseY <= 1
 		let w = false;
 
 		input.zoom = 1;
 
 		function mouse() {
 			net.move(
-				world.camera.x + (mouseX - innerWidth / 2) / ui.game.viewportScale / world.camera.scale,
-				world.camera.y + (mouseY - innerHeight / 2) / ui.game.viewportScale / world.camera.scale,
+				world.camera.x + mouseX * (innerWidth / innerHeight) * 540 / world.camera.scale,
+				world.camera.y + mouseY * 540 / world.camera.scale,
 			);
 		}
 
@@ -2017,8 +2015,8 @@
 			if (e.target instanceof HTMLDivElement
 				&& /** @type {CSSUnitValue | undefined} */ (e.target.attributeStyleMap.get('z-index'))?.value === 99)
 				return;
-			mouseX = e.clientX;
-			mouseY = e.clientY;
+			mouseX = (e.clientX / innerWidth * 2) - 1;
+			mouseY = (e.clientY / innerHeight * 2) - 1;
 		});
 
 		addEventListener('wheel', e => {
