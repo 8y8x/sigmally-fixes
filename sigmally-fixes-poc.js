@@ -787,7 +787,7 @@
 	// Create Options Menu //
 	/////////////////////////
 	const settings = (() => {
-		const settings = {
+		let settings = {
 			cellOpacity: 1,
 			cellOutlines: true,
 			drawDelay: 120,
@@ -798,6 +798,7 @@
 			massScaleFactor: 1,
 			nameBold: false,
 			nameScaleFactor: 1,
+			pointerLock: false,
 			selfSkin: '',
 			scrollFactor: 1,
 			unsplittableOpacity: 1,
@@ -837,197 +838,247 @@
 		 * @typedef {{ [K in keyof O]: O[K] extends T ? K : never }[keyof O]} PropertyOfType
 		 */
 
-		const vanillaMenu = document.querySelector('#cm_modal__settings .ctrl-modal__content');
-		vanillaMenu?.appendChild(fromHTML(`
-			<div class="menu__item">
-				<div style="width: 100%; height: 1px; background: #bfbfbf;"></div>
-			</div>
-		`));
-
-		const vanillaContainer = document.createElement('div');
-		vanillaContainer.className = 'menu__item';
-		vanillaMenu?.appendChild(vanillaContainer);
-
-		const sigmodContainer = document.createElement('div');
-		sigmodContainer.className = 'mod_tab scroll';
-		sigmodContainer.style.display = 'none';
-
 		/**
+		 * @param {string} sliderSelector
+		 * @param {string} displaySelector
 		 * @param {PropertyOfType<typeof settings, number>} property
-		 * @param {string} title
-		 * @param {number} initial
-		 * @param {number} min
-		 * @param {number} max
-		 * @param {number} step
 		 * @param {number} decimals
 		 */
-		function slider(property, title, initial, min, max, step, decimals) {
-			/**
-			 * @param {HTMLInputElement} slider
-			 * @param {HTMLElement} display
-			 */
-			const listen = (slider, display) => {
+		function registerSlider(sliderSelector, displaySelector, property, decimals) {
+			const slider = /** @type {HTMLInputElement} */ (document.querySelector(sliderSelector));
+			const display = /** @type {HTMLElement} */ (document.querySelector(displaySelector));
+			slider.value = settings[property].toString();
+			display.textContent = settings[property].toFixed(decimals);
+
+			slider.addEventListener('input', () => {
+				settings[property] = parseFloat(slider.value);
+				display.textContent = settings[property].toFixed(decimals);
+				save();
+			});
+
+			onSaves.add(() => {
 				slider.value = settings[property].toString();
 				display.textContent = settings[property].toFixed(decimals);
-
-				slider.addEventListener('input', () => {
-					settings[property] = Number(slider.value);
-					display.textContent = settings[property].toFixed(decimals);
-					save();
-				});
-
-				onSaves.add(() => {
-					slider.value = settings[property].toString();
-					display.textContent = settings[property].toFixed(decimals);
-				});
-			};
-
-			const vanilla = fromHTML(`
-				<div style="height: 25px; position: relative;">
-					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">${title}</div>
-					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
-						<input id="sf-${property}" style="display: block; float: left; height: 25px; line-height: 25px;\
-							margin-left: 5px;" min="${min}" max="${max}" step="${step}" value="${initial}"
-							list="sf-${property}-markers" />
-						<datalist id="sf-${property}-markers"> <option value="${initial}"></option> </datalist>
-						<span id="sf-${property}-display" style="display: block; float: left; height: 25px; \
-							line-height: 25px; width: 40px; text-align: right;"></span>
-					</div>
-				</div>
-			`);
-			listen(
-				/** @type {HTMLInputElement} */ (vanilla.querySelector(`input#sf-${property}`)),
-				/** @type {HTMLElement} */ (vanilla.querySelector(`#sf-${property}-display`)));
-			vanillaContainer.appendChild(vanilla);
-
-			const sigmod = fromHTML(`
-				<div class="modRowItems justify-sb">
-					<span>${title}</span>
-					<span class="justify-sb">
-						<input id="sfsm-${property}" style="width: 200px;" type="range" min="${min}" max="${max}"
-							step="${step}" value="${initial}" list="sfsm-${property}-markers" />
-						<datalist id="sfsm-${property}-markers"> <option value="${initial}"></option> </datalist>
-						<span id="sfsm-${property}-display" class="text-center" style="width: 75px;"></span>
-					</span>
-				</div>
-			`);
-			listen(
-				/** @type {HTMLInputElement} */ (sigmod.querySelector(`input#sfsm-${property}`)),
-				/** @type {HTMLElement} */ (sigmod.querySelector(`#sfsm-${property}-display`)));
-			sigmodContainer.appendChild(sigmod);
+			});
 		}
 
 		/**
+		 * @param {string} inputSelector
 		 * @param {PropertyOfType<typeof settings, string>} property
-		 * @param {string} title
-		 * @param {string} placeholder
 		 * @param {boolean} sync
 		 */
-		function input(property, title, placeholder, sync) {
-			/**
-			 * @param {HTMLInputElement} input
-			 */
-			const listen = input => {
-				input.value = settings[property];
+		function registerInput(inputSelector, property, sync) {
+			const input = /** @type {HTMLInputElement} */ (document.querySelector(inputSelector));
+			let value = input.value = settings[property];
 
-				input.addEventListener('input', () => {
-					settings[property] = input.value;
-					save();
-				});
+			input.addEventListener('change', () => {
+				value = settings[property] = input.value;
+				save();
+			});
 
-				onSaves.add(() => {
-					if (sync)
-						input.value = settings[property];
-				});
-			};
-
-			const vanilla = fromHTML(`
-				<div style="height: 50px; position: relative;">
-					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">${title}</div>
-					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
-						<input id="sf-${property}" placeholder="${placeholder}" type="text" />
-					</div>
-				</div>
-			`);
-			listen(/** @type {HTMLInputElement} */ (vanilla.querySelector(`input#sf-${property}`)));
-			vanillaContainer.appendChild(vanilla);
-
-			const sigmod = fromHTML(`
-				<div class="modRowItems justify-sb">
-					<span>${title}</span>
-					<input class="modInput" id="sfsm-${property}" placeholder="${placeholder}" type="text" />
-				</div>
-			`);
-			listen(/** @type {HTMLInputElement} */ (sigmod.querySelector(`input#sfsm-${property}`)));
-			sigmodContainer.appendChild(sigmod);
+			onSaves.add(() => {
+				if (sync)
+					value = input.value = settings[property];
+				else
+					settings[property] = value;
+			});
 		}
 
 		/**
+		 * @param {string} inputSelector
 		 * @param {PropertyOfType<typeof settings, boolean>} property
-		 * @param {string} title
 		 */
-		function checkbox(property, title) {
-			/**
-			 * @param {HTMLInputElement} input
-			 */
-			const listen = input => {
-				input.checked = settings[property];
+		function registerCheckbox(inputSelector, property) {
+			const checkbox = /** @type {HTMLInputElement} */ (document.querySelector(inputSelector));
+			checkbox.checked = settings[property];
 
-				input.addEventListener('input', () => {
-					settings[property] = input.checked;
-					save();
-				});
+			checkbox.addEventListener('change', () => {
+				settings[property] = checkbox.checked;
+				save();
+			});
 
-				onSaves.add(() => input.checked = settings[property]);
-			};
-
-			const vanilla = fromHTML(`
-				<div style="height: 25px; position: relative;">
-					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">${title}</div>
-					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
-						<input id="sf-${property}" type="checkbox" />
-					</div>
-				</div>
-			`);
-			listen(/** @type {HTMLInputElement} */ (vanilla.querySelector(`input#sf-${property}`)));
-			vanillaContainer.appendChild(vanilla);
-
-			const sigmod = fromHTML(`
-				<div class="modRowItems justify-sb">
-					<span>${title}</span>
-					<div style="width: 75px; text-align: center;">
-						<div class="modCheckbox" style="display: inline-block;">
-							<input id="sfsm-${property}" type="checkbox" />
-							<label class="cbx" for="sfsm-${property}"></label>
-						</div>
-					</div>
-				</div>
-			`);
-			listen(/** @type {HTMLInputElement} */ (sigmod.querySelector(`input#sfsm-${property}`)));
-			sigmodContainer.appendChild(sigmod);
+			onSaves.add(() => {
+				checkbox.checked = settings[property];
+			});
 		}
 
-		function separator() {
-			vanillaContainer.appendChild(fromHTML(`<div style="text-align: center; width: 100%;">•</div>`));
-			sigmodContainer.appendChild(fromHTML(`<span class="text-center">•</span>`));
-		}
+		// #2 : create options for the vanilla game
+		(() => {
+			/** @type {HTMLElement} */
+			const content = aux.require(
+				document.querySelector('#cm_modal__settings .ctrl-modal__content'),
+				'Can\'t find the default settings UI. Try reloading the page, or disabling other scripts?',
+			);
 
-		// #2 : generate ui for settings
-		slider('drawDelay', 'Draw delay', 120, 40, 300, 1, 0);
-		input('selfSkin', 'Self skin URL (not synced)', 'https://i.imgur.com/...', false);
-		slider('unsplittableOpacity', 'Unsplittable cell outline opacity', 1, 0, 1, 0.01, 2);
-		checkbox('cellOutlines', 'Cell outlines');
-		slider('cellOpacity', 'Cell opacity', 1, 0, 1, 0.01, 2);
-		separator();
-		slider('nameScaleFactor', 'Name scale factor', 1, 0.5, 2, 0.01, 2);
-		slider('massScaleFactor', 'Mass scale factor', 1, 0.5, 4, 0.01, 2);
-		slider('massOpacity', 'Mass opacity', 1, 0, 1, 0.01, 2);
-		checkbox('nameBold', 'Bold name text');
-		checkbox('massBold', 'Bold mass text');
-		separator();
-		slider('scrollFactor', 'Scroll factor', 1, 0.05, 2, 0.05, 2);
-		checkbox('jellySkinLag', 'Jelly physics effects on skins');
-		checkbox('jellyWobble', 'Jelly physics wobble effect');
+			const style = document.createElement('style');
+			style.innerHTML = `
+			.sf-setting {
+				display: block;
+				height: 25px;
+				position: relative;
+			}
+
+			.sf-setting .sf-title {
+				position: absolute;
+				left: 0;
+			}
+
+			.sf-setting .sf-option {
+				position: absolute;
+				right: 0;
+			}
+
+			.sf-setting.double {
+				height: 50px;
+			}
+
+			.sf-setting.double .sf-option {
+				top: 25px;
+			}
+
+			.sf-setting span, .sf-setting input {
+				display: block;
+				float: left;
+				height: 25px;
+				line-height: 25px;
+				margin-left: 5px;
+			}
+
+			.sf-separator {
+				text-align: center;
+				width: 100%;
+			}
+			`;
+			document.head.appendChild(style);
+
+			content.appendChild(fromHTML(`
+			<div class="menu__item">
+				<div style="width: 100%; height: 1px; background: #bfbfbf;"></div>
+			</div>`));
+			content.appendChild(fromHTML(`<div class="menu__item">
+				<div class="sf-setting">
+					<span class="sf-title">Draw delay</span>
+					<div class="sf-option">
+						<input id="sf-draw-delay" style="width: 100px;" type="range"
+							min="40" max="300" step="5" value="120" list="sf-draw-delay-markers" />
+						<datalist id="sf-draw-delay-markers"> <option value="120"></option> </datalist>
+						<span id="sf-draw-delay-display" style="width: 40px; text-align: right;"></span>
+					</div>
+				</div>
+				<div class="sf-setting double">
+					<span class="sf-title">Self skin URL (not synced)</span>
+					<div class="sf-option">
+						<input id="sf-self-skin" placeholder="https://i.imgur.com/..." type="text" />
+					</div>
+				</div>
+				<div class="sf-setting double">
+					<span class="sf-title">Unsplittable cell outline opacity</span>
+					<div class="sf-option">
+						<input id="sf-unsplittable-opacity" style="width: 100px;" type="range"
+							min="0" max="1" step="0.01" value="1" list="sf-unsplittable-opacity-markers" />
+						<datalist id="sf-unsplittable-opacity-markers"> <option value="1"></option> </datalist>
+						<span id="sf-unsplittable-opacity-display" style="width: 40px; text-align: right;"></span>
+					</div>
+				</div>
+				<div class="sf-setting">
+					<span class="sf-title">Cell outlines</span>
+					<div class="sf-option">
+						<input id="sf-cell-outlines" type="checkbox" />
+					</div>
+				</div>
+				<div class="sf-setting">
+					<span class="sf-title">Cell opacity</span>
+					<div class="sf-option">
+						<input id="sf-cell-opacity" style="width: 100px;" type="range"
+							min="0" max="1" step="0.01" value="1" list="sf-cell-opacity-markers" />
+						<datalist id="sf-cell-opacity-markers"> <option value="1"></option> </datalist>
+						<span id="sf-cell-opacity-display" style="width: 40px; text-align: right;"></span>
+					</div>
+				</div>
+
+				<div class="sf-separator">•</div>
+
+				<div class="sf-setting">
+					<span class="sf-title">Name scale factor</span>
+					<div class="sf-option">
+						<input id="sf-name-scale" style="width: 100px;" type="range"
+							min="0.5" max="2" step="0.01" value="1" list="sf-name-scale-markers" />
+						<datalist id="sf-name-scale-markers"> <option value="1"></option> </datalist>
+						<span id="sf-name-scale-display" style="width: 40px; text-align: right;"></span>
+					</div>
+				</div>
+				<div class="sf-setting">
+					<span class="sf-title">Mass scale factor</span>
+					<div class="sf-option">
+						<input id="sf-mass-scale" style="width: 100px;" type="range"
+							min="0.5" max="4" step="0.01" value="1" list="sf-mass-scale-markers" />
+						<datalist id="sf-mass-scale-markers"> <option value="1"></option> </datalist>
+						<span id="sf-mass-scale-display" style="width: 40px; text-align: right;"></span>
+					</div>
+				</div>
+				<div class="sf-setting">
+					<span class="sf-title">Mass opacity</span>
+					<div class="sf-option">
+						<input id="sf-mass-opacity" style="width: 100px;" type="range"
+							min="0" max="1" step="0.01" value="1" list="sf-mass-opacity-markers" />
+						<datalist id="sf-mass-opacity-markers"> <option value="1"></option> </datalist>
+						<span id="sf-mass-opacity-display" style="width: 40px; text-align: right;"></span>
+					</div>
+				</div>
+				<div class="sf-setting">
+					<span class="sf-title">Bold name text / mass text</span>
+					<div class="sf-option">
+						<input id="sf-name-bold" type="checkbox" />
+						<input id="sf-mass-bold" type="checkbox" />
+					</div>
+				</div>
+
+				<div class="sf-separator">•</div>
+
+				<div class="sf-setting">
+					<span class="sf-title">Scroll factor</span>
+					<div class="sf-option">
+						<input id="sf-scroll-factor" style="width: 100px;" type="range"
+							min="0.05" max="2" step="0.05" value="1" list="sf-scroll-factor-markers" />
+						<datalist id="sf-scroll-factor-markers"> <option value="1"></option> </datalist>
+						<span id="sf-scroll-factor-display" style="width: 40px; text-align: right;"></span>
+					</div>
+				</div>
+				<div class="sf-setting">
+					<span class="sf-title">Pointer lock</span>
+					<div class="sf-option">
+						<input id="sf-pointer-lock" type="checkbox" />
+					</div>
+				</div>
+				<div class="sf-setting">
+					<span class="sf-title">Jelly physics effects on skins</span>
+					<div class="sf-option">
+						<input id="sf-jelly-skin-lag" type="checkbox" />
+					</div>
+				</div>
+				<div class="sf-setting">
+					<span class="sf-title">Jelly physics wobble effect</span>
+					<div class="sf-option">
+						<input id="sf-jelly-wobble" type="checkbox" />
+					</div>
+				</div>
+			</div>`));
+
+			registerSlider('#sf-draw-delay', '#sf-draw-delay-display', 'drawDelay', 0);
+			registerInput('#sf-self-skin', 'selfSkin', false);
+			registerSlider('#sf-unsplittable-opacity', '#sf-unsplittable-opacity-display', 'unsplittableOpacity', 2);
+			registerCheckbox('#sf-cell-outlines', 'cellOutlines');
+			registerSlider('#sf-cell-opacity', '#sf-cell-opacity-display', 'cellOpacity', 2);
+			registerSlider('#sf-name-scale', '#sf-name-scale-display', 'nameScaleFactor', 2);
+			registerSlider('#sf-mass-scale', '#sf-mass-scale-display', 'massScaleFactor', 2);
+			registerSlider('#sf-mass-opacity', '#sf-mass-opacity-display', 'massOpacity', 2);
+			registerCheckbox('#sf-name-bold', 'nameBold');
+			registerCheckbox('#sf-mass-bold', 'massBold');
+			registerSlider('#sf-scroll-factor', '#sf-scroll-factor-display', 'scrollFactor', 2);
+			registerCheckbox('#sf-pointer-lock', 'pointerLock');
+			registerCheckbox('#sf-jelly-skin-lag', 'jellySkinLag');
+			registerCheckbox('#sf-jelly-wobble', 'jellyWobble');
+		})();
 
 		// #3 : create options for sigmod
 		let sigmodInjection;
@@ -1038,7 +1089,163 @@
 
 			clearInterval(sigmodInjection);
 
-			content.appendChild(sigmodContainer);
+			const page = fromHTML(`
+			<div class="mod_tab scroll" style="display: none;">
+				<div class="modRowItems justify-sb">
+					<span>Draw delay</span>
+					<span class="justify-sb">
+						<input id="sfsm-draw-delay" style="width: 200px;" type="range"
+							min="40" max="300" step="5" value="120" list="sfsm-draw-delay-markers" />
+						<datalist id="sfsm-draw-delay-markers">
+							<option value="120"></option>
+						</datalist>
+						<span id="sfsm-draw-delay-display" class="text-center" style="width: 75px;"></span>
+					</span>
+				</div>
+				<div class="modRowItems justify-sb">
+					<span>Self skin URL (not synced)</span>
+					<input class="modInput" id="sfsm-self-skin" placeholder="https://i.imgur.com/..." type="text" />
+				</div>
+				<div class="modRowItems justify-sb">
+					<span>Unsplittable cell outline opacity</span>
+					<span class="justify-sb">
+						<input id="sfsm-unsplittable-opacity" style="width: 200px;" type="range"
+							min="0" max="1" step="0.01" value="1" list="sfsm-unsplittable-opacity-markers" />
+						<datalist id="sfsm-unsplittable-opacity-markers">
+							<option value="1"></option>
+						</datalist>
+						<span id="sfsm-unsplittable-opacity-display" class="text-center" style="width: 75px;"></span>
+					</span>
+				</div>
+				<div class="modRowItems justify-sb">
+					<span>Cell outlines</span>
+					<div style="width: 75px; text-align: center;">
+						<div class="modCheckbox" style="display: inline-block;">
+							<input id="sfsm-cell-outlines" type="checkbox" />
+							<label class="cbx" for="sfsm-cell-outlines"></label>
+						</div>
+					</div>
+				</div>
+				<div class="modRowItems justify-sb">
+					<span>Cell opacity</span>
+					<span class="justify-sb">
+						<input id="sfsm-cell-opacity" style="width: 200px;" type="range"
+							min="0" max="1" step="0.01" value="1" list="sfsm-cell-opacity-markers" />
+						<datalist id="sfsm-cell-opacity-markers">
+							<option value="1"></option>
+						</datalist>
+						<span id="sfsm-cell-opacity-display" class="text-center" style="width: 75px;"></span>
+					</span>
+				</div>
+
+				<span class="text-center">•</span>
+
+				<div class="modRowItems justify-sb">
+					<span>Name scale factor</span>
+					<span class="justify-sb">
+						<input id="sfsm-name-scale-factor" style="width: 200px;" type="range"
+							min="0.5" max="2" step="0.01" value="1" list="sfsm-name-scale-factor-markers" />
+						<datalist id="sfsm-name-scale-factor-markers">
+							<option value="1"></option>
+						</datalist>
+						<span id="sfsm-name-scale-factor-display" class="text-center" style="width: 75px;"></span>
+					</span>
+				</div>
+				<div class="modRowItems justify-sb">
+					<span>Mass scale factor</span>
+					<span class="justify-sb">
+						<input id="sfsm-mass-scale-factor" style="width: 200px;" type="range"
+							min="0.5" max="4" step="0.01" value="1" list="sfsm-mass-scale-factor-markers" />
+						<datalist id="sfsm-mass-scale-factor-markers">
+							<option value="1"></option>
+						</datalist>
+						<span id="sfsm-mass-scale-factor-display" class="text-center" style="width: 75px;"></span>
+					</span>
+				</div>
+				<div class="modRowItems justify-sb">
+					<span>Mass opacity</span>
+					<span class="justify-sb">
+						<input id="sfsm-mass-opacity" style="width: 200px;" type="range"
+							min="0" max="1" step="0.01" value="1" list="sfsm-mass-opacity-markers" />
+						<datalist id="sfsm-mass-opacity-markers">
+							<option value="1"></option>
+						</datalist>
+						<span id="sfsm-mass-opacity-display" class="text-center" style="width: 75px;"></span>
+					</span>
+				</div>
+				<div class="modRowItems justify-sb">
+					<span>Bold name text / mass text</span>
+					<div style="width: 75px; text-align: center;">
+						<div class="modCheckbox" style="display: inline-block;">
+							<input id="sfsm-name-bold" type="checkbox" />
+							<label class="cbx" for="sfsm-name-bold"></label>
+						</div>
+						<div class="modCheckbox" style="display: inline-block;">
+							<input id="sfsm-mass-bold" type="checkbox" />
+							<label class="cbx" for="sfsm-mass-bold"></label>
+						</div>
+					</div>
+				</div>
+				
+				<span class="text-center">•</span>
+
+				<div class="modRowItems justify-sb">
+					<span>Scroll factor</span>
+					<span class="justify-sb">
+						<input id="sfsm-scroll-factor" style="width: 200px;" type="range"
+							min="0.05" max="2" step="0.05" value="1" list="sfsm-scroll-factor-markers" />
+						<datalist id="sfsm-scroll-factor-markers">
+							<option value="1"></option>
+						</datalist>
+						<span id="sfsm-scroll-factor-display" class="text-center" style="width: 75px;"></span>
+					</span>
+				</div>
+				<div class="modRowItems justify-sb">
+					<span>Pointer lock</span>
+					<div style="width: 75px; text-align: center;">
+						<div class="modCheckbox" style="display: inline-block;">
+							<input id="sfsm-pointer-lock" type="checkbox" />
+							<label class="cbx" for="sfsm-pointer-lock"></label>
+						</div>
+					</div>
+				</div>
+				<div class="modRowItems justify-sb">
+					<span>Jelly physics effect on skins</span>
+					<div style="width: 75px; text-align: center;">
+						<div class="modCheckbox" style="display: inline-block;">
+							<input id="sfsm-jelly-skin-lag" type="checkbox" />
+							<label class="cbx" for="sfsm-jelly-skin-lag"></label>
+						</div>
+					</div>
+				</div>
+				<div class="modRowItems justify-sb">
+					<span>Jelly physics wobble effect</span>
+					<div style="width: 75px; text-align: center;">
+						<div class="modCheckbox" style="display: inline-block;">
+							<input id="sfsm-jelly-wobble" type="checkbox" />
+							<label class="cbx" for="sfsm-jelly-wobble"></label>
+						</div>
+					</div>
+				</div>
+			</div>
+			`);
+			content.appendChild(page);
+
+			registerSlider('#sfsm-draw-delay', '#sfsm-draw-delay-display', 'drawDelay', 0);
+			registerInput('#sfsm-self-skin', 'selfSkin', false);
+			registerSlider(
+				'#sfsm-unsplittable-opacity', '#sfsm-unsplittable-opacity-display', 'unsplittableOpacity', 2);
+			registerCheckbox('#sfsm-cell-outlines', 'cellOutlines');
+			registerSlider('#sfsm-cell-opacity', '#sfsm-cell-opacity-display', 'cellOpacity', 2);
+			registerSlider('#sfsm-name-scale-factor', '#sfsm-name-scale-factor-display', 'nameScaleFactor', 2);
+			registerSlider('#sfsm-mass-scale-factor', '#sfsm-mass-scale-factor-display', 'massScaleFactor', 2);
+			registerSlider('#sfsm-mass-opacity', '#sfsm-mass-opacity-display', 'massOpacity', 2);
+			registerCheckbox('#sfsm-name-bold', 'nameBold');
+			registerCheckbox('#sfsm-mass-bold', 'massBold');
+			registerSlider('#sfsm-scroll-factor', '#sfsm-scroll-factor-display', 'scrollFactor', 2);
+			registerCheckbox('#sfsm-pointer-lock', 'pointerLock');
+			registerCheckbox('#sfsm-jelly-skin-lag', 'jellySkinLag');
+			registerCheckbox('#sfsm-jelly-wobble', 'jellyWobble');
 
 			const navButton = fromHTML('<button class="mod_nav_btn">🔥 Sig Fixes</button>');
 			nav.appendChild(navButton);
@@ -1055,8 +1262,8 @@
 
 				navButton.classList.add('mod_selected');
 				setTimeout(() => {
-					sigmodContainer.style.display = 'flex';
-					setTimeout(() => sigmodContainer.style.opacity = '1',10);
+					page.style.display = 'flex';
+					setTimeout(() => page.style.opacity = '1',10);
 				}, 200);
 			});
 		}, 100);
@@ -1829,6 +2036,21 @@
 			);
 		}
 
+		const pointer = document.createElement('div');
+		pointer.id = 'sf-pointer';
+		pointer.style.cssText = 'background: #fff; border: 1px solid #000; width: 8px; height: 8px; border-radius: 4px; position: fixed; z-index: 99999999; pointer-events: none;';
+		document.body.appendChild(pointer);
+
+		function updatePointerLock() {
+			if (settings.pointerLock && !unfocused()) {
+				ui.game.canvas.requestPointerLock();
+				pointer.style.display = '';
+			} else {
+				document.exitPointerLock();
+				pointer.style.display = 'none';
+			}
+		}
+
 		function unfocused() {
 			return ui.escOverlayVisible() || document.activeElement?.tagName === 'INPUT';
 		}
@@ -1844,19 +2066,33 @@
 
 		// sigmod freezes the player by overlaying an invisible div, so we just listen for canvas movements instead
 		addEventListener('mousemove', e => {
+			updatePointerLock();
+
 			if (ui.escOverlayVisible()) return;
 			// sigmod freezes the player by overlaying an invisible div, so we respect it
 			if (e.target instanceof HTMLDivElement
 				&& /** @type {CSSUnitValue | undefined} */ (e.target.attributeStyleMap.get('z-index'))?.value === 99)
 				return;
-			ui.game.canvas.requestPointerLock();
-			mouseX = (e.clientX / innerWidth * 2) - 1;
-			mouseY = (e.clientY / innerHeight * 2) - 1;
+
+			console.log(document.pointerLockElement, e.clientX, e.clientY, e.movementX, e.movementY);
+			if (document.pointerLockElement) {
+				console.log('movement', e.movementX, e.movementY);
+				mouseX += (e.movementX / innerWidth * 2);
+				mouseY += (e.movementY / innerHeight * 2);
+				mouseX = Math.min(Math.max(mouseX, -1), 1);
+				mouseY = Math.min(Math.max(mouseY, -1), 1);
+				pointer.style.left = `calc(${(mouseX / 2 + 0.5) * 100}vw - 4px)`;
+				pointer.style.top = `calc(${(mouseY / 2 + 0.5) * 100}vh - 4px)`;
+			} else {
+				mouseX = (e.clientX / innerWidth * 2) - 1;
+				mouseY = (e.clientY / innerHeight * 2) - 1;
+			}
 		});
 
 		addEventListener('wheel', e => {
+			updatePointerLock();
+
 			if (unfocused()) return;
-			ui.game.canvas.requestPointerLock();
 			input.zoom *= 0.8 ** (e.deltaY / 100 * settings.scrollFactor);
 			input.zoom = Math.min(Math.max(input.zoom, 0.8 ** 10), 0.8 ** -11);
 		});
@@ -1865,10 +2101,13 @@
 			if (!document.hasFocus()) return;
 
 			if (e.code === 'Escape') {
-				if (document.activeElement === ui.chat.input)
+				if (document.activeElement === ui.chat.input) {
 					ui.chat.input.blur();
-				else
+				} else {
 					ui.toggleEscOverlay();
+				}
+
+				updatePointerLock();
 				return;
 			}
 
@@ -1879,9 +2118,17 @@
 					ui.chat.input.blur();
 				}
 
+				updatePointerLock();
 				return;
 			}
 
+			if (e.code === 'Enter') {
+				ui.chat.input.focus();
+				updatePointerLock();
+				return;
+			}
+
+			updatePointerLock();
 			switch (e.code) {
 				case 'KeyQ':
 					if (!e.repeat)
@@ -1903,10 +2150,6 @@
 					}
 					break;
 				}
-				case 'Enter': {
-					ui.chat.input.focus();
-					break;
-				}
 			}
 
 			if (e.ctrlKey && e.code === 'KeyW') {
@@ -1922,6 +2165,8 @@
 		});
 
 		addEventListener('keyup', e => {
+			updatePointerLock();
+
 			// do not check if unfocused
 			if (e.code === 'KeyQ')
 				net.qup();
@@ -1931,6 +2176,7 @@
 
 		// when switching tabs, make sure W is not being held
 		addEventListener('blur', () => {
+			updatePointerLock();
 			// dispatch event to make sure sigmod gets it too
 			document.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW', key: 'w' }));
 			forceW = 0;
@@ -1940,12 +2186,24 @@
 			e.preventDefault();
 		});
 
+		addEventListener('mousedown', () => updatePointerLock());
+
 		// prevent right clicking on the game
-		ui.game.canvas.addEventListener('contextmenu', e => e.preventDefault());
+		ui.game.canvas.addEventListener('contextmenu', e => {
+			updatePointerLock();
+			e.preventDefault();
+		});
 
 		// prevent dragging when some things are selected - i have a habit of unconsciously clicking all the time,
 		// making me regularly drag text, disabling my mouse inputs for a bit
-		addEventListener('dragstart', e => e.preventDefault());
+		addEventListener('dragstart', e => {
+			updatePointerLock();
+			e.preventDefault();
+		});
+
+		addEventListener('focus', () => {
+			updatePointerLock();
+		});
 
 
 
