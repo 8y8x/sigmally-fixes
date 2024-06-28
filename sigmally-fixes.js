@@ -315,7 +315,8 @@
 			if (!title) return;
 
 			const watermark = document.createElement('span');
-			watermark.innerHTML = '<a href="https://greasyfork.org/scripts/483587/versions" target="_blank">Sigmally Fixes 2.2.9</a> by yx';
+			watermark.innerHTML = '<a href="https://greasyfork.org/scripts/483587/versions" \
+				target="_blank">Sigmally Fixes 2.2.9</a> by yx';
 			title.insertAdjacentElement('afterend', watermark);
 		})();
 
@@ -1008,8 +1009,8 @@
 		}
 
 		function separator() {
-			vanillaContainer.appendChild(fromHTML(`<div style="text-align: center; width: 100%;">•</div>`));
-			sigmodContainer.appendChild(fromHTML(`<span class="text-center">•</span>`));
+			vanillaContainer.appendChild(fromHTML('<div style="text-align: center; width: 100%;">•</div>'));
+			sigmodContainer.appendChild(fromHTML('<span class="text-center">•</span>'));
 		}
 
 		// #2 : generate ui for settings
