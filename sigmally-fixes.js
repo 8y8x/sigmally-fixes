@@ -30,6 +30,24 @@
 	const aux = (() => {
 		const aux = {};
 
+		/** @type {Map<string, string>} */
+		aux.clans = new Map();
+		function fetchClans() {
+			fetch('https://sigmally.com/api/clans').then(r => r.json()).then(r => {
+				if (r.status !== 'success') {
+					setTimeout(() => fetchClans(), 10_000);
+					return;
+				}
+
+				aux.clans.clear();
+				r.data.forEach(clan => {
+					if (typeof clan._id !== 'string' || typeof clan.name !== 'string') return;
+					aux.clans.set(clan._id, clan.name);
+				});
+			});
+		}
+		fetchClans();
+
 		/**
 		 * @template T
 		 * @param {T} x
@@ -791,6 +809,7 @@
 		const settings = {
 			cellOpacity: 1,
 			cellOutlines: true,
+			clans: false,
 			drawDelay: 120,
 			jellySkinLag: true,
 			jellyWobble: true,
@@ -799,8 +818,8 @@
 			massScaleFactor: 1,
 			nameBold: false,
 			nameScaleFactor: 1,
-			selfSkin: '',
 			scrollFactor: 1,
+			selfSkin: '',
 			unsplittableOpacity: 1,
 		};
 
@@ -1027,8 +1046,10 @@
 		checkbox('massBold', 'Bold mass text');
 		separator();
 		slider('scrollFactor', 'Scroll factor', 1, 0.05, 2, 0.05, 2);
-		checkbox('jellySkinLag', 'Jelly physics effects on skins');
-		checkbox('jellyWobble', 'Jelly physics wobble effect');
+		checkbox('jellySkinLag', 'Jelly physics cut-off on skins');
+		checkbox('jellyWobble', 'Jelly wobble effect on small cells');
+		separator();
+		checkbox('clans', 'Show clans');
 
 		// #3 : create options for sigmod
 		let sigmodInjection;
@@ -1132,7 +1153,7 @@
 	 * rgb: [number, number, number],
 	 * updated: number, born: number, dead: { to: Cell | undefined, at: number } | undefined,
 	 * jagged: boolean,
-	 * name: string, skin: string, sub: boolean,
+	 * name: string, skin: string, sub: boolean, clan: string,
 	 * jelly: { x: number, y: number, r: number, wobble: Float32Array },
 	 * }} Cell */
 	const world = (() => {
@@ -1536,6 +1557,7 @@
 							if (skin) cell.skin = skin;
 							if (name) cell.name = name;
 
+							cell.clan = clan;
 							if (clan && clan === aux.userData?.clan)
 								world.clanmates.add(cell);
 						} else {
@@ -1548,7 +1570,7 @@
 								rgb: rgb ?? [1, 1, 1],
 								updated: now, born: now, dead: undefined,
 								jagged,
-								name, skin, sub,
+								name, skin, sub, clan,
 								jelly: {
 									x, y, r,
 									wobble: world.wobble(),
@@ -2366,30 +2388,16 @@
 
 				uniform vec2 u_pos;
 				uniform float u_radius;
-				uniform bool u_subtext_centered;
-				uniform bool u_subtext_enabled;
-				uniform float u_subtext_offset;
-				uniform float u_subtext_scale;
-				uniform float u_text_scale;
 				uniform float u_text_aspect_ratio;
+				uniform vec2 u_text_offset;
+				uniform float u_text_scale;
 
 				out vec2 v_pos;
 
 				void main() {
 					v_pos = a_pos / 1.01; // correct for jelly physics wobble effect
 
-					vec2 clip_space;
-					if (u_subtext_enabled) {
-						clip_space = v_pos * 0.5 * u_subtext_scale;
-						clip_space.x += u_subtext_offset * u_subtext_scale;
-						if (!u_subtext_centered) {
-							clip_space.y += 0.5 * u_text_scale;
-							clip_space.y += 0.25 * (u_subtext_scale - 1.0);
-						}
-					} else {
-						clip_space = v_pos * u_text_scale;
-					}
-
+					vec2 clip_space = v_pos * u_text_scale + u_text_offset;
 					clip_space *= u_radius * 0.45 * vec2(u_text_aspect_ratio, 1.0);
 					clip_space += -u_camera_pos + u_pos;
 					clip_space *= u_camera_scale * vec2(1.0 / u_aspect_ratio, -1.0);
@@ -2436,8 +2444,7 @@
 			uniforms.text = getUniforms('text', programs.text, [
 				'u_aspect_ratio', 'u_camera_pos', 'u_camera_scale',
 				'u_alpha', 'u_color1', 'u_color2', 'u_pos', 'u_radius', 'u_silhouette', 'u_silhouette_enabled',
-				'u_subtext_centered', 'u_subtext_enabled', 'u_subtext_offset', 'u_subtext_scale', 'u_text_aspect_ratio',
-				'u_text_scale', 'u_texture',
+				'u_text_aspect_ratio', 'u_text_offset', 'u_text_scale', 'u_texture',
 			]);
 
 			// create and bind objects
@@ -2749,8 +2756,6 @@
 				gl.uniform1f(uniforms.text.u_aspect_ratio, aspectRatio);
 				gl.uniform2f(uniforms.text.u_camera_pos, cameraPosX, cameraPosY);
 				gl.uniform1f(uniforms.text.u_camera_scale, cameraScale);
-				gl.uniform1f(uniforms.text.u_subtext_scale, settings.massScaleFactor);
-				gl.uniform1f(uniforms.text.u_text_scale, settings.nameScaleFactor);
 				gl.uniform1i(uniforms.text.u_texture, 0);
 				gl.uniform1i(uniforms.text.u_silhouette, 1);
 			})();
@@ -2927,7 +2932,8 @@
 				function drawText(cell, alpha) {
 					const showThisName = showNames && cell.r > 75 && cell.name;
 					const showThisMass = showMass && cell.r > 75;
-					if (!showThisName && !showThisMass) return;
+					const clan = settings.clans ? (aux.clans.get(cell.clan) ?? cell.clan) : '';
+					if (!showThisName && !showThisMass && clan) return;
 
 					gl.useProgram(programs.text);
 
@@ -2960,11 +2966,29 @@
 						}
 					}
 
+					if (clan) {
+						const { aspectRatio, text, silhouette } = textFromCache(clan, useSilhouette);
+						gl.uniform1f(uniforms.text.u_text_aspect_ratio, aspectRatio);
+						gl.uniform1i(uniforms.text.u_silhouette_enabled, useSilhouette ? 1 : 0);
+						gl.uniform1f(uniforms.text.u_text_scale, showThisName ? 0.5 : 1);
+						gl.uniform2f(uniforms.text.u_text_offset, 0, showThisName ? -settings.nameScaleFactor / 3 - 1 / 6 : 0);
+
+						gl.bindTexture(gl.TEXTURE_2D, text);
+						if (silhouette) {
+							gl.activeTexture(gl.TEXTURE1);
+							gl.bindTexture(gl.TEXTURE_2D, silhouette);
+							gl.activeTexture(gl.TEXTURE0);
+						}
+
+						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+					}
+
 					if (showThisName) {
 						const { aspectRatio, text, silhouette } = textFromCache(cell.name, useSilhouette);
 						gl.uniform1f(uniforms.text.u_text_aspect_ratio, aspectRatio);
 						gl.uniform1i(uniforms.text.u_silhouette_enabled, silhouette ? 1 : 0);
-						gl.uniform1i(uniforms.text.u_subtext_enabled, 0);
+						gl.uniform2f(uniforms.text.u_text_offset, 0, 0);
+						gl.uniform1f(uniforms.text.u_text_scale, settings.nameScaleFactor);
 
 						gl.bindTexture(gl.TEXTURE_2D, text);
 						if (silhouette) {
@@ -2979,21 +3003,22 @@
 					if (showThisMass) {
 						gl.uniform1f(uniforms.text.u_alpha, alpha * settings.massOpacity);
 						gl.uniform1i(uniforms.text.u_silhouette_enabled, 0);
-						gl.uniform1i(uniforms.text.u_subtext_enabled, 1);
+						gl.uniform1f(uniforms.text.u_text_scale, 0.5 * settings.massScaleFactor);
 
-						if (showThisName) {
-							gl.uniform1i(uniforms.text.u_subtext_centered, 0);
-						} else {
-							gl.uniform1i(uniforms.text.u_subtext_centered, 1);
-						}
-
+						let yOffset;
+						if (showThisName)
+							yOffset = settings.nameScaleFactor / 3 + 0.5 * settings.massScaleFactor / 3;
+						else if (clan)
+							yOffset = 1 / 3 + 0.5 * settings.massScaleFactor / 3;
+						else
+							yOffset = 0;
 						// draw each digit separately, as Ubuntu makes them all the same width.
 						// significantly reduces the size of the text cache
 						const mass = Math.floor(cell.nr * cell.nr / 100).toString();
 						for (let i = 0; i < mass.length; ++i) {
 							const { aspectRatio, texture } = massTextFromCache(mass[i]);
 							gl.uniform1f(uniforms.text.u_text_aspect_ratio, aspectRatio);
-							gl.uniform1f(uniforms.text.u_subtext_offset, (i - (mass.length - 1) / 2) * 0.75);
+							gl.uniform2f(uniforms.text.u_text_offset, (i - (mass.length - 1) / 2) * 0.75 * settings.massScaleFactor, yOffset);
 
 							gl.bindTexture(gl.TEXTURE_2D, texture);
 							gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
