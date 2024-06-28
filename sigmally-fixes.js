@@ -1849,14 +1849,12 @@
 			if (e.target instanceof HTMLDivElement
 				&& /** @type {CSSUnitValue | undefined} */ (e.target.attributeStyleMap.get('z-index'))?.value === 99)
 				return;
-			ui.game.canvas.requestPointerLock();
 			mouseX = (e.clientX / innerWidth * 2) - 1;
 			mouseY = (e.clientY / innerHeight * 2) - 1;
 		});
 
 		addEventListener('wheel', e => {
 			if (unfocused()) return;
-			ui.game.canvas.requestPointerLock();
 			input.zoom *= 0.8 ** (e.deltaY / 100 * settings.scrollFactor);
 			input.zoom = Math.min(Math.max(input.zoom, 0.8 ** 10), 0.8 ** -11);
 		});
