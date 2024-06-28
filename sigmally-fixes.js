@@ -820,6 +820,7 @@
 			nameScaleFactor: 1,
 			scrollFactor: 1,
 			selfSkin: '',
+			syncSkin: true,
 			unsplittableOpacity: 1,
 		};
 
@@ -1034,10 +1035,11 @@
 
 		// #2 : generate ui for settings
 		slider('drawDelay', 'Draw delay', 120, 40, 300, 1, 0);
-		input('selfSkin', 'Self skin URL (not synced)', 'https://i.imgur.com/...', false);
 		slider('unsplittableOpacity', 'Unsplittable cell outline opacity', 1, 0, 1, 0.01, 2);
 		checkbox('cellOutlines', 'Cell outlines');
 		slider('cellOpacity', 'Cell opacity', 1, 0, 1, 0.01, 2);
+		input('selfSkin', 'Self skin URL (not synced)', 'https://i.imgur.com/...', false);
+		checkbox('syncSkin', 'Show self skin on other tabs');
 		separator();
 		slider('nameScaleFactor', 'Name scale factor', 1, 0.5, 2, 0.01, 2);
 		slider('massScaleFactor', 'Mass scale factor', 1, 0.5, 4, 0.01, 2);
@@ -2898,10 +2900,12 @@
 						if (settings.selfSkin && (world.mine.includes(cell.id) || world.mineDead.has(cell.id))) {
 							skin = settings.selfSkin;
 						} else {
-							for (const [_, data] of sync.others) {
-								if (data.owned.has(cell.id)) {
-									skin = data.skin;
-									break;
+							if (settings.syncSkin) {
+								for (const [_, data] of sync.others) {
+									if (data.owned.has(cell.id)) {
+										skin = data.skin;
+										break;
+									}
 								}
 							}
 
