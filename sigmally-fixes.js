@@ -807,6 +807,7 @@
 	/////////////////////////
 	const settings = (() => {
 		const settings = {
+			blockBrowserKeybinds: false,
 			cellOpacity: 1,
 			cellOutlines: true,
 			clans: false,
@@ -1051,6 +1052,7 @@
 		checkbox('jellySkinLag', 'Jelly physics cut-off on skins');
 		checkbox('jellyWobble', 'Jelly wobble effect on small cells');
 		separator();
+		checkbox('blockBrowserKeybinds', 'Block all browser keybinds');
 		checkbox('clans', 'Show clans');
 
 		// #3 : create options for sigmod
@@ -1932,14 +1934,10 @@
 				}
 			}
 
-			if (e.ctrlKey && e.code === 'KeyW') {
-				// prevent ctrl+w (only when in fullscreen!) - helps when multiboxing
-				e.preventDefault();
-			} else if (e.ctrlKey && e.code === 'Tab') {
+			if (e.ctrlKey && e.code === 'Tab') {
 				e.returnValue = true; // undo e.preventDefault() by SigMod
 				e.stopImmediatePropagation(); // prevent SigMod from calling e.preventDefault() afterwards
-			} else if (e.code === 'Tab') {
-				// prevent tabbing to a UI element, which then lets you press ctrl+w
+			} else if (settings.blockBrowserKeybinds || (e.ctrlKey && e.code === 'KeyW') || (e.code === 'Tab')) {
 				e.preventDefault();
 			}
 		});
