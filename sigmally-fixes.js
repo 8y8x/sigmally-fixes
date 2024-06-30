@@ -841,6 +841,7 @@
 			massBold: false,
 			massOpacity: 1,
 			massScaleFactor: 1,
+			mergeCamera: false,
 			mergeViewArea: false,
 			nameBold: false,
 			nameScaleFactor: 1,
@@ -1081,7 +1082,8 @@
 		checkbox('blockBrowserKeybinds', 'Block all browser keybinds');
 		checkbox('blockNearbyRespawns', 'Block respawns near other tabs');
 		checkbox('clans', 'Show clans');
-		checkbox('mergeViewArea', 'Combine visible cells between tabs');
+		checkbox('mergeCamera', 'Merge camera between tabs');
+		checkbox('mergeViewArea', 'Combine view area between tabs');
 
 		// #3 : create options for sigmod
 		let sigmodInjection;
@@ -1127,7 +1129,7 @@
 	 * 	self: string,
 	 * 	camera: { x: number, y: number },
 	 * 	cells: Map<number, Cell> | undefined,
-	 * 	owned: Set<number>,
+	 * 	owned: Map<number, { x: number, y: number, r: number } | false>,
 	 * 	skin: string,
 	 * 	updated: { now: number, timeOrigin: number },
 	 * }} SyncData
@@ -1152,10 +1154,14 @@
 
 		/** @param {number} now */
 		sync.broadcast = now => {
-			/** @type {Set<number>} */
-			const owned = new Set();
-			world.mine.forEach(id => owned.add(id));
-			world.mineDead.forEach(id => owned.add(id));
+			/** @type {SyncData['owned']} */
+			const owned = new Map();
+			world.mine.forEach(id => {
+				const cell = world.cells.get(id);
+				if (!cell) return;
+				owned.set(id, world.xyr(cell, world.cells, now));
+			});
+			world.mineDead.forEach(id => void owned.set(id, false));
 
 			/** @type {SyncData} */
 			const syncData = {
@@ -1312,8 +1318,6 @@
 					cell.updated = now;
 				}
 			});
-
-			try { throw new Error(); } catch (e) { console.log(e.stack); }
 		};
 
 		return sync;
@@ -1377,31 +1381,87 @@
 			last = now;
 
 			// move camera
-			let avgX = 0;
-			let avgY = 0;
-			let totalR = 0;
-			let totalCells = 0;
+			let cameraX = 0;
+			let cameraY = 0;
+			let focused = false;
+			let zoomout = 1;
 
 			const map = (settings.mergeViewArea && sync.merge) ? sync.merge : world.cells;
-			world.mine.forEach(id => {
-				const cell = map.get(id);
-				if (!cell || cell.dead) return;
+			if (settings.mergeCamera) {
+				let weight = 0;
 
-				const { x, y, r } = world.xyr(cell, map, now);
-				avgX += x;
-				avgY += y;
-				totalR += r;
-				++totalCells;
-			});
+				world.mine.forEach(id => {
+					const cell = map.get(id);
+					if (!cell || cell.dead) return;
 
-			avgX /= totalCells;
-			avgY /= totalCells;
+					const { x, y, r } = world.xyr(cell, map, now);
+					cameraX += x * r;
+					cameraY += y * r;
+					weight += r;
+				});
+
+				const localX = (cameraX / weight) || 0;
+				const localY = (cameraY / weight) || 0;
+				const localScale = Math.min(64 / weight, 1) ** 0.4;
+				const localWidth = 1920 / 2 / localScale;
+				const localHeight = 1080 / 2 / localScale;
+
+				sync.others.forEach(data => {
+					let thisX = 0;
+					let thisY = 0;
+					let thisWeight = 0;
+					data.owned.forEach((cell, id) => {
+						if (!cell) return;
+						thisX += cell.x * cell.r;
+						thisY += cell.y * cell.r;
+						thisWeight += cell.r;
+					});
+
+					if (thisWeight < 1) return;
+
+					const thisCameraX = thisX / thisWeight;
+					const thisCameraY = thisY / thisWeight;
+					const thisScale = Math.min(64 / thisWeight, 1) ** 0.4;
+					const thisWidth = 1920 / 2 / thisScale;
+					const thisHeight = 1080 / 2 / thisScale;
+
+					if (Math.abs(thisCameraX - localX) < localWidth + thisWidth + 1000
+						&& Math.abs(thisCameraY - localY) < localHeight + thisHeight + 1000) {
+						cameraX += thisX;
+						cameraY += thisY;
+						weight += thisWeight;
+					}
+				});
+
+				cameraX /= weight;
+				cameraY /= weight;
+				focused = weight >= 1;
+				zoomout = 0.25;
+			} else {
+				let totalCells = 0;
+				let totalR = 0;
+				world.mine.forEach(id => {
+					const cell = map.get(id);
+					if (!cell || cell.dead) return;
+
+					const { x, y, r } = world.xyr(cell, map, now);
+					cameraX += x;
+					cameraY += y;
+					totalR += r;
+					++totalCells;
+				});
+
+				cameraX /= totalCells;
+				cameraY /= totalCells;
+				focused = totalCells > 0;
+				zoomout = Math.min(64 / totalR, 1) ** 0.4;
+			}
 
 			let xyEaseFactor;
-			if (totalCells > 0) {
-				world.camera.tx = avgX;
-				world.camera.ty = avgY;
-				world.camera.tscale = Math.min(64 / totalR, 1) ** 0.4 * input.zoom;
+			if (focused) {
+				world.camera.tx = cameraX;
+				world.camera.ty = cameraY;
+				world.camera.tscale = zoomout * input.zoom;
 
 				xyEaseFactor = 2;
 			} else {
