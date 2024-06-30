@@ -841,6 +841,7 @@
 			massBold: false,
 			massOpacity: 1,
 			massScaleFactor: 1,
+			mergeViewArea: false,
 			nameBold: false,
 			nameScaleFactor: 1,
 			scrollFactor: 1,
@@ -1080,6 +1081,7 @@
 		checkbox('blockBrowserKeybinds', 'Block all browser keybinds');
 		checkbox('blockNearbyRespawns', 'Block respawns near other tabs');
 		checkbox('clans', 'Show clans');
+		checkbox('mergeViewArea', 'Combine visible cells between tabs');
 
 		// #3 : create options for sigmod
 		let sigmodInjection;
@@ -1124,12 +1126,16 @@
 	/** @typedef {{
 	 * 	self: string,
 	 * 	camera: { x: number, y: number },
+	 * 	cells: Map<number, Cell> | undefined,
 	 * 	owned: Set<number>,
 	 * 	skin: string,
+	 * 	updated: { now: number, timeOrigin: number },
 	 * }} SyncData
 	 */
 	const sync = (() => {
 		const sync = {};
+		/** @type {Map<number, Cell> | undefined} */
+		sync.merge = undefined;
 		/** @type {Map<string, SyncData>} */
 		sync.others = new Map();
 
@@ -1137,7 +1143,15 @@
 		const worldsync = new BroadcastChannel('sigfix-worldsync');
 		const self = Date.now() + '-' + Math.random();
 
-		sync.broadcast = () => {
+		/**
+		 * @param {SyncData} data
+		 * @param {number} foreignNow
+		 */
+		const localized = (data, foreignNow) => data.updated.timeOrigin - performance.timeOrigin + foreignNow;
+		// foreignNow + data.updated.timeOrigin - performance.timeOrigin; different order so maybe better precision?
+
+		/** @param {number} now */
+		sync.broadcast = now => {
 			/** @type {Set<number>} */
 			const owned = new Set();
 			world.mine.forEach(id => owned.add(id));
@@ -1147,8 +1161,10 @@
 			const syncData = {
 				self,
 				camera: { x: world.camera.x, y: world.camera.y },
+				cells: settings.mergeViewArea ? world.cells : undefined,
 				owned,
 				skin: settings.selfSkin,
+				updated: { now, timeOrigin: performance.timeOrigin },
 			};
 			worldsync.postMessage(syncData);
 		};
@@ -1167,7 +1183,138 @@
 			/** @type {SyncData} */
 			const data = m.data;
 			sync.others.set(data.self, data);
+			sync.buildMerge(localized(data, data.updated.now));
 		});
+
+		/** @param {number} now */
+		sync.buildMerge = now => {
+			// for camera merging to look extremely smooth, we need to merge packets and apply them *ONLY* when all
+			// tabs are synchronized.
+			// if you simply fall back to what the other tabs see, you will get lots of flickering and warping (what
+			// delta suffers from).
+			// threfore, we make sure that all tabs that share visible cells see them in the same spots, to make sure
+			// they are all on the same tick
+			// it's also not sufficient to simply count how many update (0x10) packets we get, as /leaveworld (part of
+			// respawn functionality) stops those packets from coming in
+			// if the view areas are disjoint, then there's nothing we can do but this should never happen when
+			// splitrunning
+			if (!settings.mergeViewArea) return;
+			const merge = sync.merge ?? /** @type {Map<number, Cell>} */ (sync.merge = new Map());
+
+			// #1 : collect all cells first, to make iteration simpler
+			/** @type {Map<number, { me: Cell | undefined, others: Map<SyncData, Cell> }>} */
+			const all = new Map();
+			world.cells.forEach((cell, id) => void all.set(id, { me: cell, others: new Map() }));
+			sync.others.forEach(data => {
+				const realNow = localized(data, data.updated.now);
+				if (now - realNow > 500) return; // tab has not updated in 500ms, disregard it
+				data.cells?.forEach((cell, id) => {
+					const current = all.get(id);
+					if (current) current.others.set(data, cell);
+					else all.set(id, { me: undefined, others: new Map([ [data, cell] ]) });
+				});
+			});
+
+			// #2 : check if all *active* tabs have updated yet
+			/** @type {Set<[Cell, number]>} */
+			const updateQueue = new Set();
+			for (const [_, { me, others }] of all) {
+				/** @type {Cell | undefined} */
+				let primary = me;
+				let primaryOffset = 0;
+				for (const [data, other] of others) {
+					const otherOffset = data.updated.timeOrigin - performance.timeOrigin;
+					if (!primary) {
+						primary = other;
+						primaryOffset = otherOffset;
+						continue;
+					}
+
+					// if both *disappeared*:
+					//   prefer the one that disappeared later
+					// else if one disappeared:
+					//   prefer the one that hasn't disappeared
+					// else:
+					//   assert: both have not disappeared
+					//   if x, y, r are not the same (ignore dead.to):
+					//     desync, return
+					//   else
+					//     they are both the same
+					const primaryDisappearedAt
+						= (primary.dead && primary.dead.to === undefined) ? primaryOffset + primary.dead.at : undefined;
+					const otherDisappearedAt
+						= (other.dead && other.dead.to === undefined) ? otherOffset + other.dead.at : undefined;
+					if (primaryDisappearedAt === undefined && otherDisappearedAt === undefined) {
+						// neither have disappeared, check for desync
+						if (primary.nx !== other.nx || primary.ny !== other.ny || primary.nr !== other.nr)
+							return; // desync
+					} else if (primaryDisappearedAt === undefined && otherDisappearedAt !== undefined) {
+						// other disappeared; prefer the primary one
+					} else if (primaryDisappearedAt !== undefined && otherDisappearedAt === undefined) {
+						// primary disappeared; prefer the other one
+						primary = other;
+						primaryOffset = otherOffset;
+					} else {
+						// both have disappeared, prefer the one that died later
+						if (/** @type {number} */ (primaryDisappearedAt) < /** @type {number} */ (otherDisappearedAt)) {
+							primary = other;
+							primaryOffset = otherOffset;
+						}
+					}
+				}
+
+				if (primary)
+					updateQueue.add([ primary, primaryOffset ]);
+			}
+
+			// #3 : all tabs are synced, we can update the cells
+			updateQueue.forEach(([cell, offset]) => {
+				const old = merge.get(cell.id);
+				if (old) {
+					const { x, y, r } = world.xyr(old, merge, now);
+					old.ox = x;
+					old.oy = y;
+					old.or = r;
+					old.nx = cell.nx;
+					old.ny = cell.ny;
+					old.nr = cell.nr;
+					if (cell.dead)
+						old.dead ??= { to: cell.dead.to, at: now };
+					else if (old.dead) {
+						old.ox = old.nx;
+						old.oy = old.ny;
+						old.or = old.nr;
+						old.dead = undefined;
+					}
+					old.updated = now;
+				} else {
+					merge.set(cell.id, {
+						id: cell.id,
+						ox: cell.ox, nx: cell.nx,
+						oy: cell.oy, ny: cell.ny,
+						or: cell.or, nr: cell.nr,
+						rgb: cell.rgb,
+						jagged: cell.jagged,
+						name: cell.name, skin: cell.skin, sub: cell.sub, clan: cell.clan,
+						born: offset + cell.born, updated: now,
+						dead: cell.dead ? { to: cell.dead.to, at: now } : undefined,
+					});
+				}
+			});
+
+			// kill cells that aren't seen anymore
+			merge.forEach((cell, id) => {
+				if (all.has(id)) return;
+				if (cell.dead) {
+					if (now - cell.dead.at > 1000) merge.delete(id);
+				} else {
+					cell.dead = { to: undefined, at: now };
+					cell.updated = now;
+				}
+			});
+
+			try { throw new Error(); } catch (e) { console.log(e.stack); }
+		};
 
 		return sync;
 	})();
@@ -1179,14 +1326,13 @@
 	///////////////////////////
 	/** @typedef {{
 	 * id: number,
-	 * x: number, ox: number, nx: number,
-	 * y: number, oy: number, ny: number,
-	 * r: number, or: number, nr: number,
+	 * ox: number, nx: number,
+	 * oy: number, ny: number,
+	 * or: number, nr: number,
 	 * rgb: [number, number, number],
 	 * updated: number, born: number, dead: { to: number | undefined, at: number } | undefined,
 	 * jagged: boolean,
 	 * name: string, skin: string, sub: boolean, clan: string,
-	 * jelly: { x: number, y: number, r: number, wobble: Float32Array },
 	 * }} Cell */
 	const world = (() => {
 		const world = {};
@@ -1203,32 +1349,25 @@
 
 		/**
 		 * @param {Cell} cell
+		 * @param {Map<number, Cell>} map
 		 * @param {number} now
-		 * @param {number | undefined} dt
+		 * @returns {{ x: number, y: number, r: number }}
 		 */
-		world.move = function(cell, now, dt) {
+		world.xyr = (cell, map, now) => {
+			const a = Math.min(Math.max((now - cell.updated) / settings.drawDelay, 0), 1);
 			let nx = cell.nx;
 			let ny = cell.ny;
-			const deadTo = world.cells.get(cell.dead?.to ?? -1);
+			const deadTo = map.get(cell.dead?.to ?? -1);
 			if (deadTo) {
-				nx = deadTo.x;
-				ny = deadTo.y;
-			} else if (cell.r <= 20) {
-				cell.x = nx;
-				cell.y = ny;
-				return;
+				nx = deadTo.nx;
+				ny = deadTo.ny;
 			}
 
-			const a = Math.min(Math.max((now - cell.updated) / settings.drawDelay, 0), 1);
-			cell.x = cell.ox + (nx - cell.ox) * a;
-			cell.y = cell.oy + (ny - cell.oy) * a;
-			cell.r = cell.or + (cell.nr - cell.or) * a;
-
-			if (dt !== undefined) {
-				cell.jelly.x = aux.exponentialEase(cell.jelly.x, cell.x, 2, dt);
-				cell.jelly.y = aux.exponentialEase(cell.jelly.y, cell.y, 2, dt);
-				cell.jelly.r = aux.exponentialEase(cell.jelly.r, cell.r, 5, dt);
-			}
+			return {
+				x: cell.ox + (nx - cell.ox) * a,
+				y: cell.oy + (ny - cell.oy) * a,
+				r: cell.or + (cell.nr - cell.or) * a,
+			};
 		};
 
 		let last = performance.now();
@@ -1237,21 +1376,21 @@
 			const dt = (now - last) / 1000;
 			last = now;
 
-			world.cells.forEach(cell => world.move(cell, now, dt));
-
 			// move camera
 			let avgX = 0;
 			let avgY = 0;
 			let totalR = 0;
 			let totalCells = 0;
 
+			const map = (settings.mergeViewArea && sync.merge) ? sync.merge : world.cells;
 			world.mine.forEach(id => {
-				const cell = world.cells.get(id);
+				const cell = map.get(id);
 				if (!cell || cell.dead) return;
 
-				avgX += cell.x;
-				avgY += cell.y;
-				totalR += cell.r;
+				const { x, y, r } = world.xyr(cell, map, now);
+				avgX += x;
+				avgY += y;
+				totalR += r;
 				++totalCells;
 			});
 
@@ -1262,7 +1401,7 @@
 			if (totalCells > 0) {
 				world.camera.tx = avgX;
 				world.camera.ty = avgY;
-				world.camera.tscale = Math.min(64 / totalR) ** 0.4 * input.zoom;
+				world.camera.tscale = Math.min(64 / totalR, 1) ** 0.4 * input.zoom;
 
 				xyEaseFactor = 2;
 			} else {
@@ -1291,12 +1430,12 @@
 			const now = performance.now();
 			world.cells.forEach((cell, id) => {
 				if (!cell.dead) return;
-				if (now - cell.dead.at >= 120) {
+				if (now - cell.dead.at >= settings.drawDelay + 1000) {
 					world.cells.delete(id);
 					world.mineDead.delete(id);
 				}
 			});
-		}, 100);
+		}, 1000);
 
 
 
@@ -1398,7 +1537,7 @@
 			world.clanmates.clear();
 			while (world.mine.length) world.mine.pop();
 			world.mineDead.clear();
-			sync.broadcast();
+			sync.broadcast(performance.now());
 
 			setTimeout(connect, 500 * Math.min(reconnectAttempts++ + 1, 10));
 		}
@@ -1520,8 +1659,9 @@
 						if (killed) {
 							killed.dead = { to: killerId, at: now };
 							killed.updated = now;
+							world.clanmates.delete(killed);
 
-							if (killed.r <= 20 && world.mine.includes(killerId))
+							if (killed.nr <= 20 && world.mine.includes(killerId))
 								++world.stats.foodEaten;
 
 							const myIdx = world.mine.indexOf(killedId);
@@ -1529,8 +1669,6 @@
 								world.mine.splice(myIdx, 1);
 								world.mineDead.add(killedId);
 							}
-
-							world.clanmates.delete(killed);
 						}
 					}
 
@@ -1576,49 +1714,46 @@
 						const jagged = !!(flags & 0x11);
 
 						const cell = world.cells.get(id);
-						if (cell) {
-							// update cell.x and cell.y, to prevent rubber banding effect when tabbing out for a bit
-							world.move(cell, now, undefined);
-
-							cell.ox = cell.x; cell.oy = cell.y; cell.or = cell.r;
-							cell.nx = x; cell.ny = y; cell.nr = r; cell.sub = sub;
+						if (cell && !cell.dead) {
+							const { x: ix, y: iy, r: ir } = world.xyr(cell, world.cells, now);
+							cell.ox = ix; cell.oy = iy; cell.or = ir;
+							cell.nx = x; cell.ny = y; cell.nr = r;
 							cell.jagged = jagged;
 							cell.updated = now;
 
 							if (rgb) cell.rgb = rgb;
 							if (skin) cell.skin = skin;
 							if (name) cell.name = name;
+							cell.sub = sub;
 
 							cell.clan = clan;
 							if (clan && clan === aux.userData?.clan)
 								world.clanmates.add(cell);
-
-							if (cell.dead) {
-								// cells can become alive without dying, like the white cells when respawning
-								cell.born = now;
-								cell.dead = undefined;
-							}
 						} else {
+							if (cell?.dead) {
+								// when respawning, OgarII does not send the description of cells if you spawn in the
+								// same area, despite those cells being deleted from your view area
+								rgb ??= cell.rgb;
+								name ??= cell.name;
+								skin ??= cell.skin;
+							}
+
 							/** @type {Cell} */
-							const cell = {
+							const ncell = {
 								id,
-								x, ox: x, nx: x,
-								y, oy: y, ny: y,
-								r, or: r, nr: r,
+								ox: x, nx: x,
+								oy: y, ny: y,
+								or: r, nr: r,
 								rgb: rgb ?? [1, 1, 1],
 								updated: now, born: now, dead: undefined,
 								jagged,
 								name, skin, sub, clan,
-								jelly: {
-									x, y, r,
-									wobble: world.wobble(),
-								},
 							};
 
-							world.cells.set(id, cell);
+							world.cells.set(id, ncell);
 
 							if (clan && clan === aux.userData?.clan)
-								world.clanmates.add(cell);
+								world.clanmates.add(ncell);
 						}
 					}
 
@@ -1634,6 +1769,12 @@
 						if (deleted) {
 							deleted.dead ??= { to: undefined, at: now };
 							world.clanmates.delete(deleted);
+
+							const myIdx = world.mine.indexOf(deletedId);
+							if (myIdx !== -1) {
+								world.mine.splice(myIdx, 1);
+								world.mineDead.add(myIdx);
+							}
 						}
 					}
 
@@ -1641,7 +1782,8 @@
 						ui.deathScreen.show(world.stats);
 					}
 
-					sync.broadcast();
+					sync.broadcast(now);
+					sync.buildMerge(now);
 
 					break;
 				}
@@ -2751,7 +2893,6 @@
 			}
 
 			const darkTheme = aux.setting('input#darkTheme', true);
-			const jellyPhysics = aux.setting('input#jellyPhysics', false);
 			const showBorder = aux.setting('input#showBorder', true);
 			const showGrid = aux.setting('input#showGrid', true);
 			const showMass = aux.setting('input#showMass', false);
@@ -2826,14 +2967,7 @@
 			})();
 
 			(function cells() {
-				/** @param {Cell} cell */
-				function calcAlpha(cell) {
-					let alpha = Math.min((now - cell.born) / 100, 1);
-					if (cell.dead)
-						alpha = Math.min(alpha, Math.max(1 - (now - cell.dead.at) / 100, 0));
-
-					return alpha;
-				}
+				const map = (settings.mergeViewArea && sync.merge) ? sync.merge : world.cells;
 
 				// for white cell outlines
 				let nextCellIdx = world.mine.length;
@@ -2852,29 +2986,23 @@
 
 				/**
 				 * @param {Cell} cell
-				 * @param {number} alpha
 				 */
-				function drawCell(cell, alpha) {
+				function draw(cell) {
+					// #1 : draw cell
 					gl.useProgram(programs.cell);
 
+					let alpha = Math.min((now - cell.born) / 100, 1);
+					if (cell.dead)
+						alpha = Math.min(alpha, Math.max(1 - (now - cell.dead.at) / 100, 0));
+					alpha = Math.min(Math.max(alpha, 0), 1);
 					gl.uniform1f(uniforms.cell.u_alpha, alpha * settings.cellOpacity);
 
-					if (jellyPhysics && cell.r > 20 && !cell.jagged) {
-						gl.uniform2f(uniforms.cell.u_pos, cell.jelly.x, cell.jelly.y);
-						gl.uniform1f(uniforms.cell.u_inner_radius, settings.jellySkinLag ? cell.jelly.r : cell.r);
-						gl.uniform1f(uniforms.cell.u_outer_radius, cell.jelly.r);
-					} else {
-						gl.uniform2f(uniforms.cell.u_pos, cell.x, cell.y);
-						gl.uniform1f(uniforms.cell.u_inner_radius, cell.r);
-						gl.uniform1f(uniforms.cell.u_outer_radius, cell.r);
-					}
+					const { x, y, r } = world.xyr(cell, map, now);
+					gl.uniform2f(uniforms.cell.u_pos, x, y);
+					gl.uniform1f(uniforms.cell.u_inner_radius, r);
+					gl.uniform1f(uniforms.cell.u_outer_radius, r);
 
-					if (jellyPhysics && settings.jellyWobble) {
-						gl.uniform1i(uniforms.cell.u_wobble_enabled, 1);
-						gl.uniform1fv(uniforms.cell.u_wobble, cell.jelly.wobble);
-					} else {
-						gl.uniform1i(uniforms.cell.u_wobble_enabled, 0);
-					}
+					gl.uniform1i(uniforms.cell.u_wobble_enabled, 0);
 
 					if (cell.jagged) {
 						const virusTexture = textureFromCache(virusSrc);
@@ -2891,7 +3019,7 @@
 						return;
 					}
 
-					if (cell.r <= 20) {
+					if (cell.nr <= 20) {
 						gl.uniform1i(uniforms.cell.u_outline_thick, 0);
 						if (pelletColor) {
 							gl.uniform4f(uniforms.cell.u_color, ...pelletColor, 1);
@@ -2906,7 +3034,7 @@
 					}
 
 					gl.uniform1i(uniforms.cell.u_texture_enabled, 0);
-					if (cell.r <= 20) {
+					if (cell.nr <= 20) {
 						gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 0);
 					} else {
 						const myIndex = world.mine.indexOf(cell.id);
@@ -2959,26 +3087,19 @@
 					}
 
 					gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-				}
 
-				/**
-				 * @param {Cell} cell
-				 * @param {number} alpha
-				 */
-				function drawText(cell, alpha) {
-					const showThisName = showNames && cell.r > 75 && cell.name;
-					const showThisMass = showMass && cell.r > 75;
+					// #2 : draw text
+					if (cell.nr <= 20) return; // quick return if a pellet
+					const showThisName = showNames && cell.nr > 75 && cell.name;
+					const showThisMass = showMass && cell.nr > 75;
 					const clan = settings.clans ? (aux.clans.get(cell.clan) ?? cell.clan) : '';
 					if (!showThisName && !showThisMass && clan) return;
 
 					gl.useProgram(programs.text);
 
 					gl.uniform1f(uniforms.text.u_alpha, alpha);
-					if (jellyPhysics)
-						gl.uniform2f(uniforms.text.u_pos, cell.jelly.x, cell.jelly.y);
-					else
-						gl.uniform2f(uniforms.text.u_pos, cell.x, cell.y);
-					gl.uniform1f(uniforms.text.u_radius, cell.r);
+					gl.uniform2f(uniforms.text.u_pos, x, y);
+					gl.uniform1f(uniforms.text.u_radius, r);
 
 					let useSilhouette = false;
 					if (cell.sub) {
@@ -3064,26 +3185,21 @@
 
 				/** @type {Cell[]} */
 				const sorted = [];
-				world.cells.forEach(cell => {
-					if (cell.r > 20) {
+				map.forEach(cell => {
+					if (cell.nr > 20) {
 						// cell is probably important, order should be sorted
 						sorted.push(cell);
 						return;
 					}
 
-					if (cell.r <= 20 && hidePellets) return;
-					const alpha = calcAlpha(cell);
-					drawCell(cell, alpha);
+					if (cell.nr <= 20 && hidePellets) return;
+					draw(cell);
 				});
 
-				sorted.sort((a, b) => a.r - b.r);
+				// using `nr` *might* be weird or it might look better
+				sorted.sort((a, b) => a.nr - b.nr);
 
-				sorted.forEach(cell => {
-					const alpha = calcAlpha(cell);
-					drawCell(cell, alpha);
-					if (!cell.jagged)
-						drawText(cell, alpha);
-				});
+				sorted.forEach(cell => void draw(cell));
 			})();
 
 			(function updateStats() {
@@ -3187,9 +3303,9 @@
 				// draw cells
 				/** @param {Cell} cell */
 				const drawCell = function drawCell(cell) {
-					const x = (cell.x - border.l) / gameWidth * canvas.width;
-					const y = (cell.y - border.t) / gameHeight * canvas.height;
-					const r = Math.max(cell.r / gameWidth * canvas.width, 2);
+					const x = (cell.nx - border.l) / gameWidth * canvas.width;
+					const y = (cell.ny - border.t) / gameHeight * canvas.height;
+					const r = Math.max(cell.nr / gameWidth * canvas.width, 2);
 
 					ctx.fillStyle = aux.rgb2hex(cell.rgb);
 					ctx.beginPath();
@@ -3224,10 +3340,10 @@
 					const entry = avgPos.get(id);
 					if (entry) {
 						++entry.n;
-						entry.x += cell.x;
-						entry.y += cell.y;
+						entry.x += cell.nx;
+						entry.y += cell.ny;
 					} else {
-						avgPos.set(id, { name: cell.name, n: 1, x: cell.x, y: cell.y });
+						avgPos.set(id, { name: cell.name, n: 1, x: cell.nx, y: cell.ny });
 					}
 				});
 
@@ -3247,8 +3363,8 @@
 					drawCell(cell);
 					myName = cell.name;
 					++ownN;
-					ownX += cell.x;
-					ownY += cell.y;
+					ownX += cell.nx;
+					ownY += cell.ny;
 				});
 
 				if (ownN <= 0) {
