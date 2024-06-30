@@ -1190,6 +1190,16 @@
 			sync.buildMerge(localized(data, data.updated.now));
 		});
 
+		// clear dead tabs
+		setInterval(() => {
+			const now = performance.now();
+			sync.others.forEach((data, key) => {
+				if (now - localized(data, data.updated.now) > 250) {
+					sync.others.delete(key);
+				}
+			});
+		}, 250);
+
 		/** @param {number} now */
 		sync.buildMerge = now => {
 			// for camera merging to look extremely smooth, we need to merge packets and apply them *ONLY* when all
@@ -1202,34 +1212,37 @@
 			// respawn functionality) stops those packets from coming in
 			// if the view areas are disjoint, then there's nothing we can do but this should never happen when
 			// splitrunning
-			if (!settings.mergeViewArea) return;
+			if (!settings.mergeViewArea) {
+				sync.merge = undefined;
+				return;
+			}
 			const merge = sync.merge ?? /** @type {Map<number, Cell>} */ (sync.merge = new Map());
 
 			// #1 : collect all cells first, to make iteration simpler
-			/** @type {Map<number, { me: Cell | undefined, others: Map<SyncData, Cell> }>} */
+			/** @type {Map<number, Map<SyncData | undefined, Cell>>} */
 			const all = new Map();
 			for (const [id, cell] of world.cells)
-				all.set(id, { me: cell, others: new Map() });
+				all.set(id, new Map([ [undefined, cell] ]));
 			sync.others.forEach(data => {
 				const realNow = localized(data, data.updated.now);
-				if (now - realNow > 500) return; // tab has not updated in 500ms, disregard it
+				if (now - realNow > 250) return; // tab has not updated in 250ms, disregard it
 				if (!data.cells) return;
 				for (const [id, cell] of data.cells) {
 					const current = all.get(id);
-					if (current) current.others.set(data, cell);
-					else all.set(id, { me: undefined, others: new Map([ [data, cell] ]) });
+					if (current) current.set(data, cell);
+					else all.set(id, new Map([ [data, cell] ]));
 				}
 			});
 
 			// #2 : check if all *active* tabs have updated yet
 			/** @type {Set<[Cell, number]>} */
 			const updateQueue = new Set();
-			for (const { me, others } of all.values()) {
+			for (const seen of all.values()) {
 				/** @type {Cell | undefined} */
-				let primary = me;
+				let primary = undefined;
 				let primaryOffset = 0;
-				for (const [data, other] of others) {
-					const otherOffset = data.updated.timeOrigin - performance.timeOrigin;
+				for (const [data, other] of seen) {
+					const otherOffset = data ? data.updated.timeOrigin - performance.timeOrigin : 0;
 					if (!primary) {
 						primary = other;
 						primaryOffset = otherOffset;
