@@ -298,14 +298,37 @@
 			},
 		}));
 
+		const leaveWorldRepresentation = new TextEncoder().encode('/leaveworld').toString();
 		/** @type {WeakSet<WebSocket>} */
 		const safeWebSockets = new WeakSet();
 		let realWsSend = WebSocket.prototype.send;
-		WebSocket.prototype.send = function() {
+		WebSocket.prototype.send = function(x) {
 			if (!safeWebSockets.has(this) && this.url.includes('sigmally.com')) {
 				this.onclose = null;
 				this.close();
 				throw new Error('Nope :) - hooked by Sigmally Fixes');
+			}
+
+			if (settings.blockNearbyRespawns) {
+				let matched = false;
+				if (x instanceof ArrayBuffer) {
+					matched = x.byteLength === '/leaveworld'.length + 3
+						&& new Uint8Array(x).toString().includes(leaveWorldRepresentation);
+				} else if (x instanceof Uint8Array) {
+					matched = x.byteLength === '/leaveworld'.length + 3
+						&& x.toString().includes(leaveWorldRepresentation);
+				}
+
+				if (matched) {
+					// trying to respawn; see if we are nearby an alive multi-tab
+					if (world.mine.length > 0) {
+						for (const [_, data] of sync.others) {
+							if (data.owned.size > 0
+								&& Math.hypot(data.camera.x - world.camera.x, data.camera.y - world.camera.y) <= 7500)
+								return;
+						}
+					}
+				}
 			}
 
 			return realWsSend.apply(this, arguments);
@@ -808,6 +831,7 @@
 	const settings = (() => {
 		const settings = {
 			blockBrowserKeybinds: false,
+			blockNearbyRespawns: false,
 			cellOpacity: 1,
 			cellOutlines: true,
 			clans: false,
@@ -1054,6 +1078,7 @@
 		checkbox('jellyWobble', 'Jelly wobble effect on small cells');
 		separator();
 		checkbox('blockBrowserKeybinds', 'Block all browser keybinds');
+		checkbox('blockNearbyRespawns', 'Block respawns near other tabs');
 		checkbox('clans', 'Show clans');
 
 		// #3 : create options for sigmod
@@ -1098,6 +1123,7 @@
 	////////////////////////////////
 	/** @typedef {{
 	 * 	self: string,
+	 * 	camera: { x: number, y: number },
 	 * 	owned: Set<number>,
 	 * 	skin: string,
 	 * }} SyncData
@@ -1120,6 +1146,7 @@
 			/** @type {SyncData} */
 			const syncData = {
 				self,
+				camera: { x: world.camera.x, y: world.camera.y },
 				owned,
 				skin: settings.selfSkin,
 			};
