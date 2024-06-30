@@ -354,7 +354,7 @@
 
 			const watermark = document.createElement('span');
 			watermark.innerHTML = '<a href="https://greasyfork.org/scripts/483587/versions" \
-				target="_blank">Sigmally Fixes 2.3.0</a> by yx';
+				target="_blank">Sigmally Fixes 2.3.0 (PRERELEASE)</a> by yx';
 			title.insertAdjacentElement('afterend', watermark);
 		})();
 
@@ -1140,6 +1140,7 @@
 
 		const frame = new BroadcastChannel('sigfix-frame');
 		const worldsync = new BroadcastChannel('sigfix-worldsync');
+		const zoom = new BroadcastChannel('sigfix-zoom');
 		const self = Date.now() + '-' + Math.random();
 
 		/**
@@ -1177,18 +1178,22 @@
 			frame.postMessage(undefined);
 		};
 
+		sync.zoom = () => zoom.postMessage(input.zoom);
+
 		frame.addEventListener('message', () => {
 			// only update the world if we aren't rendering ourselves (example case: games open on two monitors)
 			if (document.visibilityState === 'hidden')
 				world.update();
 		});
 
-		worldsync.addEventListener('message', m => {
+		worldsync.addEventListener('message', e => {
 			/** @type {SyncData} */
-			const data = m.data;
+			const data = e.data;
 			sync.others.set(data.self, data);
 			sync.buildMerge(localized(data, data.updated.now));
 		});
+
+		zoom.addEventListener('message', e => void (input.zoom = e.data));
 
 		// clear dead tabs
 		setInterval(() => {
@@ -2133,6 +2138,7 @@
 			if (unfocused()) return;
 			input.zoom *= 0.8 ** (e.deltaY / 100 * settings.scrollFactor);
 			input.zoom = Math.min(Math.max(input.zoom, 0.8 ** 10), 0.8 ** -11);
+			sync.zoom();
 		});
 
 		addEventListener('keydown', e => {
