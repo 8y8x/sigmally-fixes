@@ -114,13 +114,7 @@
 		};
 
 		/** @param {string} name */
-		aux.parseName = name => {
-			const match = name.match(/^\{.*?\}(.*)$/);
-			if (match)
-				name = match[1];
-
-			return name || 'An unnamed cell';
-		};
+		aux.parseName = name => name.match(/^\{.*?\}(.*)$/)?.[1] ?? name;
 
 		/** @param {string} skin */
 		aux.parseSkin = skin => {
@@ -166,6 +160,9 @@
 			if (gamemode)
 				gamemode.value = aux.settings.gamemode;
 		}
+
+		aux.textEncoder = new TextEncoder();
+		aux.textDecoder = new TextDecoder();
 
 		const trimCtx = aux.require(
 			document.createElement('canvas').getContext('2d'),
@@ -1156,12 +1153,13 @@
 		sync.broadcast = now => {
 			/** @type {SyncData['owned']} */
 			const owned = new Map();
-			world.mine.forEach(id => {
+			for (const id of world.mine) {
 				const cell = world.cells.get(id);
-				if (!cell) return;
+				if (!cell) continue;
 				owned.set(id, world.xyr(cell, world.cells, now));
-			});
-			world.mineDead.forEach(id => void owned.set(id, false));
+			}
+			for (const id of world.mineDead)
+				owned.set(id, false);
 
 			/** @type {SyncData} */
 			const syncData = {
@@ -1210,21 +1208,23 @@
 			// #1 : collect all cells first, to make iteration simpler
 			/** @type {Map<number, { me: Cell | undefined, others: Map<SyncData, Cell> }>} */
 			const all = new Map();
-			world.cells.forEach((cell, id) => void all.set(id, { me: cell, others: new Map() }));
+			for (const [id, cell] of world.cells)
+				all.set(id, { me: cell, others: new Map() });
 			sync.others.forEach(data => {
 				const realNow = localized(data, data.updated.now);
 				if (now - realNow > 500) return; // tab has not updated in 500ms, disregard it
-				data.cells?.forEach((cell, id) => {
+				if (!data.cells) return;
+				for (const [id, cell] of data.cells) {
 					const current = all.get(id);
 					if (current) current.others.set(data, cell);
 					else all.set(id, { me: undefined, others: new Map([ [data, cell] ]) });
-				});
+				}
 			});
 
 			// #2 : check if all *active* tabs have updated yet
 			/** @type {Set<[Cell, number]>} */
 			const updateQueue = new Set();
-			for (const [_, { me, others }] of all) {
+			for (const { me, others } of all.values()) {
 				/** @type {Cell | undefined} */
 				let primary = me;
 				let primaryOffset = 0;
@@ -1274,7 +1274,7 @@
 			}
 
 			// #3 : all tabs are synced, we can update the cells
-			updateQueue.forEach(([cell, offset]) => {
+			for (const [cell, offset] of updateQueue) {
 				const old = merge.get(cell.id);
 				if (old) {
 					const { x, y, r } = world.xyr(old, merge, now);
@@ -1306,18 +1306,18 @@
 						dead: cell.dead ? { to: cell.dead.to, at: now } : undefined,
 					});
 				}
-			});
+			}
 
 			// kill cells that aren't seen anymore
-			merge.forEach((cell, id) => {
-				if (all.has(id)) return;
+			for (const [id, cell] of merge) {
+				if (all.has(id)) continue;
 				if (cell.dead) {
 					if (now - cell.dead.at > 1000) merge.delete(id);
 				} else {
 					cell.dead = { to: undefined, at: now };
 					cell.updated = now;
 				}
-			});
+			}
 		};
 
 		return sync;
@@ -1358,7 +1358,8 @@
 		 * @returns {{ x: number, y: number, r: number }}
 		 */
 		world.xyr = (cell, map, now) => {
-			const a = Math.min(Math.max((now - cell.updated) / settings.drawDelay, 0), 1);
+			let a = (now - cell.updated) / settings.drawDelay;
+			a = a < 0 ? 0 : a > 1 ? 1 : a;
 			let nx = cell.nx;
 			let ny = cell.ny;
 			const deadTo = map.get(cell.dead?.to ?? -1);
@@ -1390,15 +1391,15 @@
 			if (settings.mergeCamera) {
 				let weight = 0;
 
-				world.mine.forEach(id => {
+				for (const id of world.mine) {
 					const cell = map.get(id);
-					if (!cell || cell.dead) return;
+					if (!cell || cell.dead) continue;
 
 					const { x, y, r } = world.xyr(cell, map, now);
 					cameraX += x * r;
 					cameraY += y * r;
 					weight += r;
-				});
+				}
 
 				const localX = (cameraX / weight) || 0;
 				const localY = (cameraY / weight) || 0;
@@ -1406,18 +1407,18 @@
 				const localWidth = 1920 / 2 / localScale;
 				const localHeight = 1080 / 2 / localScale;
 
-				sync.others.forEach(data => {
+				for (const data of sync.others.values()) {
 					let thisX = 0;
 					let thisY = 0;
 					let thisWeight = 0;
-					data.owned.forEach((cell, id) => {
-						if (!cell) return;
+					for (const cell of data.owned.values()) {
+						if (!cell) continue;
 						thisX += cell.x * cell.r;
 						thisY += cell.y * cell.r;
 						thisWeight += cell.r;
-					});
+					}
 
-					if (thisWeight < 1) return;
+					if (thisWeight < 1) continue;
 
 					const thisCameraX = thisX / thisWeight;
 					const thisCameraY = thisY / thisWeight;
@@ -1431,7 +1432,7 @@
 						cameraY += thisY;
 						weight += thisWeight;
 					}
-				});
+				}
 
 				cameraX /= weight;
 				cameraY /= weight;
@@ -1440,16 +1441,16 @@
 			} else {
 				let totalCells = 0;
 				let totalR = 0;
-				world.mine.forEach(id => {
+				for (const id of world.mine) {
 					const cell = map.get(id);
-					if (!cell || cell.dead) return;
+					if (!cell || cell.dead) continue;
 
 					const { x, y, r } = world.xyr(cell, map, now);
 					cameraX += x;
 					cameraY += y;
 					totalR += r;
 					++totalCells;
-				});
+				}
 
 				cameraX /= totalCells;
 				cameraY /= totalCells;
@@ -1488,14 +1489,14 @@
 		// clean up dead cells
 		setInterval(() => {
 			const now = performance.now();
-			world.cells.forEach((cell, id) => {
-				if (!cell.dead) return;
-				if (now - cell.dead.at >= settings.drawDelay + 1000) {
+			for (const [id, cell] of world.cells) {
+				if (!cell.dead) continue;
+				if (now - cell.dead.at >= settings.drawDelay) {
 					world.cells.delete(id);
 					world.mineDead.delete(id);
 				}
-			});
-		}, 1000);
+			}
+		}, 100);
 
 
 
@@ -1599,7 +1600,7 @@
 			world.mineDead.clear();
 			sync.broadcast(performance.now());
 
-			setTimeout(connect, 500 * Math.min(reconnectAttempts++ + 1, 10));
+			setTimeout(connect, 500 * Math.min(++reconnectAttempts, 10));
 		}
 
 		/** @param {Event} err */
@@ -1617,7 +1618,7 @@
 			world.camera.y = world.camera.ty = 0;
 			world.camera.scale = world.camera.tscale = 1;
 
-			ws.send(new TextEncoder().encode('SIG 0.0.1\x00'));
+			ws.send(aux.textEncoder.encode('SIG 0.0.1\x00'));
 		}
 
 		// listen for when the gamemode changes
@@ -1639,7 +1640,7 @@
 				if (dat.getUint8(off) === 0) break;
 			}
 
-			return [new TextDecoder('utf-8').decode(dat.buffer.slice(startOff, off)), off + 1];
+			return [aux.textDecoder.decode(dat.buffer.slice(startOff, off)), off + 1];
 		}
 
 		/**
@@ -1648,7 +1649,7 @@
 		 */
 		function sendJson(opcode, data) {
 			if (!handshake) return;
-			const dataBuf = new TextEncoder().encode(JSON.stringify(data));
+			const dataBuf = aux.textEncoder.encode(JSON.stringify(data));
 			const buf = new ArrayBuffer(dataBuf.byteLength + 2);
 			const dat = new DataView(buf);
 
@@ -1856,9 +1857,8 @@
 				}
 
 				case 0x12: // delete all cells
-					world.cells.forEach(cell => {
+					for (const cell of world.cells.values())
 						cell.dead ??= { to: undefined, at: now };
-					});
 					world.clanmates.clear();
 					// passthrough
 				case 0x14: // delete my cells
@@ -2012,7 +2012,7 @@
 		 */
 		net.chat = function(msg) {
 			if (!handshake) return;
-			const msgBuf = new TextEncoder().encode(msg);
+			const msgBuf = aux.textEncoder.encode(msg);
 
 			const buf = new ArrayBuffer(msgBuf.byteLength + 3);
 			const dat = new DataView(buf);
@@ -3051,10 +3051,12 @@
 					// #1 : draw cell
 					gl.useProgram(programs.cell);
 
-					let alpha = Math.min((now - cell.born) / 100, 1);
-					if (cell.dead)
-						alpha = Math.min(alpha, Math.max(1 - (now - cell.dead.at) / 100, 0));
-					alpha = Math.min(Math.max(alpha, 0), 1);
+					let alpha = (now - cell.born) / 100;
+					if (cell.dead) {
+						const alpha2 = 1 - (now - cell.dead.at) / 100;
+						if (alpha2 < alpha) alpha = alpha2;
+					}
+					alpha = alpha > 1 ? 1 : alpha < 0 ? 0 : alpha;
 					gl.uniform1f(uniforms.cell.u_alpha, alpha * settings.cellOpacity);
 
 					const { x, y, r } = world.xyr(cell, map, now);
@@ -3150,7 +3152,8 @@
 
 					// #2 : draw text
 					if (cell.nr <= 20) return; // quick return if a pellet
-					const showThisName = showNames && cell.nr > 75 && cell.name;
+					const name = cell.name || 'An unnamed cell';
+					const showThisName = showNames && cell.nr > 75;
 					const showThisMass = showMass && cell.nr > 75;
 					const clan = settings.clans ? (aux.clans.get(cell.clan) ?? cell.clan) : '';
 					if (!showThisName && !showThisMass && clan) return;
@@ -3171,7 +3174,7 @@
 						gl.uniform3f(uniforms.text.u_color2, 1, 1, 1);
 					}
 
-					if (cell.name === nick) {
+					if (name === nick) {
 						if (nameColor1) {
 							gl.uniform3f(uniforms.text.u_color1, ...nameColor1);
 							useSilhouette = true;
@@ -3201,7 +3204,7 @@
 					}
 
 					if (showThisName) {
-						const { aspectRatio, text, silhouette } = textFromCache(cell.name, useSilhouette);
+						const { aspectRatio, text, silhouette } = textFromCache(name, useSilhouette);
 						gl.uniform1f(uniforms.text.u_text_aspect_ratio, aspectRatio);
 						gl.uniform1i(uniforms.text.u_silhouette_enabled, silhouette ? 1 : 0);
 						gl.uniform2f(uniforms.text.u_text_offset, 0, 0);
@@ -3245,21 +3248,22 @@
 
 				/** @type {Cell[]} */
 				const sorted = [];
-				map.forEach(cell => {
+				for (const cell of map.values()) {
 					if (cell.nr > 20) {
 						// cell is probably important, order should be sorted
 						sorted.push(cell);
-						return;
-					}
+					} else if (!hidePellets)
+						draw(cell);
+				}
 
-					if (cell.nr <= 20 && hidePellets) return;
-					draw(cell);
+				// sort by smallest to biggest, oldest to newest
+				sorted.sort((a, b) => {
+					const dr = a.nr - b.nr;
+					return 0 === dr ? a.id - b.id : dr;
 				});
 
-				// using `nr` *might* be weird or it might look better
-				sorted.sort((a, b) => a.nr - b.nr);
-
-				sorted.forEach(cell => void draw(cell));
+				for (const cell of sorted)
+					draw(cell);
 			})();
 
 			(function updateStats() {
@@ -3396,14 +3400,15 @@
 					if (world.mine.includes(cell.id)) return;
 					drawCell(cell);
 
-					const id = cell.name + cell.rgb[0] + cell.rgb[1] + cell.rgb[2];
+					const name = cell.name || 'An unnamed cell';
+					const id = name + cell.rgb[0] + cell.rgb[1] + cell.rgb[2];
 					const entry = avgPos.get(id);
 					if (entry) {
 						++entry.n;
 						entry.x += cell.nx;
 						entry.y += cell.ny;
 					} else {
-						avgPos.set(id, { name: cell.name, n: 1, x: cell.nx, y: cell.ny });
+						avgPos.set(id, { name, n: 1, x: cell.nx, y: cell.ny });
 					}
 				});
 
@@ -3421,7 +3426,7 @@
 					if (!cell) return;
 
 					drawCell(cell);
-					myName = cell.name;
+					myName = cell.name || 'An unnamed cell';
 					++ownN;
 					ownX += cell.nx;
 					ownY += cell.ny;
