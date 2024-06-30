@@ -882,8 +882,9 @@
 		 * @param {number} max
 		 * @param {number} step
 		 * @param {number} decimals
+		 * @param {boolean} double
 		 */
-		function slider(property, title, initial, min, max, step, decimals) {
+		function slider(property, title, initial, min, max, step, decimals, double = false) {
 			/**
 			 * @param {HTMLInputElement} slider
 			 * @param {HTMLElement} display
@@ -905,12 +906,12 @@
 			};
 
 			const vanilla = fromHTML(`
-				<div style="height: 25px; position: relative;">
+				<div style="height: ${double ? '50' : '25'}px; position: relative;">
 					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">${title}</div>
 					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
 						<input id="sf-${property}" style="display: block; float: left; height: 25px; line-height: 25px;\
 							margin-left: 5px;" min="${min}" max="${max}" step="${step}" value="${initial}"
-							list="sf-${property}-markers" />
+							list="sf-${property}-markers" type="range" />
 						<datalist id="sf-${property}-markers"> <option value="${initial}"></option> </datalist>
 						<span id="sf-${property}-display" style="display: block; float: left; height: 25px; \
 							line-height: 25px; width: 40px; text-align: right;"></span>
@@ -1036,7 +1037,7 @@
 
 		// #2 : generate ui for settings
 		slider('drawDelay', 'Draw delay', 120, 40, 300, 1, 0);
-		slider('unsplittableOpacity', 'Unsplittable cell outline opacity', 1, 0, 1, 0.01, 2);
+		slider('unsplittableOpacity', 'Unsplittable cell outline opacity', 1, 0, 1, 0.01, 2, true);
 		checkbox('cellOutlines', 'Cell outlines');
 		slider('cellOpacity', 'Cell opacity', 1, 0, 1, 0.01, 2);
 		input('selfSkin', 'Self skin URL (not synced)', 'https://i.imgur.com/...', false);
