@@ -1183,7 +1183,7 @@
 	 * y: number, oy: number, ny: number,
 	 * r: number, or: number, nr: number,
 	 * rgb: [number, number, number],
-	 * updated: number, born: number, dead: { to: Cell | undefined, at: number } | undefined,
+	 * updated: number, born: number, dead: { to: number | undefined, at: number } | undefined,
 	 * jagged: boolean,
 	 * name: string, skin: string, sub: boolean, clan: string,
 	 * jelly: { x: number, y: number, r: number, wobble: Float32Array },
@@ -1209,9 +1209,10 @@
 		world.move = function(cell, now, dt) {
 			let nx = cell.nx;
 			let ny = cell.ny;
-			if (cell.dead?.to) {
-				nx = cell.dead.to.x;
-				ny = cell.dead.to.y;
+			const deadTo = world.cells.get(cell.dead?.to ?? -1);
+			if (deadTo) {
+				nx = deadTo.x;
+				ny = deadTo.y;
 			} else if (cell.r <= 20) {
 				cell.x = nx;
 				cell.y = ny;
@@ -1515,10 +1516,9 @@
 						const killedId = dat.getUint32(off + 4, true);
 						off += 8;
 
-						const killer = world.cells.get(killerId);
 						const killed = world.cells.get(killedId);
 						if (killed) {
-							killed.dead = { to: killer, at: now };
+							killed.dead = { to: killerId, at: now };
 							killed.updated = now;
 
 							if (killed.r <= 20 && world.mine.includes(killerId))
