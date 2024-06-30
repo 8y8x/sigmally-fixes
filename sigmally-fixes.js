@@ -1576,7 +1576,7 @@
 						const jagged = !!(flags & 0x11);
 
 						const cell = world.cells.get(id);
-						if (cell && !cell.dead) {
+						if (cell) {
 							// update cell.x and cell.y, to prevent rubber banding effect when tabbing out for a bit
 							world.move(cell, now, undefined);
 
@@ -1592,6 +1592,12 @@
 							cell.clan = clan;
 							if (clan && clan === aux.userData?.clan)
 								world.clanmates.add(cell);
+
+							if (cell.dead) {
+								// cells can become alive without dying, like the white cells when respawning
+								cell.born = now;
+								cell.dead = undefined;
+							}
 						} else {
 							/** @type {Cell} */
 							const cell = {
