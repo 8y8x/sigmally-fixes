@@ -3059,8 +3059,8 @@
 
 					const { x, y, r } = world.xyr(cell, map, now);
 					gl.uniform2f(uniforms.cell.u_pos, x, y);
-					gl.uniform1f(uniforms.cell.u_inner_radius, r * 1.02);
-					gl.uniform1f(uniforms.cell.u_outer_radius, r * 1.02);
+					gl.uniform1f(uniforms.cell.u_inner_radius, r * 1.01);
+					gl.uniform1f(uniforms.cell.u_outer_radius, r * 1.01);
 					
 					gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 0);
 					gl.uniform1i(uniforms.cell.u_outline_selected, 0);
