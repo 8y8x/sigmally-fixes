@@ -834,7 +834,6 @@
 			clans: false,
 			drawDelay: 120,
 			jellySkinLag: true,
-			jellyWobble: true,
 			massBold: false,
 			massOpacity: 1,
 			massScaleFactor: 1,
@@ -1075,7 +1074,6 @@
 		separator();
 		slider('scrollFactor', 'Scroll factor', 1, 0.05, 2, 0.05, 2);
 		checkbox('jellySkinLag', 'Jelly physics cut-off on skins');
-		checkbox('jellyWobble', 'Jelly wobble effect on small cells');
 		separator();
 		checkbox('blockBrowserKeybinds', 'Block all browser keybinds');
 		checkbox('blockNearbyRespawns', 'Block respawns near other tabs');
@@ -1492,18 +1490,6 @@
 			world.camera.x = aux.exponentialEase(world.camera.x, world.camera.tx, xyEaseFactor, dt);
 			world.camera.y = aux.exponentialEase(world.camera.y, world.camera.ty, xyEaseFactor, dt);
 			world.camera.scale = aux.exponentialEase(world.camera.scale, world.camera.tscale, 9, dt);
-		};
-
-		/** @returns {Float32Array} */
-		world.wobble = function() {
-			const speed = [Math.random(), Math.random(), Math.random()];
-			const shift = [Math.random(), Math.random(), Math.random()];
-			return new Float32Array([
-				// speed should be between 1-4, can be positive or negative
-				speed[0] * 6 - 3 + Math.sign(speed[0] - 0.5), shift[0],
-				speed[1] * 6 - 3 + Math.sign(speed[1] - 0.5), shift[1],
-				speed[2] * 6 - 3 + Math.sign(speed[2] - 0.5), shift[2],
-			]);
 		};
 
 		// clean up dead cells
@@ -2590,25 +2576,14 @@
 				uniform bool u_outline_selected;
 				uniform sampler2D u_texture;
 				uniform bool u_texture_enabled;
-				uniform float u_time;
-				uniform float u_wobble[6];
-				uniform bool u_wobble_enabled;
 
 				out vec4 out_color;
 
 				void main() {
 					float blur = 0.5 * u_outer_radius * (540.0 * u_camera_scale);
 					float d2 = v_pos.x * v_pos.x + v_pos.y * v_pos.y;
-					float wobble_delta = 0.0;
-					if (u_wobble_enabled && d2 > 0.9) {
-						float theta = atan(v_pos.y, v_pos.x);
-						wobble_delta = sin(2.0 * (theta + u_time * u_wobble[0] + u_wobble[1]))
-							+ sin(3.0 * (theta + u_time * u_wobble[2] + u_wobble[3]))
-							+ sin(5.0 * (theta + u_time * u_wobble[4] + u_wobble[5]));
-						wobble_delta *= 0.75 / u_outer_radius;
-					}
 
-					float a = clamp(-blur * (d2 - (1.0 + wobble_delta)), 0.0, 1.0);
+					float a = clamp(-blur * (d2 - 1.0), 0.0, 1.0);
 					out_color = u_color;
 
 					if (u_outline_selected) {
@@ -2635,7 +2610,7 @@
 			uniforms.cell = getUniforms('cell', programs.cell, [
 				'u_aspect_ratio', 'u_camera_pos', 'u_camera_scale',
 				'u_alpha', 'u_color', 'u_inner_radius', 'u_outline_color', 'u_outline_selected', 'u_outer_radius',
-				'u_pos', 'u_texture_enabled', 'u_time', 'u_wobble', 'u_wobble_enabled',
+				'u_pos', 'u_texture_enabled'
 			]);
 
 
@@ -2658,8 +2633,7 @@
 				out vec2 v_pos;
 
 				void main() {
-					v_pos = a_pos / 1.01; // correct for jelly physics wobble effect
-
+					v_pos = a_pos;
 					vec2 clip_space = v_pos * u_text_scale + u_text_offset;
 					clip_space *= u_radius * 0.45 * vec2(u_text_aspect_ratio, 1.0);
 					clip_space += -u_camera_pos + u_pos;
@@ -2714,11 +2688,10 @@
 			const square = gl.createBuffer();
 			gl.bindBuffer(gl.ARRAY_BUFFER, square);
 			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
-				// 1.01, rather than 1, to account for jelly physics wobbles
-				-1.01, -1.01,
-				1.01, -1.01,
-				-1.01, 1.01,
-				1.01, 1.01,
+				-1, -1,
+				1, -1,
+				-1, 1,
+				1, 1,
 			]), gl.STATIC_DRAW);
 
 			const vao = gl.createVertexArray();
@@ -2941,7 +2914,6 @@
 		// #3 : define the render function
 		let fps = 0;
 		let lastFrame = performance.now();
-		const start = lastFrame;
 		function renderGame() {
 			const now = performance.now();
 			const dt = Math.max(now - lastFrame, 0.1) / 1000; // there's a chance (now - lastFrame) can be 0
@@ -3012,7 +2984,6 @@
 				gl.uniform1f(uniforms.cell.u_aspect_ratio, aspectRatio);
 				gl.uniform2f(uniforms.cell.u_camera_pos, cameraPosX, cameraPosY);
 				gl.uniform1f(uniforms.cell.u_camera_scale, cameraScale);
-				gl.uniform1f(uniforms.cell.u_time, (now - start) / 1000);
 
 				gl.useProgram(programs.text);
 				gl.uniform1f(uniforms.text.u_aspect_ratio, aspectRatio);
@@ -3093,7 +3064,6 @@
 					
 					gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 0);
 					gl.uniform1i(uniforms.cell.u_outline_selected, 0);
-					gl.uniform1i(uniforms.cell.u_wobble_enabled, 0);
 
 					if (cell.jagged) {
 						const virusTexture = textureFromCache(virusSrc);
