@@ -842,6 +842,7 @@
 			mergeViewArea: false,
 			nameBold: false,
 			nameScaleFactor: 1,
+			outlineMulti: false,
 			scrollFactor: 1,
 			selfSkin: '',
 			syncSkin: true,
@@ -1081,6 +1082,7 @@
 		checkbox('clans', 'Show clans');
 		checkbox('mergeCamera', 'Merge camera between tabs');
 		checkbox('mergeViewArea', 'Combine view area between tabs');
+		checkbox('outlineMulti', 'Outline current tab\'s cells');
 
 		// #3 : create options for sigmod
 		let sigmodInjection;
@@ -2585,7 +2587,7 @@
 				uniform vec4 u_color;
 				uniform float u_outer_radius;
 				uniform vec4 u_outline_color;
-				uniform bool u_outline_thick;
+				uniform bool u_outline_selected;
 				uniform sampler2D u_texture;
 				uniform bool u_texture_enabled;
 				uniform float u_time;
@@ -2607,17 +2609,23 @@
 					}
 
 					float a = clamp(-blur * (d2 - (1.0 + wobble_delta)), 0.0, 1.0);
+					out_color = u_color;
+
+					if (u_outline_selected) {
+						float oa = clamp(blur * (d2 - 0.96*0.96), 0.0, 1.0);
+						out_color.rgb = out_color.rgb * (1.0 - oa) + (1.0 - out_color.rgb) * oa;
+					}
+
+					float oa_edge = clamp(blur * (d2 - 0.98*0.98), 0.0, 1.0);
+					out_color.rgb *= 1.0 - 0.1 * oa_edge;
 
 					if (u_texture_enabled) {
-						out_color = texture(u_texture, v_t_coord);
+						vec4 tc = texture(u_texture, v_t_coord);
+						tc.a *= 1.0 - oa_edge;
+						out_color = out_color * (1.0 - tc.a) + tc;
 					}
-					out_color = vec4(out_color.rgb, 1) * out_color.a + u_color * (1.0 - out_color.a);
 
-					// outline
-					// d > 0.98   => d2 > 0.9604 (default)
-					// d > 0.96   => d2 > 0.9216 (thick)
-					float outline_d = u_outline_thick ? 0.9216 : 0.9604;
-					float oa = clamp(blur * (d2 - (outline_d + wobble_delta)), 0.0, 1.0) * u_outline_color.a;
+					float oa = clamp(blur * (d2 - 0.96*0.96), 0.0, 1.0) * u_outline_color.a;
 					out_color.rgb = out_color.rgb * (1.0 - oa) + u_outline_color.rgb * oa;
 
 					out_color.a *= a * u_alpha;
@@ -2626,8 +2634,8 @@
 			);
 			uniforms.cell = getUniforms('cell', programs.cell, [
 				'u_aspect_ratio', 'u_camera_pos', 'u_camera_scale',
-				'u_alpha', 'u_color', 'u_outline_color', 'u_outline_thick', 'u_inner_radius', 'u_outer_radius', 'u_pos',
-				'u_texture_enabled', 'u_time', 'u_wobble', 'u_wobble_enabled',
+				'u_alpha', 'u_color', 'u_inner_radius', 'u_outline_color', 'u_outline_selected', 'u_outer_radius',
+				'u_pos', 'u_texture_enabled', 'u_time', 'u_wobble', 'u_wobble_enabled',
 			]);
 
 
@@ -3082,7 +3090,9 @@
 					gl.uniform2f(uniforms.cell.u_pos, x, y);
 					gl.uniform1f(uniforms.cell.u_inner_radius, r);
 					gl.uniform1f(uniforms.cell.u_outer_radius, r);
-
+					
+					gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 0);
+					gl.uniform1i(uniforms.cell.u_outline_selected, 0);
 					gl.uniform1i(uniforms.cell.u_wobble_enabled, 0);
 
 					if (cell.jagged) {
@@ -3091,8 +3101,6 @@
 							return;
 
 						gl.uniform4f(uniforms.cell.u_color, 0, 0, 0, 0);
-						gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 0);
-						gl.uniform1i(uniforms.cell.u_outline_thick, 0);
 						gl.uniform1i(uniforms.cell.u_texture_enabled, 1);
 						gl.bindTexture(gl.TEXTURE_2D, virusTexture);
 
@@ -3101,7 +3109,6 @@
 					}
 
 					if (cell.nr <= 20) {
-						gl.uniform1i(uniforms.cell.u_outline_thick, 0);
 						if (pelletColor) {
 							gl.uniform4f(uniforms.cell.u_color, ...pelletColor, 1);
 						} else {
@@ -3115,26 +3122,21 @@
 					}
 
 					gl.uniform1i(uniforms.cell.u_texture_enabled, 0);
-					if (cell.nr <= 20) {
-						gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 0);
-					} else {
+					if (cell.nr > 20) {
+						if (outlineColor)
+							gl.uniform4f(uniforms.cell.u_outline_color, ...outlineColor, 1);
+
 						const myIndex = world.mine.indexOf(cell.id);
-						if (myIndex !== -1 && !canSplit[myIndex] && settings.unsplittableOpacity > 0) {
-							gl.uniform1i(uniforms.cell.u_outline_thick, 1);
-							if (darkTheme)
-								gl.uniform4f(uniforms.cell.u_outline_color, 1, 1, 1, settings.unsplittableOpacity);
-							else
-								gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, settings.unsplittableOpacity);
-						} else if (settings.cellOutlines) {
-							gl.uniform1i(uniforms.cell.u_outline_thick, 0);
-							if (outlineColor) {
-								gl.uniform4f(uniforms.cell.u_outline_color, ...outlineColor, 1);
-							} else {
-								gl.uniform4f(uniforms.cell.u_outline_color,
-									cell.rgb[0] * 0.9, cell.rgb[1] * 0.9, cell.rgb[2] * 0.9, 1);
+						if (myIndex !== -1) {
+							if (settings.outlineMulti)
+								gl.uniform1i(uniforms.cell.u_outline_selected, 1);
+
+							if (!canSplit[myIndex] && settings.unsplittableOpacity > 0) {
+								if (darkTheme)
+									gl.uniform4f(uniforms.cell.u_outline_color, 1, 1, 1, settings.unsplittableOpacity);
+								else
+									gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, settings.unsplittableOpacity);
 							}
-						} else {
-							gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 0);
 						}
 
 						let skin = '';
