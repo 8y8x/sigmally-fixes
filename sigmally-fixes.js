@@ -838,6 +838,7 @@
 			massOpacity: 1,
 			massScaleFactor: 1,
 			mergeCamera: false,
+			mergeCameraWeight: 1,
 			mergeViewArea: false,
 			nameBold: false,
 			nameScaleFactor: 1,
@@ -1079,6 +1080,7 @@
 		checkbox('blockNearbyRespawns', 'Block respawns near other tabs');
 		checkbox('clans', 'Show clans');
 		checkbox('mergeCamera', 'Merge camera between tabs');
+		slider('mergeCameraWeight', 'Merge camera weighting factor', 1, 0, 2, 0.01, 2, true);
 		checkbox('mergeViewArea', 'Combine view area between tabs');
 		checkbox('outlineMulti', 'Outline current tab\'s cells');
 
@@ -1407,6 +1409,7 @@
 
 			const map = (settings.mergeViewArea && sync.merge) ? sync.merge : world.cells;
 			if (settings.mergeCamera) {
+				let localTotalR = 0;
 				let weight = 0;
 
 				for (const id of world.mine) {
@@ -1414,33 +1417,47 @@
 					if (!cell || cell.dead) continue;
 
 					const { x, y, r } = world.xyr(cell, map, now);
-					cameraX += x * r;
-					cameraY += y * r;
-					weight += r;
+					const weighted = r ** settings.mergeCameraWeight;
+					cameraX += x * weighted;
+					cameraY += y * weighted;
+					localTotalR += r;
+					weight += weighted;
 				}
 
 				const localX = (cameraX / weight) || 0;
 				const localY = (cameraY / weight) || 0;
-				const localScale = Math.min(64 / weight, 1) ** 0.4;
+				const localScale = Math.min(64 / localTotalR, 1) ** 0.4;
 				const localWidth = 1920 / 2 / localScale;
 				const localHeight = 1080 / 2 / localScale;
 
 				for (const data of sync.others.values()) {
 					let thisX = 0;
 					let thisY = 0;
+					let thisTotalR = 0;
 					let thisWeight = 0;
-					for (const cell of data.owned.values()) {
-						if (!cell) continue;
-						thisX += cell.x * cell.r;
-						thisY += cell.y * cell.r;
-						thisWeight += cell.r;
+					for (const [id, cell] of data.owned) {
+						const merged = (settings.mergeViewArea && sync.merge) ? sync.merge.get(id) : undefined;
+						if (merged && sync.merge) {
+							const { x, y, r } = world.xyr(merged, sync.merge, now);
+							const weighted = r ** settings.mergeCameraWeight;
+							thisX += x * weighted;
+							thisY += y * weighted;
+							thisTotalR += r;
+							thisWeight += weighted;
+						} else if (cell) {
+							const weighted = cell.r ** settings.mergeCameraWeight;
+							thisX += cell.x * weighted;
+							thisY += cell.y * weighted;
+							thisTotalR += cell.r;
+							thisWeight += weighted;
+						}
 					}
 
-					if (thisWeight < 1) continue;
+					if (thisTotalR < 1) continue;
 
 					const thisCameraX = thisX / thisWeight;
 					const thisCameraY = thisY / thisWeight;
-					const thisScale = Math.min(64 / thisWeight, 1) ** 0.4;
+					const thisScale = Math.min(64 / thisTotalR, 1) ** 0.4;
 					const thisWidth = 1920 / 2 / thisScale;
 					const thisHeight = 1080 / 2 / thisScale;
 
@@ -2905,6 +2922,9 @@
 				return entry;
 			};
 
+			// reload text once Ubuntu has loaded, prevents some serif fonts from being locked in
+			document.fonts.ready.then(() => resetTextCache());
+
 			return { massTextFromCache, resetTextCache, textFromCache };
 		})();
 		render.resetTextCache = resetTextCache;
@@ -2927,7 +2947,8 @@
 
 			// get settings
 			const cellColor = aux.sigmod?.cellColor ? aux.hex2rgb(aux.sigmod.cellColor) : undefined;
-			const hidePellets = aux.sigmod?.fps?.hideFood;
+			// when focusing (or laggy) try to draw as fast as possible
+			const hidePellets = aux.sigmod?.fps?.hideFood || dt >= 0.05;
 			const mapColor = aux.sigmod?.mapColor ? aux.hex2rgb(aux.sigmod.mapColor) : undefined;
 			const outlineColor = aux.sigmod?.borderColor ? aux.hex2rgb(aux.sigmod.borderColor) : undefined;
 			const pelletColor = aux.sigmod?.foodColor ? aux.hex2rgb(aux.sigmod.foodColor) : undefined;
