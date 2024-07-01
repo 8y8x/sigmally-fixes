@@ -3237,23 +3237,21 @@
 					}
 				}
 
-				/** @type {Cell[]} */
+				/** @type {[Cell, number][]} */
 				const sorted = [];
 				for (const cell of map.values()) {
 					if (cell.nr > 20) {
 						// cell is probably important, order should be sorted
-						sorted.push(cell);
+						const computedR = cell.or + (cell.nr - cell.or) * (now - cell.updated) / settings.drawDelay;
+						sorted.push([cell, computedR]);
 					} else if (!hidePellets)
 						draw(cell);
 				}
 
-				// sort by smallest to biggest, oldest to newest
-				sorted.sort((a, b) => {
-					const dr = a.nr - b.nr;
-					return 0 === dr ? a.id - b.id : dr;
-				});
+				// sort by smallest to biggest
+				sorted.sort(([_a, ar], [_b, br]) => ar - br);
 
-				for (const cell of sorted)
+				for (const [cell] of sorted)
 					draw(cell);
 			})();
 
