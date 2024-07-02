@@ -977,16 +977,16 @@
 			 * @param {HTMLInputElement} input
 			 */
 			const listen = input => {
-				input.value = settings[property];
+				let oldValue = input.value = settings[property];
 
 				input.addEventListener('input', () => {
-					settings[property] = input.value;
+					oldValue = settings[property] = input.value;
 					save();
 				});
 
 				onSaves.add(() => {
-					if (sync)
-						input.value = settings[property];
+					if (sync) input.value = settings[property];
+					else input.value = settings[property] = oldValue;
 				});
 			};
 
@@ -2628,6 +2628,7 @@
 				uniform float u_outer_radius;
 				uniform vec4 u_outline_color;
 				uniform bool u_outline_selected;
+				uniform bool u_subtle_outline;
 				uniform sampler2D u_texture;
 				uniform bool u_texture_enabled;
 
@@ -2640,18 +2641,19 @@
 					float a = clamp(-blur * (d2 - 1.0), 0.0, 1.0);
 					out_color = u_color;
 
+					if (u_texture_enabled) {
+						vec4 tc = texture(u_texture, v_t_coord);
+						out_color = out_color * (1.0 - tc.a) + tc;
+					}
+
+					if (u_subtle_outline) {
+						float oa_edge = clamp(blur * (d2 - 0.98*0.98), 0.0, 1.0);
+						out_color.rgb = out_color.rgb * (1.0 - oa_edge) + u_color.rgb * 0.9 * oa_edge;
+					}
+
 					if (u_outline_selected) {
 						float oa = clamp(blur * (d2 - 0.88*0.88), 0.0, 1.0);
 						out_color.rgb = out_color.rgb * (1.0 - oa) + (1.0 - out_color.rgb) * oa;
-					}
-
-					float oa_edge = clamp(blur * (d2 - 0.98*0.98), 0.0, 1.0);
-					out_color.rgb *= 1.0 - 0.1 * oa_edge;
-
-					if (u_texture_enabled) {
-						vec4 tc = texture(u_texture, v_t_coord);
-						tc.a *= 1.0 - oa_edge;
-						out_color = out_color * (1.0 - tc.a) + tc;
 					}
 
 					float oa = clamp(blur * (d2 - 0.96*0.96), 0.0, 1.0) * u_outline_color.a;
@@ -2664,7 +2666,7 @@
 			uniforms.cell = getUniforms('cell', programs.cell, [
 				'u_aspect_ratio', 'u_camera_pos', 'u_camera_scale',
 				'u_alpha', 'u_color', 'u_inner_radius', 'u_outline_color', 'u_outline_selected', 'u_outer_radius',
-				'u_pos', 'u_texture_enabled'
+				'u_pos', 'u_subtle_outline', 'u_texture_enabled'
 			]);
 
 
@@ -3140,12 +3142,14 @@
 					}
 
 					if (cell.nr <= 20) {
+						gl.uniform1i(uniforms.cell.u_subtle_outline, 0);
 						if (pelletColor) {
 							gl.uniform4f(uniforms.cell.u_color, ...pelletColor, 1);
 						} else {
 							gl.uniform4f(uniforms.cell.u_color, ...cell.rgb, 1);
 						}
 					} else {
+						gl.uniform1i(uniforms.cell.u_subtle_outline, settings.cellOutlines ? 1 : 0);
 						if (cellColor)
 							gl.uniform4f(uniforms.cell.u_color, ...cellColor, 1);
 						else
