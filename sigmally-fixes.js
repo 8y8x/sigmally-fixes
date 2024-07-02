@@ -907,8 +907,9 @@
 		 * @param {number} step
 		 * @param {number} decimals
 		 * @param {boolean} double
+		 * @param {string} help
 		 */
-		function slider(property, title, initial, min, max, step, decimals, double = false) {
+		function slider(property, title, initial, min, max, step, decimals, double, help) {
 			/**
 			 * @param {HTMLInputElement} slider
 			 * @param {HTMLElement} display
@@ -930,7 +931,7 @@
 			};
 
 			const vanilla = fromHTML(`
-				<div style="height: ${double ? '50' : '25'}px; position: relative;">
+				<div style="height: ${double ? '50' : '25'}px; position: relative;" title="${help}">
 					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">${title}</div>
 					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
 						<input id="sf-${property}" style="display: block; float: left; height: 25px; line-height: 25px;\
@@ -948,7 +949,7 @@
 			vanillaContainer.appendChild(vanilla);
 
 			const sigmod = fromHTML(`
-				<div class="modRowItems justify-sb">
+				<div class="modRowItems justify-sb" title="${help}">
 					<span>${title}</span>
 					<span class="justify-sb">
 						<input id="sfsm-${property}" style="width: 200px;" type="range" min="${min}" max="${max}"
@@ -969,8 +970,9 @@
 		 * @param {string} title
 		 * @param {string} placeholder
 		 * @param {boolean} sync
+		 * @param {string} help
 		 */
-		function input(property, title, placeholder, sync) {
+		function input(property, title, placeholder, sync, help) {
 			/**
 			 * @param {HTMLInputElement} input
 			 */
@@ -989,7 +991,7 @@
 			};
 
 			const vanilla = fromHTML(`
-				<div style="height: 50px; position: relative;">
+				<div style="height: 50px; position: relative;" title="${help}">
 					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">${title}</div>
 					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
 						<input id="sf-${property}" placeholder="${placeholder}" type="text" />
@@ -1000,7 +1002,7 @@
 			vanillaContainer.appendChild(vanilla);
 
 			const sigmod = fromHTML(`
-				<div class="modRowItems justify-sb">
+				<div class="modRowItems justify-sb" title="${help}">
 					<span>${title}</span>
 					<input class="modInput" id="sfsm-${property}" placeholder="${placeholder}" type="text" />
 				</div>
@@ -1012,8 +1014,9 @@
 		/**
 		 * @param {PropertyOfType<typeof settings, boolean>} property
 		 * @param {string} title
+		 * @param {string} help
 		 */
-		function checkbox(property, title) {
+		function checkbox(property, title, help) {
 			/**
 			 * @param {HTMLInputElement} input
 			 */
@@ -1029,7 +1032,7 @@
 			};
 
 			const vanilla = fromHTML(`
-				<div style="height: 25px; position: relative;">
+				<div style="height: 25px; position: relative;" title="${help}">
 					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">${title}</div>
 					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
 						<input id="sf-${property}" type="checkbox" />
@@ -1040,7 +1043,7 @@
 			vanillaContainer.appendChild(vanilla);
 
 			const sigmod = fromHTML(`
-				<div class="modRowItems justify-sb">
+				<div class="modRowItems justify-sb" title="${help}">
 					<span>${title}</span>
 					<div style="width: 75px; text-align: center;">
 						<div class="modCheckbox" style="display: inline-block;">
@@ -1054,35 +1057,68 @@
 			sigmodContainer.appendChild(sigmod);
 		}
 
-		function separator() {
-			vanillaContainer.appendChild(fromHTML('<div style="text-align: center; width: 100%;">•</div>'));
-			sigmodContainer.appendChild(fromHTML('<span class="text-center">•</span>'));
+		function separator(text = '•') {
+			vanillaContainer.appendChild(fromHTML(`<div style="text-align: center; width: 100%;">${text}</div>`));
+			sigmodContainer.appendChild(fromHTML(`<span class="text-center">${text}</span>`));
 		}
 
 		// #2 : generate ui for settings
-		slider('drawDelay', 'Draw delay', 120, 40, 300, 1, 0);
-		slider('unsplittableOpacity', 'Unsplittable cell outline opacity', 1, 0, 1, 0.01, 2, true);
-		checkbox('cellOutlines', 'Cell outlines');
-		slider('cellOpacity', 'Cell opacity', 1, 0, 1, 0.01, 2);
-		input('selfSkin', 'Self skin URL (not synced)', 'https://i.imgur.com/...', false);
-		checkbox('syncSkin', 'Show self skin on other tabs');
+		separator('Hover over a setting for more info');
+		slider('drawDelay', 'Draw delay', 120, 40, 300, 1, 0, false,
+			'The amount of milliseconds cells will lag behind for. Lower values mean cells will very quickly catch ' +
+			'up to where they actually are.');
+		slider('unsplittableOpacity', 'Unsplittable cell outline opacity', 1, 0, 1, 0.01, 2, true,
+			'How visible the white outline around cells that can\'t split should be. 0 = not visible, 1 = fully ' +
+			'visible.');
+		checkbox('cellOutlines', 'Cell outlines', 'Whether the subtle dark outlines around cells (including skins) ' +
+			'should draw.');
+		slider('cellOpacity', 'Cell opacity', 1, 0, 1, 0.01, 2, false,
+			'How opaque cells should be. 1 = fully visible, 0 = invisible. It can be helpful to see the size of a ' +
+			'smaller cell under a big cell.');
+		input('selfSkin', 'Self skin URL (not synced)', 'https://i.imgur.com/...', false,
+			'Direct URL to a custom skin for yourself. Not visible to others. You are able to use different skins ' +
+			'for different tabs.');
+		checkbox('syncSkin', 'Show self skin on other tabs',
+			'Whether your custom skin should be shown on your other tabs too.');
 		separator();
-		slider('nameScaleFactor', 'Name scale factor', 1, 0.5, 2, 0.01, 2);
-		slider('massScaleFactor', 'Mass scale factor', 1, 0.5, 4, 0.01, 2);
-		slider('massOpacity', 'Mass opacity', 1, 0, 1, 0.01, 2);
-		checkbox('nameBold', 'Bold name text');
-		checkbox('massBold', 'Bold mass text');
+		checkbox('mergeCamera', 'Merge camera between tabs',
+			'Whether to place the camera in between your nearby tabs. This makes tab changes while multiboxing ' +
+			'completely seamless (a sort of \'one-tab\'). This mode uses a weighted camera.');
+		checkbox('mergeViewArea', 'Combine visible cells between tabs',
+			'When enabled, all tabs will share what cells they see between each other. Due to browser limitations, ' +
+			'this might be slow on lower-end PCs.');
+		checkbox('outlineMulti', 'Outline current tab\'s cells',
+			'Whether your cells should be outlined with an inverse color. This is a necessity when using the \'merge ' +
+			'camera\' setting.');
+		slider('mergeCameraWeight', 'Merge camera weighting factor', 1, 0, 2, 0.01, 2, true,
+			'The amount of focus to put on bigger cells. Only used with \'merge camera\'. 0 focuses every cell ' +
+			'equally, 1 focuses on every cell based on its radius, 2 focuses on every cell based on its mass. ' +
+			'Focusing on where your mass is can make the camera much smoother and predictable when splitrunning.'
+		);
 		separator();
-		slider('scrollFactor', 'Scroll factor', 1, 0.05, 2, 0.05, 2);
-		checkbox('jellySkinLag', 'Jelly physics cut-off on skins');
+		slider('scrollFactor', 'Scroll factor', 1, 0.05, 1, 0.05, 2, false,
+			'A smaller zoom factor lets you fine-tune your zoom.');
+		checkbox('blockBrowserKeybinds', 'Block all browser keybinds',
+			'When enabled, only Ctrl+Tab, Alt+Tab, and F11 are allowed to be pressed. You must be in fullscreen, and ' +
+			'non-Chrome browsers probably won\'t respect this setting.');
+		checkbox('blockNearbyRespawns', 'Block respawns near other tabs',
+			'Disables the respawn keybind when near one of your bigger tabs.');
 		separator();
-		checkbox('blockBrowserKeybinds', 'Block all browser keybinds');
-		checkbox('blockNearbyRespawns', 'Block respawns near other tabs');
-		checkbox('clans', 'Show clans');
-		checkbox('mergeCamera', 'Merge camera between tabs');
-		slider('mergeCameraWeight', 'Merge camera weighting factor', 1, 0, 2, 0.01, 2, true);
-		checkbox('mergeViewArea', 'Combine view area between tabs');
-		checkbox('outlineMulti', 'Outline current tab\'s cells');
+		slider('nameScaleFactor', 'Name scale factor', 1, 0.5, 2, 0.01, 2, false, 'The size multiplier of names.');
+		slider('massScaleFactor', 'Mass scale factor', 1, 0.5, 4, 0.01, 2, false,
+			'The size multiplier of mass (which is half the size of names)');
+		slider('massOpacity', 'Mass opacity', 1, 0, 1, 0.01, 2, false,
+			'The opacity of the mass text. You might find it visually appealing to have mass be a little dimmer than ' +
+			'names.');
+		checkbox('nameBold', 'Bold name text', 'Uses the bold Ubuntu font for names (like Agar.io).');
+		checkbox('massBold', 'Bold mass text', 'Uses a bold font for mass');
+		separator();
+		checkbox('clans', 'Show clans', 'When enabled, shows the name of the clan a player is in above their name.');
+		checkbox('jellySkinLag', 'Jelly physics cut-off on skins',
+			'Jelly physics causes cells to grow and shrink a little slower, but skins don\'t, which makes clips look ' +
+			'more satisfying. But if your skin decorates the edge of your cell (e.g. sasa, has a custom outline), ' +
+			'then it may look weird.'
+		);
 
 		// #3 : create options for sigmod
 		let sigmodInjection;
@@ -1438,6 +1474,7 @@
 					for (const [id, cell] of data.owned) {
 						const merged = (settings.mergeViewArea && sync.merge) ? sync.merge.get(id) : undefined;
 						if (merged && sync.merge) {
+							if (merged.dead) continue;
 							const { x, y, r } = world.xyr(merged, sync.merge, now);
 							const weighted = r ** settings.mergeCameraWeight;
 							thisX += x * weighted;
@@ -2604,7 +2641,7 @@
 					out_color = u_color;
 
 					if (u_outline_selected) {
-						float oa = clamp(blur * (d2 - 0.96*0.96), 0.0, 1.0);
+						float oa = clamp(blur * (d2 - 0.88*0.88), 0.0, 1.0);
 						out_color.rgb = out_color.rgb * (1.0 - oa) + (1.0 - out_color.rgb) * oa;
 					}
 
@@ -2945,10 +2982,13 @@
 				return;
 			}
 
+			// when tabbing in, draw *as fast as possible* to prevent flickering effects
+			// i'd imagine people using sigmally fixes won't have their fps naturally go below 20 anyway
+			const fastDraw = dt >= 0.05;
+
 			// get settings
 			const cellColor = aux.sigmod?.cellColor ? aux.hex2rgb(aux.sigmod.cellColor) : undefined;
-			// when focusing (or laggy) try to draw as fast as possible
-			const hidePellets = aux.sigmod?.fps?.hideFood || dt >= 0.05;
+			const hidePellets = aux.sigmod?.fps?.hideFood;
 			const mapColor = aux.sigmod?.mapColor ? aux.hex2rgb(aux.sigmod.mapColor) : undefined;
 			const outlineColor = aux.sigmod?.borderColor ? aux.hex2rgb(aux.sigmod.borderColor) : undefined;
 			const pelletColor = aux.sigmod?.foodColor ? aux.hex2rgb(aux.sigmod.foodColor) : undefined;
@@ -3163,7 +3203,7 @@
 					gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
 					// #2 : draw text
-					if (cell.nr <= 20) return; // quick return if a pellet
+					if (cell.nr <= 20 || fastDraw) return; // quick return if a pellet
 					const name = cell.name || 'An unnamed cell';
 					const showThisName = showNames && cell.nr > 75;
 					const showThisMass = showMass && cell.nr > 75;
@@ -3277,6 +3317,7 @@
 			})();
 
 			(function updateStats() {
+				if (fastDraw) return;
 				ui.stats.matchTheme(); // not sure how to listen to when the checkbox changes when the game loads
 				if (showNames && world.leaderboard.length > 0)
 					ui.leaderboard.container.style.display = '';
@@ -3315,6 +3356,7 @@
 			})();
 
 			(function minimap() {
+				if (fastDraw) return;
 				if (!showMinimap) {
 					ui.minimap.canvas.style.display = 'none';
 					return;
