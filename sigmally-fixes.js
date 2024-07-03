@@ -2560,6 +2560,7 @@
 					if (u_grid_enabled) {
 						vec2 t_coord = v_world_pos / 50.0;
 						out_color = texture(u_texture, t_coord);
+						out_color.a *= 0.1;
 						if (!u_dark_theme_enabled) {
 							out_color *= vec4(0, 0, 0, 1);
 						}
