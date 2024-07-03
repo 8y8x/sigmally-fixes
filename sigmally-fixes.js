@@ -1089,7 +1089,7 @@
 			'this might be slow on lower-end PCs.');
 		slider('outlineMulti', 'Current tab cell outline thickness', 0, 0, 1, 0.01, 2, true,
 			'Draws an inverse outline on your cells. This is a necessity when using the \'merge camera\' setting. ' +
-			'Setting to 0 turns this off.');
+			'Setting to 0 turns this off. Only shows when near one of your tabs.');
 		slider('mergeCameraWeight', 'Merge camera weighting factor', 1, 0, 2, 0.01, 2, true,
 			'The amount of focus to put on bigger cells. Only used with \'merge camera\'. 0 focuses every cell ' +
 			'equally, 1 focuses on every cell based on its radius, 2 focuses on every cell based on its mass. ' +
@@ -1388,7 +1388,7 @@
 			let ny = cell.ny;
 			if (cell.dead?.to) {
 				const deadTo = map.get(cell.dead.to);
-				if (deadTo?.dead && cell.dead.at <= deadTo.dead.at) {
+				if (deadTo && (!deadTo?.dead || cell.dead.at <= deadTo.dead.at)) {
 					// do not animate death towards a cell that died already (went offscreen)
 					nx = deadTo.nx;
 					ny = deadTo.ny;
@@ -1437,6 +1437,7 @@
 				const localWidth = 1920 / 2 / localScale;
 				const localHeight = 1080 / 2 / localScale;
 
+				world.camera.merged = false;
 				if (localTotalR > 1) {
 					for (const data of sync.others.values()) {
 						let thisX = 0;
@@ -1475,6 +1476,7 @@
 							cameraX += thisX;
 							cameraY += thisY;
 							weight += thisWeight;
+							world.camera.merged = true;
 						}
 					}
 				}
@@ -1501,6 +1503,7 @@
 				cameraY /= totalCells;
 				focused = totalCells > 0;
 				zoomout = Math.min(64 / totalR, 1) ** 0.4;
+				world.camera.merged = false;
 			}
 
 			let xyEaseFactor;
@@ -1538,6 +1541,7 @@
 			x: 0, tx: 0,
 			y: 0, ty: 0,
 			scale: 1, tscale: 1,
+			merged: false,
 		};
 
 		/** @type {{ l: number, r: number, t: number, b: number } | undefined} */
@@ -3135,7 +3139,8 @@
 
 						const myIndex = world.mine.indexOf(cell.id);
 						if (myIndex !== -1) {
-							gl.uniform1f(uniforms.cell.u_outline_selected, settings.outlineMulti);
+							if (world.camera.merged)
+								gl.uniform1f(uniforms.cell.u_outline_selected, settings.outlineMulti);
 
 							if (!canSplit[myIndex] && settings.unsplittableOpacity > 0) {
 								if (darkTheme)
