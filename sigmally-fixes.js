@@ -354,7 +354,7 @@
 
 			const watermark = document.createElement('span');
 			watermark.innerHTML = '<a href="https://greasyfork.org/scripts/483587/versions" \
-				target="_blank">Sigmally Fixes 2.3.0 (PRERELEASE)</a> by yx';
+				target="_blank">Sigmally Fixes 2.3.0</a> by yx';
 			title.insertAdjacentElement('afterend', watermark);
 		})();
 
@@ -1088,7 +1088,8 @@
 			'When enabled, all tabs will share what cells they see between each other. Due to browser limitations, ' +
 			'this might be slow on lower-end PCs.');
 		slider('outlineMulti', 'Current tab cell outline thickness', 0, 0, 1, 0.01, 2, true,
-			'Draws an inverse outline on your cells. This is a necessity when using the \'merge camera\' setting.');
+			'Draws an inverse outline on your cells. This is a necessity when using the \'merge camera\' setting. ' +
+			'Setting to 0 turns this off.');
 		slider('mergeCameraWeight', 'Merge camera weighting factor', 1, 0, 2, 0.01, 2, true,
 			'The amount of focus to put on bigger cells. Only used with \'merge camera\'. 0 focuses every cell ' +
 			'equally, 1 focuses on every cell based on its radius, 2 focuses on every cell based on its mass. ' +
