@@ -1259,85 +1259,55 @@
 			}
 			const merge = sync.merge ?? /** @type {Map<number, Cell>} */ (sync.merge = new Map());
 
-			// #1 : collect all cells first, to make iteration simpler
-			/** @type {Map<number, Map<SyncData | undefined, Cell>>} */
+			// #1 : collect all changes, return early if not synced
+			// [timeOffset, cell]
+			/** @type {Map<number, [number, Cell]>} */
 			const all = new Map();
 			for (const [id, cell] of world.cells)
-				all.set(id, new Map([ [undefined, cell] ]));
-			sync.others.forEach(data => {
-				const realNow = localized(data, data.updated.now);
-				if (now - realNow > 250) return; // tab has not updated in 250ms, disregard it
+				all.set(id, [0, cell]);
+
+			for (const data of sync.others.values()) {
+				const otherOffset = data.updated.timeOrigin - performance.timeOrigin;
+				const otherNow = otherOffset + data.updated.now;
+				if (now - otherNow > 250) return; // tab has not updated in 250ms, disregard it
 				if (!data.cells) return;
 				for (const [id, cell] of data.cells) {
-					const current = all.get(id);
-					if (current) current.set(data, cell);
-					else all.set(id, new Map([ [data, cell] ]));
-				}
-			});
-
-			// #2 : check if all *active* tabs have updated yet
-			/** @type {Set<[Cell, number]>} */
-			const updateQueue = new Set();
-			for (const seen of all.values()) {
-				/** @type {Cell | undefined} */
-				let primary = undefined;
-				let primaryOffset = 0;
-				for (const [data, other] of seen) {
-					const otherOffset = data ? data.updated.timeOrigin - performance.timeOrigin : 0;
-					if (!primary) {
-						primary = other;
-						primaryOffset = otherOffset;
+					const currentSet = all.get(id);
+					if (!currentSet) {
+						all.set(id, [otherOffset, cell]);
 						continue;
 					}
 
-					// if both *disappeared*:
-					//   prefer the one that disappeared later
-					// else if one disappeared:
-					//   prefer the one that hasn't disappeared
-					// else:
-					//   assert: both have not disappeared
-					//   if x, y, r are not the same (ignore dead.to):
-					//     desync, return
-					//   else
-					//     they are both the same
-					const primaryDisappearedAt
-						= (primary.dead && primary.dead.to === undefined) ? primaryOffset + primary.dead.at : undefined;
-					const otherDisappearedAt
-						= (other.dead && other.dead.to === undefined) ? otherOffset + other.dead.at : undefined;
-					if (primaryDisappearedAt === undefined && otherDisappearedAt === undefined) {
-						// neither have disappeared, check for desync
-						if (primary.nx !== other.nx || primary.ny !== other.ny || primary.nr !== other.nr)
-							return; // desync
-					} else if (primaryDisappearedAt === undefined && otherDisappearedAt !== undefined) {
-						// other disappeared; prefer the primary one
-					} else if (primaryDisappearedAt !== undefined && otherDisappearedAt === undefined) {
-						// primary disappeared; prefer the other one
-						primary = other;
-						primaryOffset = otherOffset;
+					const [currentOffset, current] = currentSet;
+					const currentDisappearedAt
+						= (current.dead && current.dead.to === undefined) ? currentOffset + current.dead.at : undefined;
+					const cellDisappearedAt
+						= (cell.dead && cell.dead.to === undefined) ? otherOffset + cell.dead.at : undefined;
+
+					if (currentDisappearedAt === undefined && cellDisappearedAt === undefined) {
+						// if *neither* cell has disappeared, check for desync
+						if (current.nx !== cell.nx || current.ny !== cell.ny || current.nr !== cell.nr)
+							return;
+					} else if (currentDisappearedAt === undefined && cellDisappearedAt !== undefined) {
+						// other disappeared; prefer the current one
+					} else if (currentDisappearedAt !== undefined && cellDisappearedAt === undefined) {
+						// current disappeared; prefer the other one
+						all.set(id, [currentOffset, cell]);
 					} else {
-						// both have disappeared, prefer the one that died later
-						if (/** @type {number} */ (primaryDisappearedAt) < /** @type {number} */ (otherDisappearedAt)) {
-							primary = other;
-							primaryOffset = otherOffset;
-						}
+						// both have disappeared, prefer the one that disappeared later
+						if (/** @type {number} */(currentDisappearedAt) < /** @type {number} */(cellDisappearedAt))
+							all.set(id, [otherOffset, cell]);
 					}
 				}
-
-				if (primary)
-					updateQueue.add([ primary, primaryOffset ]);
 			}
 
-			// #3 : all tabs are synced, we can update the cells
-			for (const [cell, offset] of updateQueue) {
+			// #2 : all tabs are synced, we can update the cells
+			for (const [offset, cell] of all.values()) {
 				const old = merge.get(cell.id);
 				if (old) {
 					const { x, y, r } = world.xyr(old, merge, now);
-					old.ox = x;
-					old.oy = y;
-					old.or = r;
-					old.nx = cell.nx;
-					old.ny = cell.ny;
-					old.nr = cell.nr;
+					old.ox = x; old.oy = y; old.or = r;
+					old.nx = cell.nx; old.ny = cell.ny; old.nr = cell.nr;
 					if (cell.dead)
 						old.dead ??= { to: cell.dead.to, at: now };
 					else if (old.dead) {
