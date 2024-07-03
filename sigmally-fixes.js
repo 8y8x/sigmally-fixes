@@ -321,7 +321,7 @@
 					if (world.mine.length > 0) {
 						for (const [_, data] of sync.others) {
 							if (data.owned.size > 0
-								&& Math.hypot(data.camera.x - world.camera.x, data.camera.y - world.camera.y) <= 7500)
+								&& Math.hypot(data.camera.tx - world.camera.tx, data.camera.ty - world.camera.ty) <= 7500)
 								return;
 						}
 					}
@@ -842,7 +842,7 @@
 			mergeViewArea: false,
 			nameBold: false,
 			nameScaleFactor: 1,
-			outlineMulti: false,
+			outlineMulti: 0,
 			scrollFactor: 1,
 			selfSkin: '',
 			syncSkin: true,
@@ -1065,8 +1065,8 @@
 		// #2 : generate ui for settings
 		separator('Hover over a setting for more info');
 		slider('drawDelay', 'Draw delay', 120, 40, 300, 1, 0, false,
-			'The amount of milliseconds cells will lag behind for. Lower values mean cells will very quickly catch ' +
-			'up to where they actually are.');
+			'How long (in ms) cells will lag behind for. Lower values mean cells will very quickly catch up to where ' +
+			'they actually are.');
 		slider('unsplittableOpacity', 'Unsplittable cell outline opacity', 1, 0, 1, 0.01, 2, true,
 			'How visible the white outline around cells that can\'t split should be. 0 = not visible, 1 = fully ' +
 			'visible.');
@@ -1087,19 +1087,18 @@
 		checkbox('mergeViewArea', 'Combine visible cells between tabs',
 			'When enabled, all tabs will share what cells they see between each other. Due to browser limitations, ' +
 			'this might be slow on lower-end PCs.');
-		checkbox('outlineMulti', 'Outline current tab\'s cells',
-			'Whether your cells should be outlined with an inverse color. This is a necessity when using the \'merge ' +
-			'camera\' setting.');
+		slider('outlineMulti', 'Current tab cell outline thickness', 0, 0, 1, 0.01, 2, true,
+			'Draws an inverse outline on your cells. This is a necessity when using the \'merge camera\' setting.');
 		slider('mergeCameraWeight', 'Merge camera weighting factor', 1, 0, 2, 0.01, 2, true,
 			'The amount of focus to put on bigger cells. Only used with \'merge camera\'. 0 focuses every cell ' +
 			'equally, 1 focuses on every cell based on its radius, 2 focuses on every cell based on its mass. ' +
 			'Focusing on where your mass is can make the camera much smoother and predictable when splitrunning.'
 		);
 		separator();
-		slider('scrollFactor', 'Scroll factor', 1, 0.05, 1, 0.05, 2, false,
-			'A smaller zoom factor lets you fine-tune your zoom.');
+		slider('scrollFactor', 'Zoom speed', 1, 0.05, 1, 0.05, 2, false,
+			'A smaller zoom speed lets you fine-tune your zoom.');
 		checkbox('blockBrowserKeybinds', 'Block all browser keybinds',
-			'When enabled, only Ctrl+Tab, Alt+Tab, and F11 are allowed to be pressed. You must be in fullscreen, and ' +
+			'When enabled, only Ctrl+Tab and F11 are allowed to be pressed. You must be in fullscreen, and ' +
 			'non-Chrome browsers probably won\'t respect this setting.');
 		checkbox('blockNearbyRespawns', 'Block respawns near other tabs',
 			'Disables the respawn keybind when near one of your bigger tabs.');
@@ -1117,8 +1116,7 @@
 		checkbox('jellySkinLag', 'Jelly physics cut-off on skins',
 			'Jelly physics causes cells to grow and shrink a little slower, but skins don\'t, which makes clips look ' +
 			'more satisfying. But if your skin decorates the edge of your cell (e.g. sasa, has a custom outline), ' +
-			'then it may look weird.'
-		);
+			'then it may look weird.');
 
 		// #3 : create options for sigmod
 		let sigmodInjection;
@@ -1162,7 +1160,7 @@
 	////////////////////////////////
 	/** @typedef {{
 	 * 	self: string,
-	 * 	camera: { x: number, y: number },
+	 * 	camera: { tx: number, ty: number },
 	 * 	cells: Map<number, Cell> | undefined,
 	 * 	owned: Map<number, { x: number, y: number, r: number } | false>,
 	 * 	skin: string,
@@ -1203,7 +1201,7 @@
 			/** @type {SyncData} */
 			const syncData = {
 				self,
-				camera: { x: world.camera.x, y: world.camera.y },
+				camera: { tx: world.camera.tx, ty: world.camera.ty },
 				cells: settings.mergeViewArea ? world.cells : undefined,
 				owned,
 				skin: settings.selfSkin,
@@ -1418,10 +1416,13 @@
 			a = a < 0 ? 0 : a > 1 ? 1 : a;
 			let nx = cell.nx;
 			let ny = cell.ny;
-			const deadTo = map.get(cell.dead?.to ?? -1);
-			if (deadTo) {
-				nx = deadTo.nx;
-				ny = deadTo.ny;
+			if (cell.dead?.to) {
+				const deadTo = map.get(cell.dead.to);
+				if (deadTo?.dead && cell.dead.at <= deadTo.dead.at) {
+					// do not animate death towards a cell that died already (went offscreen)
+					nx = deadTo.nx;
+					ny = deadTo.ny;
+				}
 			}
 
 			return {
@@ -1466,43 +1467,45 @@
 				const localWidth = 1920 / 2 / localScale;
 				const localHeight = 1080 / 2 / localScale;
 
-				for (const data of sync.others.values()) {
-					let thisX = 0;
-					let thisY = 0;
-					let thisTotalR = 0;
-					let thisWeight = 0;
-					for (const [id, cell] of data.owned) {
-						const merged = (settings.mergeViewArea && sync.merge) ? sync.merge.get(id) : undefined;
-						if (merged && sync.merge) {
-							if (merged.dead) continue;
-							const { x, y, r } = world.xyr(merged, sync.merge, now);
-							const weighted = r ** settings.mergeCameraWeight;
-							thisX += x * weighted;
-							thisY += y * weighted;
-							thisTotalR += r;
-							thisWeight += weighted;
-						} else if (cell) {
-							const weighted = cell.r ** settings.mergeCameraWeight;
-							thisX += cell.x * weighted;
-							thisY += cell.y * weighted;
-							thisTotalR += cell.r;
-							thisWeight += weighted;
+				if (localTotalR > 1) {
+					for (const data of sync.others.values()) {
+						let thisX = 0;
+						let thisY = 0;
+						let thisTotalR = 0;
+						let thisWeight = 0;
+						for (const [id, cell] of data.owned) {
+							const merged = (settings.mergeViewArea && sync.merge) ? sync.merge.get(id) : undefined;
+							if (merged && sync.merge) {
+								if (merged.dead) continue;
+								const { x, y, r } = world.xyr(merged, sync.merge, now);
+								const weighted = r ** settings.mergeCameraWeight;
+								thisX += x * weighted;
+								thisY += y * weighted;
+								thisTotalR += r;
+								thisWeight += weighted;
+							} else if (cell) {
+								const weighted = cell.r ** settings.mergeCameraWeight;
+								thisX += cell.x * weighted;
+								thisY += cell.y * weighted;
+								thisTotalR += cell.r;
+								thisWeight += weighted;
+							}
 						}
-					}
 
-					if (thisTotalR < 1) continue;
+						if (thisTotalR < 1) continue;
 
-					const thisCameraX = thisX / thisWeight;
-					const thisCameraY = thisY / thisWeight;
-					const thisScale = Math.min(64 / thisTotalR, 1) ** 0.4;
-					const thisWidth = 1920 / 2 / thisScale;
-					const thisHeight = 1080 / 2 / thisScale;
+						const thisCameraX = thisX / thisWeight;
+						const thisCameraY = thisY / thisWeight;
+						const thisScale = Math.min(64 / thisTotalR, 1) ** 0.4;
+						const thisWidth = 1920 / 2 / thisScale;
+						const thisHeight = 1080 / 2 / thisScale;
 
-					if (Math.abs(thisCameraX - localX) < localWidth + thisWidth + 1000
-						&& Math.abs(thisCameraY - localY) < localHeight + thisHeight + 1000) {
-						cameraX += thisX;
-						cameraY += thisY;
-						weight += thisWeight;
+						if (Math.abs(thisCameraX - localX) < localWidth + thisWidth + 1000
+							&& Math.abs(thisCameraY - localY) < localHeight + thisHeight + 1000) {
+							cameraX += thisX;
+							cameraY += thisY;
+							weight += thisWeight;
+						}
 					}
 				}
 
@@ -1547,7 +1550,7 @@
 		};
 
 		// clean up dead cells
-		setInterval(() => {
+		world.clean = () => {
 			const now = performance.now();
 			for (const [id, cell] of world.cells) {
 				if (!cell.dead) continue;
@@ -1556,7 +1559,7 @@
 					world.mineDead.delete(id);
 				}
 			}
-		}, 100);
+		};
 
 
 
@@ -1903,6 +1906,7 @@
 						ui.deathScreen.show(world.stats);
 					}
 
+					world.clean();
 					sync.broadcast(now);
 					sync.buildMerge(now);
 
@@ -2234,9 +2238,10 @@
 			if (e.ctrlKey && e.code === 'Tab') {
 				e.returnValue = true; // undo e.preventDefault() by SigMod
 				e.stopImmediatePropagation(); // prevent SigMod from calling e.preventDefault() afterwards
-			} else if (settings.blockBrowserKeybinds || (e.ctrlKey && e.code === 'KeyW') || (e.code === 'Tab')) {
+			} else if (settings.blockBrowserKeybinds && e.code !== 'F11')
 				e.preventDefault();
-			}
+			else if ((e.ctrlKey && e.code === 'KeyW') || e.code === 'Tab')
+				e.preventDefault();
 		});
 
 		addEventListener('keyup', e => {
@@ -2555,12 +2560,8 @@
 					if (u_grid_enabled) {
 						vec2 t_coord = v_world_pos / 50.0;
 						out_color = texture(u_texture, t_coord);
-						// fade grid pixels so when they become <1px wide, they're invisible
-						float alpha = clamp(u_camera_scale * 540.0 * 50.0, 0.0, 1.0) * 0.1;
-						if (u_dark_theme_enabled) {
-							out_color *= vec4(1, 1, 1, alpha);
-						} else {
-							out_color *= vec4(0, 0, 0, alpha);
+						if (!u_dark_theme_enabled) {
+							out_color *= vec4(0, 0, 0, 1);
 						}
 					}
 
@@ -2627,7 +2628,7 @@
 				uniform vec4 u_color;
 				uniform float u_outer_radius;
 				uniform vec4 u_outline_color;
-				uniform bool u_outline_selected;
+				uniform float u_outline_selected;
 				uniform bool u_subtle_outline;
 				uniform sampler2D u_texture;
 				uniform bool u_texture_enabled;
@@ -2651,8 +2652,8 @@
 						out_color.rgb = out_color.rgb * (1.0 - oa_edge) + u_color.rgb * 0.9 * oa_edge;
 					}
 
-					if (u_outline_selected) {
-						float oa = clamp(blur * (d2 - 0.88*0.88), 0.0, 1.0);
+					if (u_outline_selected > 0.0) {
+						float oa = clamp(blur * (d2 - (1.0 - u_outline_selected)*(1.0 - u_outline_selected)), 0.0, 1.0);
 						out_color.rgb = out_color.rgb * (1.0 - oa) + (1.0 - out_color.rgb) * oa;
 					}
 
@@ -3126,7 +3127,7 @@
 					gl.uniform1f(uniforms.cell.u_outer_radius, r * 1.01);
 					
 					gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 0);
-					gl.uniform1i(uniforms.cell.u_outline_selected, 0);
+					gl.uniform1f(uniforms.cell.u_outline_selected, 0);
 
 					if (cell.jagged) {
 						const virusTexture = textureFromCache(virusSrc);
@@ -3163,8 +3164,7 @@
 
 						const myIndex = world.mine.indexOf(cell.id);
 						if (myIndex !== -1) {
-							if (settings.outlineMulti)
-								gl.uniform1i(uniforms.cell.u_outline_selected, 1);
+							gl.uniform1f(uniforms.cell.u_outline_selected, settings.outlineMulti);
 
 							if (!canSplit[myIndex] && settings.unsplittableOpacity > 0) {
 								if (darkTheme)
