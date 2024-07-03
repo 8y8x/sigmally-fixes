@@ -320,8 +320,8 @@
 					// trying to respawn; see if we are nearby an alive multi-tab
 					if (world.mine.length > 0) {
 						for (const [_, data] of sync.others) {
-							if (data.owned.size > 0
-								&& Math.hypot(data.camera.tx - world.camera.tx, data.camera.ty - world.camera.ty) <= 7500)
+							const d = Math.hypot(data.camera.tx - world.camera.tx, data.camera.ty - world.camera.ty);
+							if (data.owned.size > 0 && d <= 7500)
 								return;
 						}
 					}
@@ -1093,8 +1093,7 @@
 		slider('mergeCameraWeight', 'Merge camera weighting factor', 1, 0, 2, 0.01, 2, true,
 			'The amount of focus to put on bigger cells. Only used with \'merge camera\'. 0 focuses every cell ' +
 			'equally, 1 focuses on every cell based on its radius, 2 focuses on every cell based on its mass. ' +
-			'Focusing on where your mass is can make the camera much smoother and predictable when splitrunning.'
-		);
+			'Focusing on where your mass is can make the camera much smoother and predictable when splitrunning.');
 		separator();
 		slider('scrollFactor', 'Zoom speed', 1, 0.05, 1, 0.05, 2, false,
 			'A smaller zoom speed lets you fine-tune your zoom.');
@@ -2639,7 +2638,7 @@
 			uniforms.cell = getUniforms('cell', programs.cell, [
 				'u_aspect_ratio', 'u_camera_pos', 'u_camera_scale',
 				'u_alpha', 'u_color', 'u_inner_radius', 'u_outline_color', 'u_outline_selected', 'u_outer_radius',
-				'u_pos', 'u_subtle_outline', 'u_texture_enabled'
+				'u_pos', 'u_subtle_outline', 'u_texture_enabled',
 			]);
 
 
@@ -3097,7 +3096,7 @@
 					gl.uniform2f(uniforms.cell.u_pos, x, y);
 					gl.uniform1f(uniforms.cell.u_inner_radius, r * 1.01);
 					gl.uniform1f(uniforms.cell.u_outer_radius, r * 1.01);
-					
+
 					gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 0);
 					gl.uniform1f(uniforms.cell.u_outline_selected, 0);
 
@@ -3219,7 +3218,8 @@
 						gl.uniform1f(uniforms.text.u_text_aspect_ratio, aspectRatio);
 						gl.uniform1i(uniforms.text.u_silhouette_enabled, useSilhouette ? 1 : 0);
 						gl.uniform1f(uniforms.text.u_text_scale, showThisName ? 0.5 : 1);
-						gl.uniform2f(uniforms.text.u_text_offset, 0, showThisName ? -settings.nameScaleFactor / 3 - 1 / 6 : 0);
+						gl.uniform2f(uniforms.text.u_text_offset, 0,
+							showThisName ? -settings.nameScaleFactor / 3 - 1 / 6 : 0);
 
 						gl.bindTexture(gl.TEXTURE_2D, text);
 						if (silhouette) {
@@ -3266,7 +3266,8 @@
 						for (let i = 0; i < mass.length; ++i) {
 							const { aspectRatio, texture } = massTextFromCache(mass[i]);
 							gl.uniform1f(uniforms.text.u_text_aspect_ratio, aspectRatio);
-							gl.uniform2f(uniforms.text.u_text_offset, (i - (mass.length - 1) / 2) * 0.75 * settings.massScaleFactor, yOffset);
+							gl.uniform2f(uniforms.text.u_text_offset,
+								(i - (mass.length - 1) / 2) * 0.75 * settings.massScaleFactor, yOffset);
 
 							gl.bindTexture(gl.TEXTURE_2D, texture);
 							gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
