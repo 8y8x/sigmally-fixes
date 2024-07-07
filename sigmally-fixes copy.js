@@ -24,9 +24,6 @@
 'use strict';
 
 (async () => {
-	// yes, this actually makes a significant difference
-	const undefined = window.undefined;
-
 	////////////////////////////////
 	// Define Auxiliary Functions //
 	////////////////////////////////
@@ -1168,17 +1165,22 @@
 	/** @typedef {{
 	 * 	self: string,
 	 * 	camera: { tx: number, ty: number },
-	 * 	cells: { important: Map<number, Cell>, pellets: Cell[] } | undefined,
+	 * 	cells: { important: Map<number, Cell>, pellets: ArrayBuffer } | undefined,
 	 * 	owned: Map<number, { x: number, y: number, r: number } | false>,
 	 * 	skin: string,
 	 * 	updated: { now: number, timeOrigin: number },
-	 * }} SyncData
+	 * }} SerializedSyncData
+	 * @typedef {{
+	 * 	[K in keyof SerializedSyncData]: K extends 'cells'
+	 * 		? { important: Map<number, Cell>, pellets: Map<number, Cell> }
+	 * 		: SerializedSyncData[K]
+	 * }} DeserializedSyncData
 	 */
 	const sync = (() => {
 		const sync = {};
 		/** @type {Map<number, Cell> | undefined} */
 		sync.merge = undefined;
-		/** @type {Map<string, SyncData>} */
+		/** @type {Map<string, DeserializedSyncData>} */
 		sync.others = new Map();
 
 		const frame = new BroadcastChannel('sigfix-frame');
@@ -1187,7 +1189,7 @@
 		const self = Date.now() + '-' + Math.random();
 
 		/**
-		 * @param {SyncData} data
+		 * @param {DeserializedSyncData} data
 		 * @param {number} foreignNow
 		 */
 		const localized = (data, foreignNow) => data.updated.timeOrigin - performance.timeOrigin + foreignNow;
@@ -1195,7 +1197,7 @@
 
 		/** @param {number} now */
 		sync.broadcast = now => {
-			/** @type {SyncData['owned']} */
+			/** @type {SerializedSyncData['owned']} */
 			const owned = new Map();
 			for (const id of world.mine) {
 				const cell = world.cells.get(id);
@@ -1210,23 +1212,33 @@
 
 			/** @type {Map<number, Cell>} */
 			const important = new Map();
-			/** @type {Cell[]} */
-			const pellets = [];
+			const pellets = new DataView(new ArrayBuffer(hidePellets ? 0 : world.cells.size * 25));
+			let pelletI = 0;
 			for (const cell of world.cells.values()) {
 				if (cell.nr < 32) {
 					if (!hidePellets) {
-						pellets.push(cell);
+						pellets.setUint32(pelletI, cell.id, true);
+						pellets.setInt16(pelletI + 4, cell.nx, true);
+						pellets.setInt16(pelletI + 6, cell.ny, true);
+						pellets.setUint16(pelletI + 8, cell.nr, true);
+						pellets.setUint8(pelletI + 10, cell.Rgb * 255);
+						pellets.setUint8(pelletI + 11, cell.rGb * 255);
+						pellets.setUint8(pelletI + 12, cell.rgB * 255);
+						pellets.setUint32(pelletI + 13, cell.deadAt ?? 0, true);
+						pellets.setUint32(pelletI + 17, cell.deadTo || 0, true);
+						pellets.setUint32(pelletI + 21, cell.born, true);
+						pelletI += 25;
 					}
 				} else {
 					important.set(cell.id, cell);
 				}
 			}
 
-			/** @type {SyncData} */
+			/** @type {SerializedSyncData} */
 			const syncData = {
 				self,
 				camera: { tx: world.camera.tx, ty: world.camera.ty },
-				cells: settings.mergeViewArea ? { important, pellets } : undefined,
+				cells: settings.mergeViewArea ? { important, pellets: pellets.buffer } : undefined,
 				owned,
 				skin: settings.selfSkin,
 				updated: { now, timeOrigin: performance.timeOrigin },
@@ -1247,8 +1259,38 @@
 		});
 
 		worldsync.addEventListener('message', e => {
-			/** @type {SyncData} */
+			/** @type {SerializedSyncData} */
 			const data = e.data;
+			if (data.cells) {
+				const { now } = data.updated;
+				const pellets = new DataView(data.cells.pellets);
+				/** @type {Map<number, Cell>} */
+				const pelletMap = new Map();
+				for (let i = 0; i < pellets.byteLength; i += 25) {
+					const id = pellets.getUint32(i, true);
+					const x = pellets.getInt16(i + 4, true);
+					const y = pellets.getInt16(i + 6, true);
+					const r = pellets.getUint16(i + 8, true);
+					const Rgb = pellets.getUint8(i + 10) / 255;
+					const rGb = pellets.getUint8(i + 11) / 255;
+					const rgB = pellets.getUint8(i + 12) / 255;
+					const deadTo = pellets.getUint32(i + 13, true) || -1;
+					const deadAt = pellets.getUint32(i + 17, true) || undefined;
+					const born = pellets.getUint32(i + 21, true);
+					pelletMap.set(id, {
+						id,
+						ox: x, oy: y, or: r,
+						nx: x, ny: y, nr: r,
+						Rgb, rGb, rgB,
+						deadAt, deadTo,
+						jagged: false,
+						name: '', skin: '', clan: '', sub: false,
+						updated: now, born,
+					});
+				}
+
+				data.cells.pellets = /** @type {any} */ (pelletMap);
+			}
 			sync.others.set(data.self, /** @type {any} */ (data));
 			sync.buildMerge(localized(/** @type {any} */ (data), data.updated.now));
 		});
