@@ -1212,7 +1212,7 @@
 			const syncData = {
 				self,
 				camera: { tx: world.camera.tx, ty: world.camera.ty },
-				cells: settings.mergeCamera
+				cells: settings.mergeViewArea
 					? { cells: world.cells, pellets: hidePellets ? new Map() : world.pellets } : undefined,
 				owned,
 				skin: settings.selfSkin,
@@ -2850,7 +2850,7 @@
 	///////////////////////////////
 	const render = (() => {
 		const render = {};
-		const gl = ui.game.gl;
+		const { gl } = ui.game;
 
 		// #1 : define small misc objects
 		// no point in breaking this across multiple lines
@@ -2902,7 +2902,7 @@
 			 * @template {boolean} T
 			 * @typedef {{
 			 * 	aspectRatio: number,
-			 * 	text: WebGLTexture | null,
+			 * 	text: WebGLTexture | null | undefined,
 			 *	silhouette: WebGLTexture | null | undefined,
 			 * 	accessed: number
 			 * }} CacheEntry
@@ -2917,8 +2917,10 @@
 				cache.forEach((entry, text) => {
 					if (now - entry.accessed > 60_000) {
 						// immediately delete text instead of waiting for GC
-						gl.deleteTexture(entry.text);
-						if (entry.silhouette !== undefined) gl.deleteTexture(entry.silhouette);
+						if (entry.text !== undefined)
+							gl.deleteTexture(entry.text);
+						if (entry.silhouette !== undefined)
+							gl.deleteTexture(entry.silhouette);
 						cache.delete(text);
 					}
 				});
@@ -3026,19 +3028,29 @@
 				let entry = cache.get(text);
 				if (!entry) {
 					const shortened = aux.trim(text);
-					entry = {
-						text: texture(shortened, false, false),
-						aspectRatio: canvas.width / canvas.height, // mind the execution order
-						silhouette: silhouette ? texture(shortened, true, false) : undefined,
+					/** @type {CacheEntry<T>} */
+					const entry2 = entry = {
+						text: undefined,
+						aspectRatio: 1,
+						silhouette: undefined,
 						accessed: performance.now(),
 					};
 					cache.set(text, entry);
+					setTimeout(() => {
+						entry2.text = texture(shortened, false, false);
+						entry2.aspectRatio = canvas.width / canvas.height; // mind the execution order
+						if (silhouette)
+							entry2.silhouette = texture(shortened, true, false);
+					});
 				} else {
 					entry.accessed = performance.now();
 				}
 
-				if (silhouette && entry.silhouette === undefined)
-					entry.silhouette = texture(aux.trim(text), true, false);
+				if (silhouette && entry.silhouette === undefined) {
+					setTimeout(() => {
+						entry.silhouette = texture(aux.trim(text), true, false);
+					});
+				}
 
 				return entry;
 			};
@@ -3326,37 +3338,41 @@
 
 					if (clan) {
 						const { aspectRatio, text, silhouette } = textFromCache(clan, useSilhouette);
-						gl.uniform1f(uniforms.text.u_text_aspect_ratio, aspectRatio);
-						gl.uniform1i(uniforms.text.u_silhouette_enabled, useSilhouette ? 1 : 0);
-						gl.uniform1f(uniforms.text.u_text_scale, showThisName ? 0.5 : 1);
-						gl.uniform2f(uniforms.text.u_text_offset, 0,
-							showThisName ? -settings.nameScaleFactor / 3 - 1 / 6 : 0);
+						if (text) {
+							gl.uniform1f(uniforms.text.u_text_aspect_ratio, aspectRatio);
+							gl.uniform1i(uniforms.text.u_silhouette_enabled, useSilhouette ? 1 : 0);
+							gl.uniform1f(uniforms.text.u_text_scale, showThisName ? 0.5 : 1);
+							gl.uniform2f(uniforms.text.u_text_offset, 0,
+								showThisName ? -settings.nameScaleFactor / 3 - 1 / 6 : 0);
 
-						gl.bindTexture(gl.TEXTURE_2D, text);
-						if (silhouette) {
-							gl.activeTexture(gl.TEXTURE1);
-							gl.bindTexture(gl.TEXTURE_2D, silhouette);
-							gl.activeTexture(gl.TEXTURE0);
+							gl.bindTexture(gl.TEXTURE_2D, text);
+							if (silhouette) {
+								gl.activeTexture(gl.TEXTURE1);
+								gl.bindTexture(gl.TEXTURE_2D, silhouette);
+								gl.activeTexture(gl.TEXTURE0);
+							}
+
+							gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 						}
-
-						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 					}
 
 					if (showThisName) {
 						const { aspectRatio, text, silhouette } = textFromCache(name, useSilhouette);
-						gl.uniform1f(uniforms.text.u_text_aspect_ratio, aspectRatio);
-						gl.uniform1i(uniforms.text.u_silhouette_enabled, silhouette ? 1 : 0);
-						gl.uniform2f(uniforms.text.u_text_offset, 0, 0);
-						gl.uniform1f(uniforms.text.u_text_scale, settings.nameScaleFactor);
+						if (text) {
+							gl.uniform1f(uniforms.text.u_text_aspect_ratio, aspectRatio);
+							gl.uniform1i(uniforms.text.u_silhouette_enabled, silhouette ? 1 : 0);
+							gl.uniform2f(uniforms.text.u_text_offset, 0, 0);
+							gl.uniform1f(uniforms.text.u_text_scale, settings.nameScaleFactor);
 
-						gl.bindTexture(gl.TEXTURE_2D, text);
-						if (silhouette) {
-							gl.activeTexture(gl.TEXTURE1);
-							gl.bindTexture(gl.TEXTURE_2D, silhouette);
-							gl.activeTexture(gl.TEXTURE0);
+							gl.bindTexture(gl.TEXTURE_2D, text);
+							if (silhouette) {
+								gl.activeTexture(gl.TEXTURE1);
+								gl.bindTexture(gl.TEXTURE_2D, silhouette);
+								gl.activeTexture(gl.TEXTURE0);
+							}
+
+							gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 						}
-
-						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 					}
 
 					if (showThisMass) {
