@@ -1168,7 +1168,7 @@
 	/** @typedef {{
 	 * 	self: string,
 	 * 	camera: { tx: number, ty: number },
-	 * 	cells: { important: Map<number, Cell>, pellets: Cell[] } | undefined,
+	 * 	cells: { cells: Map<number, Cell>, pellets: Map<number, Cell> } | undefined,
 	 * 	owned: Map<number, { x: number, y: number, r: number } | false>,
 	 * 	skin: string,
 	 * 	updated: { now: number, timeOrigin: number },
@@ -1176,7 +1176,7 @@
 	 */
 	const sync = (() => {
 		const sync = {};
-		/** @type {Map<number, Cell> | undefined} */
+		/** @type {{ cells: Map<number, Cell>, pellets: Map<number, Cell> } | undefined} */
 		sync.merge = undefined;
 		/** @type {Map<string, SyncData>} */
 		sync.others = new Map();
@@ -1200,33 +1200,20 @@
 			for (const id of world.mine) {
 				const cell = world.cells.get(id);
 				if (!cell) continue;
-				owned.set(id, world.xyr(cell, world.cells, now));
+				owned.set(id, world.xyr(cell, world, now));
 			}
 			for (const id of world.mineDead)
 				owned.set(id, false);
 
-			// serialize pellets as it is stupidly expensive to replicate them as objects
+			// it is stupidly expensive to replicate pellets, so make sure we can disable it
 			const hidePellets = aux.sigmod?.fps?.hideFood;
-
-			/** @type {Map<number, Cell>} */
-			const important = new Map();
-			/** @type {Cell[]} */
-			const pellets = [];
-			for (const cell of world.cells.values()) {
-				if (cell.nr < 32) {
-					if (!hidePellets) {
-						pellets.push(cell);
-					}
-				} else {
-					important.set(cell.id, cell);
-				}
-			}
 
 			/** @type {SyncData} */
 			const syncData = {
 				self,
 				camera: { tx: world.camera.tx, ty: world.camera.ty },
-				cells: settings.mergeViewArea ? { important, pellets } : undefined,
+				cells: settings.mergeCamera
+					? { cells: world.cells, pellets: hidePellets ? new Map() : world.pellets } : undefined,
 				owned,
 				skin: settings.selfSkin,
 				updated: { now, timeOrigin: performance.timeOrigin },
@@ -1285,7 +1272,15 @@
 				sync.merge = undefined;
 				return;
 			}
-			const merge = sync.merge ?? /** @type {Map<number, Cell>} */ (sync.merge = new Map());
+			/** @type {Map<number, Cell>} */
+			let cells = new Map();
+			/** @type {Map<number, Cell>} */
+			let pellets = new Map();
+			if (sync.merge) {
+				({ cells, pellets } = sync.merge);
+			} else {
+				sync.merge = { cells, pellets };
+			}
 
 			// #1 : collect local changes
 			all.clear();
@@ -1331,7 +1326,7 @@
 			};
 
 			/**
-			 * @param {'important' | 'pellets'} key
+			 * @param {'cells' | 'pellets'} key
 			 * @returns {boolean}
 			 */
 			const iterate = key => {
@@ -1348,18 +1343,20 @@
 				return true;
 			};
 
-			if (!iterate('important'))
+			if (!iterate('cells'))
 				return;
 
-			// #3 : check if all the pellets are synced
+			// #3 : then, check if all the pellets are synced
+			for (const [id, cell] of world.pellets)
+				all.set(id, [0, cell]);
 			if (!iterate('pellets'))
 				return;
 
 			// #4 : all tabs are synced, we can update the cells
 			for (const [offset, cell] of all.values()) {
-				const old = merge.get(cell.id);
+				const old = pellets.get(cell.id) ?? cells.get(cell.id);
 				if (old) {
-					const { x, y, r } = world.xyr(old, merge, now);
+					const { x, y, r } = world.xyr(old, sync.merge, now);
 					old.ox = x; old.oy = y; old.or = r;
 					old.nx = cell.nx; old.ny = cell.ny; old.nr = cell.nr;
 					if (cell.deadAt !== undefined) {
@@ -1376,7 +1373,8 @@
 					}
 					old.updated = now;
 				} else {
-					merge.set(cell.id, {
+					/** @type {Cell} */
+					const ncell = {
 						id: cell.id,
 						ox: cell.ox, nx: cell.nx,
 						oy: cell.oy, ny: cell.ny,
@@ -1387,21 +1385,34 @@
 						born: offset + cell.born, updated: now,
 						deadTo: cell.deadTo,
 						deadAt: cell.deadAt !== undefined ? now : undefined,
-					});
+					};
+
+					if (cell.nr <= 20)
+						pellets.set(cell.id, ncell);
+					else
+						cells.set(cell.id, ncell);
 				}
 			}
 
-			// kill cells that aren't seen anymore
-			for (const [id, cell] of merge) {
-				if (all.has(id)) continue;
+			// #5 : kill cells that aren't seen anymore
+			/**
+			 * @param {Map<number, Cell>} map
+			 * @param {number} id
+			 * @param {Cell} cell
+			 */
+			const clean = (map, id, cell) => {
+				if (all.has(id)) return;
 				if (cell.deadAt !== undefined) {
-					if (now - cell.deadAt > 1000) merge.delete(id);
+					if (now - cell.deadAt > 1000) map.delete(id);
 				} else {
 					cell.deadAt = now;
 					cell.deadTo = -1;
 					cell.updated = now;
 				}
-			}
+			};
+
+			for (const [id, cell] of cells) clean(cells, id, cell);
+			for (const [id, cell] of pellets) clean(pellets, id, cell);
 		};
 
 		return sync;
@@ -1434,10 +1445,12 @@
 		world.mine = []; // order matters, as the oldest cells split first
 		/** @type {Set<number>} */
 		world.mineDead = new Set();
+		/** @type {Map<number, Cell>} */
+		world.pellets = new Map();
 
 		/**
 		 * @param {Cell} cell
-		 * @param {Map<number, Cell>} map
+		 * @param {{ cells: Map<number, Cell>, pellets: Map<number, Cell> }} map
 		 * @param {number} now
 		 * @returns {{ x: number, y: number, r: number }}
 		 */
@@ -1447,7 +1460,7 @@
 			let nx = cell.nx;
 			let ny = cell.ny;
 			if (cell.deadAt !== undefined && cell.deadTo !== -1) { // check deadTo to avoid unnecessary map lookup
-				const killer = map.get(cell.deadTo);
+				const killer = map.cells.get(cell.deadTo) ?? map.pellets.get(cell.deadTo);
 				if (killer && (killer.deadAt === undefined || cell.deadAt <= killer.deadAt)) {
 					// do not animate death towards a cell that died already (went offscreen)
 					nx = killer.nx;
@@ -1474,13 +1487,13 @@
 			let focused = false;
 			let zoomout = 1;
 
-			const map = (settings.mergeViewArea && sync.merge) ? sync.merge : world.cells;
+			const map = (settings.mergeViewArea && sync.merge) ? sync.merge : world;
 			if (settings.mergeCamera) {
 				let localTotalR = 0;
 				let weight = 0;
 
 				for (const id of world.mine) {
-					const cell = map.get(id);
+					const cell = map.cells.get(id);
 					if (!cell || cell.deadAt !== undefined) continue;
 
 					const { x, y, r } = world.xyr(cell, map, now);
@@ -1505,7 +1518,8 @@
 						let thisTotalR = 0;
 						let thisWeight = 0;
 						for (const [id, cell] of data.owned) {
-							const merged = (settings.mergeViewArea && sync.merge) ? sync.merge.get(id) : undefined;
+							const merged
+								= (settings.mergeViewArea && sync.merge) ? sync.merge.cells.get(id) : undefined;
 							if (merged && sync.merge) {
 								if (merged.deadAt !== undefined) continue;
 								const { x, y, r } = world.xyr(merged, sync.merge, now);
@@ -1549,7 +1563,7 @@
 				let totalCells = 0;
 				let totalR = 0;
 				for (const id of world.mine) {
-					const cell = map.get(id);
+					const cell = map.cells.get(id);
 					if (!cell || cell.deadAt !== undefined) continue;
 
 					const { x, y, r } = world.xyr(cell, map, now);
@@ -1591,6 +1605,12 @@
 					world.cells.delete(id);
 					world.mineDead.delete(id);
 				}
+			}
+
+			for (const [id, cell] of world.pellets) {
+				if (cell.deadAt === undefined) continue;
+				if (now - cell.deadAt >= settings.drawDelay)
+					world.pellets.delete(id);
 			}
 		};
 
@@ -1692,6 +1712,7 @@
 			// clear world
 			world.border = undefined;
 			world.cells.clear(); // make sure we won't see overlapping IDs from new cells from the new connection
+			world.pellets.clear();
 			world.clanmates.clear();
 			while (world.mine.length) world.mine.pop();
 			world.mineDead.clear();
@@ -1813,7 +1834,7 @@
 						const killedId = dat.getUint32(off + 4, true);
 						off += 8;
 
-						const killed = world.cells.get(killedId);
+						const killed = world.pellets.get(killedId) ?? world.cells.get(killedId);
 						if (killed) {
 							killed.deadTo = killerId;
 							killed.deadAt = killed.updated = now;
@@ -1873,9 +1894,9 @@
 
 						const jagged = !!(flags & 0x11);
 
-						const cell = world.cells.get(id);
-						if (cell && cell.deadAt !== undefined) {
-							const { x: ix, y: iy, r: ir } = world.xyr(cell, world.cells, now);
+						const cell = world.pellets.get(id) ?? world.cells.get(id);
+						if (cell && cell.deadAt === undefined) {
+							const { x: ix, y: iy, r: ir } = world.xyr(cell, world, now);
 							cell.ox = ix; cell.oy = iy; cell.or = ir;
 							cell.nx = x; cell.ny = y; cell.nr = r;
 							cell.jagged = jagged;
@@ -1916,7 +1937,10 @@
 								name, skin, sub, clan,
 							};
 
-							world.cells.set(id, ncell);
+							if (r <= 20)
+								world.pellets.set(id, ncell);
+							else
+								world.cells.set(id, ncell);
 
 							if (clan && clan === aux.userData?.clan)
 								world.clanmates.add(ncell);
@@ -1931,7 +1955,7 @@
 						const deletedId = dat.getUint32(off, true);
 						off += 4;
 
-						const deleted = world.cells.get(deletedId);
+						const deleted = world.pellets.get(deletedId) ?? world.cells.get(deletedId);
 						if (deleted) {
 							if (deleted.deadAt === undefined) {
 								deleted.deadAt = now;
@@ -1972,6 +1996,14 @@
 							cell.deadTo = -1;
 						}
 					}
+
+					for (const cell of world.pellets.values()) {
+						if (cell.deadAt === undefined) {
+							cell.deadAt = now;
+							cell.deadTo = -1;
+						}
+					}
+
 					world.clanmates.clear();
 					// passthrough
 				case 0x14: // delete my cells
@@ -3138,12 +3170,12 @@
 			})();
 
 			(function cells() {
-				const map = (settings.mergeViewArea && sync.merge) ? sync.merge : world.cells;
+				const map = (settings.mergeViewArea && sync.merge) ? sync.merge : world;
 
 				// for white cell outlines
 				let nextCellIdx = world.mine.length;
 				const canSplit = world.mine.map(id => {
-					const cell = world.cells.get(id);
+					const cell = map.cells.get(id);
 					if (!cell) {
 						--nextCellIdx;
 						return false;
@@ -3354,20 +3386,18 @@
 					}
 				}
 
+				if (!hidePellets)
+					for (const cell of map.pellets.values())
+						draw(cell);
+
 				/** @type {[Cell, number][]} */
 				const sorted = [];
-				for (const cell of map.values()) {
-					if (cell.nr > 20) {
-						// cell is probably important, order should be sorted
-						const computedR = cell.or + (cell.nr - cell.or) * (now - cell.updated) / settings.drawDelay;
-						sorted.push([cell, computedR]);
-					} else if (!hidePellets)
-						draw(cell);
+				for (const cell of map.cells.values()) {
+					const computedR = cell.or + (cell.nr - cell.or) * (now - cell.updated) / settings.drawDelay;
+					sorted.push([ cell, computedR ]);
 				}
-
 				// sort by smallest to biggest
 				sorted.sort(([_a, ar], [_b, br]) => ar - br);
-
 				for (const [cell] of sorted)
 					draw(cell);
 			})();
