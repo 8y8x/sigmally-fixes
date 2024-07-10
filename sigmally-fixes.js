@@ -2338,6 +2338,7 @@
 			// dispatch event to make sure sigmod gets it too
 			document.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW', key: 'w' }));
 			forceW = 0;
+			w = false;
 		});
 
 		addEventListener('beforeunload', e => {
