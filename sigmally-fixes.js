@@ -154,8 +154,6 @@
 			// @ts-expect-error
 			const sigmod = window.sigmod?.settings;
 			if (sigmod) {
-				// allow compatibility with both sigmod v9 and v10
-				// v10 still has all the old properties but they don't update anymore (scary..!)
 				let sigmodSettings = aux.sigmodSettings = {};
 				/** @param {'cellColor' | 'foodColor' | 'mapColor' | 'outlineColor' | 'nameColor1' | 'nameColor2'} prop */
 				const applyColor = (prop, lookups) => {
@@ -166,33 +164,27 @@
 						}
 					}
 				};
-				applyColor('cellColor', [sigmod.game?.cellColor, sigmod.cellColor]);
-				applyColor('foodColor', [sigmod.game?.foodColor, sigmod.foodColor]);
+				applyColor('cellColor', [sigmod.game?.cellColor]);
+				applyColor('foodColor', [sigmod.game?.foodColor]);
 				applyColor('mapColor', [sigmod.mapColor]);
 				// sigmod treats the map border as cell borders for some reason
 				if (!['#00f', '#00f0', '#0000ff', '#000000ffff'].includes(sigmod.game?.borderColor))
-					applyColor('outlineColor', [sigmod.game?.borderColor, sigmod.borderColor]);
+					applyColor('outlineColor', [sigmod.game?.borderColor]);
 				// note: singular nameColor takes priority
 				applyColor('nameColor1', [
-					sigmod.game?.name?.color, sigmod.nameColor,
+					sigmod.game?.name?.color,
 					sigmod.game?.name?.gradient?.enabled && sigmod.game.name.gradient.left,
-					sigmod.gradientName?.enabled && sigmod.gradientName?.color1,
 				]);
 				applyColor('nameColor2', [
-					sigmod.game?.name?.color, sigmod.nameColor,
+					sigmod.game?.name?.color,
 					sigmod.game?.name?.gradient?.enabled && sigmod.game.name.gradient.right,
-					sigmod.gradientName?.enabled && sigmod.gradientName?.color2,
 				]);
-				if (sigmod.game) {
-					// v10 does not have a 'hide food' setting; check food's transparency
-					aux.sigmodSettings.hidePellets = aux.sigmodSettings.foodColor?.[3] === 0;
-				} else {
-					// v9; just use the setting
-					aux.sigmodSettings.hidePellets = sigmod.fps?.hideFood;
-				}
+				// v10 does not have a 'hide food' setting which is crucial to solid one-tab multiboxing;
+				// check food's transparency
+				aux.sigmodSettings.hidePellets = aux.sigmodSettings.foodColor?.[3] === 0;
 				aux.sigmodSettings.removeOutlines = sigmod.game?.removeOutlines;
-				aux.sigmodSettings.skinReplacement = sigmod.game?.skins ?? sigmod.skinImage;
-				aux.sigmodSettings.virusImage = sigmod.game?.virusImage ?? sigmod.virusImage;
+				aux.sigmodSettings.skinReplacement = sigmod.game?.skins;
+				aux.sigmodSettings.virusImage = sigmod.game?.virusImage;
 			}
 		}, 50);
 
