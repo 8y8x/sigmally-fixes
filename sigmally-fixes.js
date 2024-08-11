@@ -81,28 +81,33 @@
 		 * @param {number} dt in seconds
 		 */
 		aux.exponentialEase = (o, n, factor, dt) => {
-			return o + (n - o) * (1 - (1 - 1 / factor)**(60 * dt));
+			return o + (n - o) * (1 - (1 - 1 / factor) ** (60 * dt));
 		};
 
 		/**
 		 * @param {string} hex
-		 * @returns {[number, number, number]}
+		 * @returns {[number, number, number, number]}
 		 */
-		aux.hex2rgb = hex => {
-			if (hex.length === 4) {
-				return [
-					(parseInt(hex[1], 16) || 0) / 15,
-					(parseInt(hex[2], 16) || 0) / 15,
-					(parseInt(hex[3], 16) || 0) / 15,
-				];
-			} else if (hex.length === 7) {
-				return [
-					(parseInt(hex.slice(1, 3), 16) || 0) / 255,
-					(parseInt(hex.slice(3, 5), 16) || 0) / 255,
-					(parseInt(hex.slice(5, 7), 16) || 0) / 255,
-				];
-			} else {
-				return [0, 0, 0];
+		aux.hex2rgba = hex => {
+			switch (hex.length) {
+				case 4: // #rgb
+				case 5: // #rgba
+					return [
+						(parseInt(hex[1], 16) || 0) / 15,
+						(parseInt(hex[2], 16) || 0) / 15,
+						(parseInt(hex[3], 16) || 0) / 15,
+						hex.length === 5 ? (parseInt(hex[4], 16) || 0) / 15 : 1,
+					];
+				case 7: // #rrggbb
+				case 9: // #rrggbbaa
+					return [
+						(parseInt(hex.slice(1, 3), 16) || 0) / 255,
+						(parseInt(hex.slice(3, 5), 16) || 0) / 255,
+						(parseInt(hex.slice(5, 7), 16) || 0) / 255,
+						hex.length === 9 ? (parseInt(hex.slice(7, 9), 16) || 0) / 255 : 1,
+					];
+				default:
+					return [1, 1, 1, 1];
 			}
 		};
 
@@ -110,13 +115,15 @@
 		 * @param {number} r
 		 * @param {number} g
 		 * @param {number} b
+		 * @param {number} a
 		 */
-		aux.rgb2hex = (r, g, b) => {
+		aux.rgba2hex = (r, g, b, a) => {
 			return [
 				'#',
 				Math.floor(r * 255).toString(16).padStart(2, '0'),
 				Math.floor(g * 255).toString(16).padStart(2, '0'),
 				Math.floor(b * 255).toString(16).padStart(2, '0'),
+				Math.floor(a * 255).toString(16).padStart(2, '0'),
 			].join('');
 		};
 
@@ -130,11 +137,63 @@
 			return '/static/skins/' + skin + '.png';
 		};
 
-		/** @type {object | undefined} */
-		aux.sigmod = undefined;
+		/** @type {{
+		 * 	cellColor?: [number, number, number, number],
+		 * 	foodColor?: [number, number, number, number],
+		 * 	mapColor?: [number, number, number, number],
+		 * 	outlineColor?: [number, number, number, number],
+		 * 	nameColor1?: [number, number, number, number],
+		 * 	nameColor2?: [number, number, number, number],
+		 * 	hidePellets?: boolean,
+		 * 	removeOutlines?: boolean,
+		 * 	skinReplacement?: { original: string | null, replacement?: string | null, replaceImg?: string | null },
+		 * 	virusImage?: string,
+		 * } | undefined} */
+		aux.sigmodSettings = undefined;
 		setInterval(() => {
 			// @ts-expect-error
-			aux.sigmod = window.sigmod?.settings;
+			const sigmod = window.sigmod?.settings;
+			if (sigmod) {
+				// allow compatibility with both sigmod v9 and v10
+				// v10 still has all the old properties but they don't update anymore (scary..!)
+				let sigmodSettings = aux.sigmodSettings = {};
+				/** @param {'cellColor' | 'foodColor' | 'mapColor' | 'outlineColor' | 'nameColor1' | 'nameColor2'} prop */
+				const applyColor = (prop, lookups) => {
+					for (const lookup of lookups) {
+						if (lookup) {
+							sigmodSettings[prop] = aux.hex2rgba(lookup);
+							return;
+						}
+					}
+				};
+				applyColor('cellColor', [sigmod.game?.cellColor, sigmod.cellColor]);
+				applyColor('foodColor', [sigmod.game?.foodColor, sigmod.foodColor]);
+				applyColor('mapColor', [sigmod.mapColor]);
+				// sigmod treats the map border as cell borders for some reason
+				if (!['#00f', '#00f0', '#0000ff', '#000000ffff'].includes(sigmod.game?.borderColor))
+					applyColor('outlineColor', [sigmod.game?.borderColor, sigmod.borderColor]);
+				// note: singular nameColor takes priority
+				applyColor('nameColor1', [
+					sigmod.game?.name?.color, sigmod.nameColor,
+					sigmod.game?.name?.gradient?.enabled && sigmod.game.name.gradient.left,
+					sigmod.gradientName?.enabled && sigmod.gradientName?.color1,
+				]);
+				applyColor('nameColor2', [
+					sigmod.game?.name?.color, sigmod.nameColor,
+					sigmod.game?.name?.gradient?.enabled && sigmod.game.name.gradient.right,
+					sigmod.gradientName?.enabled && sigmod.gradientName?.color2,
+				]);
+				if (sigmod.game) {
+					// v10 does not have a 'hide food' setting; check food's transparency
+					aux.sigmodSettings.hidePellets = aux.sigmodSettings.foodColor?.[3] === 0;
+				} else {
+					// v9; just use the setting
+					aux.sigmodSettings.hidePellets = sigmod.fps?.hideFood;
+				}
+				aux.sigmodSettings.removeOutlines = sigmod.game?.removeOutlines;
+				aux.sigmodSettings.skinReplacement = sigmod.game?.skins ?? sigmod.skinImage;
+				aux.sigmodSettings.virusImage = sigmod.game?.virusImage ?? sigmod.virusImage;
+			}
 		}, 50);
 
 		/**
@@ -155,7 +214,7 @@
 		function settings() {
 			try {
 				aux.settings = JSON.parse(localStorage.getItem('settings') ?? '');
-			} catch (_) {}
+			} catch (_) { }
 		}
 
 		settings();
@@ -216,7 +275,7 @@
 					const data = args[1];
 					if (typeof url === 'string') {
 						if (url.includes('/server/recaptcha/v3'))
-							return new Promise(() => {}); // block game.js from attempting to go through captcha flow
+							return new Promise(() => { }); // block game.js from attempting to go through captcha flow
 
 						// game.js doesn't think we're connected to a server, we default to eu0 because that's the
 						// default everywhere else
@@ -281,7 +340,7 @@
 	const destructor = await (async () => {
 		// #1 : kill the rendering process
 		const oldRQA = requestAnimationFrame;
-		window.requestAnimationFrame = function(fn) {
+		window.requestAnimationFrame = function (fn) {
 			try {
 				throw new Error();
 			} catch (err) {
@@ -310,7 +369,7 @@
 		/** @type {WeakSet<WebSocket>} */
 		const safeWebSockets = new WeakSet();
 		let realWsSend = WebSocket.prototype.send;
-		WebSocket.prototype.send = function(x) {
+		WebSocket.prototype.send = function (x) {
 			if (!safeWebSockets.has(this) && this.url.includes('sigmally.com')) {
 				this.onclose = null;
 				this.close();
@@ -373,6 +432,7 @@
 			const game = {};
 
 			const newCanvas = document.createElement('canvas');
+			newCanvas.id = 'sf-canvas';
 			newCanvas.style.cssText = `background: #003; width: 100vw; height: 100vh; position: fixed; top: 0; left: 0;
 				z-index: 1;`;
 			game.canvas = newCanvas;
@@ -612,7 +672,7 @@
 					const mins = Math.floor(time / 60 % 60);
 					const seconds = Math.floor(time % 60);
 
-					timeAliveElement.textContent =  `${hours ? hours + ' h' : ''} ${mins ? mins + ' m' : ''} `
+					timeAliveElement.textContent = `${hours ? hours + ' h' : ''} ${mins ? mins + ' m' : ''} `
 						+ `${seconds ? seconds + ' s' : ''}`;
 				}
 
@@ -766,7 +826,7 @@
 			let lastWasBarrier = true; // init to true, so we don't print a barrier as the first ever message (ugly)
 			/**
 			 * @param {string} authorName
-			 * @param {[number, number, number]} rgb
+			 * @param {[number, number, number, number]} rgb
 			 * @param {string} text
 			 */
 			chat.add = (authorName, rgb, text) => {
@@ -774,7 +834,7 @@
 
 				const container = document.createElement('div');
 				const author = document.createElement('span');
-				author.style.cssText = `color: ${aux.rgb2hex(...rgb)}; padding-right: 0.75em;`;
+				author.style.cssText = `color: ${aux.rgba2hex(...rgb)}; padding-right: 0.75em;`;
 				author.textContent = aux.trim(authorName);
 				container.appendChild(author);
 
@@ -862,7 +922,7 @@
 
 		try {
 			Object.assign(settings, JSON.parse(localStorage.getItem('sigfix') ?? ''));
-		} catch (_) {}
+		} catch (_) { }
 
 		/** @type {Set<() => void>} */
 		const onSaves = new Set();
@@ -955,8 +1015,8 @@
 				</div>
 			`);
 			listen(
-				/** @type {HTMLInputElement} */ (vanilla.querySelector(`input#sf-${property}`)),
-				/** @type {HTMLElement} */ (vanilla.querySelector(`#sf-${property}-display`)));
+				/** @type {HTMLInputElement} */(vanilla.querySelector(`input#sf-${property}`)),
+				/** @type {HTMLElement} */(vanilla.querySelector(`#sf-${property}-display`)));
 			vanillaContainer.appendChild(vanilla);
 
 			const sigmod = fromHTML(`
@@ -971,8 +1031,8 @@
 				</div>
 			`);
 			listen(
-				/** @type {HTMLInputElement} */ (sigmod.querySelector(`input#sfsm-${property}`)),
-				/** @type {HTMLElement} */ (sigmod.querySelector(`#sfsm-${property}-display`)));
+				/** @type {HTMLInputElement} */(sigmod.querySelector(`input#sfsm-${property}`)),
+				/** @type {HTMLElement} */(sigmod.querySelector(`#sfsm-${property}-display`)));
 			sigmodContainer.appendChild(sigmod);
 		}
 
@@ -1009,7 +1069,7 @@
 					</div>
 				</div>
 			`);
-			listen(/** @type {HTMLInputElement} */ (vanilla.querySelector(`input#sf-${property}`)));
+			listen(/** @type {HTMLInputElement} */(vanilla.querySelector(`input#sf-${property}`)));
 			vanillaContainer.appendChild(vanilla);
 
 			const sigmod = fromHTML(`
@@ -1018,7 +1078,7 @@
 					<input class="modInput" id="sfsm-${property}" placeholder="${placeholder}" type="text" />
 				</div>
 			`);
-			listen(/** @type {HTMLInputElement} */ (sigmod.querySelector(`input#sfsm-${property}`)));
+			listen(/** @type {HTMLInputElement} */(sigmod.querySelector(`input#sfsm-${property}`)));
 			sigmodContainer.appendChild(sigmod);
 		}
 
@@ -1050,7 +1110,7 @@
 					</div>
 				</div>
 			`);
-			listen(/** @type {HTMLInputElement} */ (vanilla.querySelector(`input#sf-${property}`)));
+			listen(/** @type {HTMLInputElement} */(vanilla.querySelector(`input#sf-${property}`)));
 			vanillaContainer.appendChild(vanilla);
 
 			const sigmod = fromHTML(`
@@ -1064,7 +1124,7 @@
 					</div>
 				</div>
 			`);
-			listen(/** @type {HTMLInputElement} */ (sigmod.querySelector(`input#sfsm-${property}`)));
+			listen(/** @type {HTMLInputElement} */(sigmod.querySelector(`input#sfsm-${property}`)));
 			sigmodContainer.appendChild(sigmod);
 		}
 
@@ -1156,7 +1216,7 @@
 				navButton.classList.add('mod_selected');
 				setTimeout(() => {
 					sigmodContainer.style.display = 'flex';
-					setTimeout(() => sigmodContainer.style.opacity = '1',10);
+					setTimeout(() => sigmodContainer.style.opacity = '1', 10);
 				}, 200);
 			});
 		}, 100);
@@ -1240,8 +1300,8 @@
 		worldsync.addEventListener('message', e => {
 			/** @type {SyncData} */
 			const data = e.data;
-			sync.others.set(data.self, /** @type {any} */ (data));
-			sync.buildMerge(localized(/** @type {any} */ (data), data.updated.now));
+			sync.others.set(data.self, /** @type {any} */(data));
+			sync.buildMerge(localized(/** @type {any} */(data), data.updated.now));
 		});
 
 		zoom.addEventListener('message', e => void (input.zoom = e.data));
@@ -1480,7 +1540,7 @@
 		};
 
 		let last = performance.now();
-		world.update = function() {
+		world.update = function () {
 			const now = performance.now();
 			const dt = (now - last) / 1000;
 			last = now;
@@ -1792,7 +1852,7 @@
 					net.latency = -1;
 				}
 
-				ws.send(new Uint8Array([ Number(handshake.shuffle.get(0xfe)) ]));
+				ws.send(new Uint8Array([Number(handshake.shuffle.get(0xfe))]));
 				pendingPingFrom = performance.now();
 			}
 
@@ -1870,7 +1930,7 @@
 						const sub = !!dat.getUint8(off + 9);
 						off += 10;
 
-						let clan; [clan, off] = readZTString(dat, off);
+						let clan;[clan, off] = readZTString(dat, off);
 
 						/** @type {number | undefined} */
 						let Rgb, rGb, rgB;
@@ -2009,7 +2069,7 @@
 					}
 
 					world.clanmates.clear();
-					// passthrough
+				// passthrough
 				case 0x14: // delete my cells
 					while (world.mine.length) world.mine.pop();
 					break;
@@ -2077,8 +2137,8 @@
 
 				case 0x63: { // chat message
 					const flags = dat.getUint8(off);
-					const rgb = /** @type {[number, number, number]} */
-						([dat.getUint8(off + 1) / 255, dat.getUint8(off + 2) / 255, dat.getUint8(off + 3) / 255]);
+					const rgb = /** @type {[number, number, number, number]} */
+						([dat.getUint8(off + 1) / 255, dat.getUint8(off + 2) / 255, dat.getUint8(off + 3) / 255, 1]);
 					off += 4;
 
 					let name;
@@ -2124,7 +2184,7 @@
 		 * @param {number} x
 		 * @param {number} y
 		 */
-		net.move = function(x, y) {
+		net.move = function (x, y) {
 			if (!handshake) return;
 			const buf = new ArrayBuffer(13);
 			const dat = new DataView(buf);
@@ -2136,30 +2196,30 @@
 			ws.send(buf);
 		};
 
-		net.w = function() {
+		net.w = function () {
 			if (!handshake) return;
-			ws.send(new Uint8Array([ Number(handshake.shuffle.get(21)) ]));
+			ws.send(new Uint8Array([Number(handshake.shuffle.get(21))]));
 		};
 
-		net.qdown = function() {
+		net.qdown = function () {
 			if (!handshake) return;
-			ws.send(new Uint8Array([ Number(handshake.shuffle.get(18)) ]));
+			ws.send(new Uint8Array([Number(handshake.shuffle.get(18))]));
 		};
 
-		net.qup = function() {
+		net.qup = function () {
 			if (!handshake) return;
-			ws.send(new Uint8Array([ Number(handshake.shuffle.get(19)) ]));
+			ws.send(new Uint8Array([Number(handshake.shuffle.get(19))]));
 		};
 
-		net.split = function() {
+		net.split = function () {
 			if (!handshake) return;
-			ws.send(new Uint8Array([ Number(handshake.shuffle.get(17)) ]));
+			ws.send(new Uint8Array([Number(handshake.shuffle.get(17))]));
 		};
 
 		/**
 		 * @param {string} msg
 		 */
-		net.chat = function(msg) {
+		net.chat = function (msg) {
 			if (!handshake) return;
 			const msgBuf = aux.textEncoder.encode(msg);
 
@@ -2177,18 +2237,18 @@
 		/**
 		 * @param {string} token
 		 */
-		net.captcha = function(token) {
+		net.captcha = function (token) {
 			sendJson(0xdc, { token });
 		};
 
 		/**
 		 * @param {{ name: string, skin: string, [x: string]: any }} data
 		 */
-		net.play = function(data) {
+		net.play = function (data) {
 			sendJson(0x00, data);
 		};
 
-		net.howarewelosingmoney = function() {
+		net.howarewelosingmoney = function () {
 			if (!handshake) return;
 			// this is a new thing added with the rest of the recent source code obfuscation (2024/02/18)
 			// which collects and links to your sigmally account, seemingly just for light data analysis but probably
@@ -2202,7 +2262,7 @@
 			sendJson(0xd0, { ip: '', country: '', proxy: false, user: null, blocker: 'sigmally fixes @8y8x' });
 		};
 
-		net.connection = function() {
+		net.connection = function () {
 			if (!ws) return undefined;
 			if (ws.readyState !== WebSocket.OPEN) return undefined;
 			if (!handshake) return undefined;
@@ -2415,10 +2475,10 @@
 
 						// prevent game.js from using grecaptcha and messing things up
 						/** @type {any} */ (window).grecaptcha = {
-							execute: () => {},
-							ready: () => {},
-							render: () => {},
-							reset: () => {},
+							execute: () => { },
+							ready: () => { },
+							render: () => { },
+							reset: () => { },
 						};
 					}
 				}
@@ -2432,10 +2492,10 @@
 
 						// prevent game.js from using turnstile and messing things up
 						/** @type {any} */ (window).turnstile = {
-							execute: () => {},
-							ready: () => {},
-							render: () => {},
-							reset: () => {},
+							execute: () => { },
+							ready: () => { },
+							render: () => { },
+							reset: () => { },
 						};
 					}
 				}
@@ -2855,8 +2915,8 @@
 				in vec2 v_pos;
 
 				uniform float u_alpha;
-				uniform vec3 u_color1;
-				uniform vec3 u_color2;
+				uniform vec4 u_color1;
+				uniform vec4 u_color2;
 				uniform bool u_silhouette_enabled;
 
 				uniform sampler2D u_texture;
@@ -2868,7 +2928,7 @@
 					vec2 t_coord = v_pos * 0.5 + 0.5;
 
 					float c2_alpha = (t_coord.x + t_coord.y) / 2.0;
-					vec4 color = vec4(u_color1 * (1.0 - c2_alpha) + u_color2 * c2_alpha, 1);
+					vec4 color = u_color1 * (1.0 - c2_alpha) + u_color2 * c2_alpha;
 					vec4 normal = texture(u_texture, t_coord);
 
 					if (u_silhouette_enabled) {
@@ -3154,30 +3214,8 @@
 			const fastDraw = dt >= 0.05;
 
 			// get settings
-			const cellColor = aux.sigmod?.cellColor ? aux.hex2rgb(aux.sigmod.cellColor) : undefined;
-			const hidePellets = aux.sigmod?.fps?.hideFood;
-			const mapColor = aux.sigmod?.mapColor ? aux.hex2rgb(aux.sigmod.mapColor) : undefined;
-			const outlineColor = aux.sigmod?.borderColor ? aux.hex2rgb(aux.sigmod.borderColor) : undefined;
-			const pelletColor = aux.sigmod?.foodColor ? aux.hex2rgb(aux.sigmod.foodColor) : undefined;
-			/** @type {object | undefined} */
-			const skinReplacement = aux.sigmod?.skinImage;
 			/** @type {string} */
-			const virusSrc = aux.sigmod?.virusImage ?? '/assets/images/viruses/2.png';
-
-			/** @type {[number, number, number] | undefined} */
-			let nameColor1;
-			/** @type {[number, number, number] | undefined} */
-			let nameColor2;
-			if (aux.sigmod?.nameColor) {
-				nameColor1 = nameColor2 = aux.hex2rgb(aux.sigmod.nameColor);
-			} else if (aux.sigmod?.gradientName?.enabled) {
-				// color1 and color2 are optional to set
-				if (aux.sigmod.gradientName.color1)
-					nameColor1 = aux.hex2rgb(aux.sigmod.gradientName.color1);
-
-				if (aux.sigmod.gradientName.color2)
-					nameColor2 = aux.hex2rgb(aux.sigmod.gradientName.color2);
-			}
+			const virusSrc = aux.sigmodSettings?.virusImage ?? '/assets/images/viruses/2.png';
 
 			const darkTheme = aux.setting('input#darkTheme', true);
 			const showBorder = aux.setting('input#showBorder', true);
@@ -3222,8 +3260,8 @@
 			})();
 
 			(function background() {
-				if (mapColor) {
-					gl.clearColor(...mapColor, 1);
+				if (aux.sigmodSettings?.mapColor) {
+					gl.clearColor(...aux.sigmodSettings.mapColor);
 				} else if (darkTheme) {
 					gl.clearColor(0x11 / 255, 0x11 / 255, 0x11 / 255, 1); // #111
 				} else {
@@ -3240,10 +3278,10 @@
 				if (showBorder && world.border) {
 					gl.uniform4f(uniforms.bg.u_border_color, 0, 0, 1, 1); // #00f
 					gl.uniform1fv(uniforms.bg.u_border_lrtb,
-						new Float32Array([ world.border.l, world.border.r, world.border.t, world.border.b ]));
+						new Float32Array([world.border.l, world.border.r, world.border.t, world.border.b]));
 				} else {
 					gl.uniform4f(uniforms.bg.u_border_color, 0, 0, 0, 0); // transparent
-					gl.uniform1fv(uniforms.bg.u_border_lrtb, new Float32Array([ 0, 0, 0, 0 ]));
+					gl.uniform1fv(uniforms.bg.u_border_lrtb, new Float32Array([0, 0, 0, 0]));
 				}
 
 				gl.uniform1i(uniforms.bg.u_dark_theme_enabled, Number(darkTheme));
@@ -3269,6 +3307,8 @@
 
 					return nextCellIdx++ < 16;
 				});
+
+				const { cellColor, foodColor, outlineColor, skinReplacement } = aux.sigmodSettings ?? {};
 
 				/**
 				 * @param {Cell} cell
@@ -3308,15 +3348,15 @@
 
 					if (cell.nr <= 20) {
 						gl.uniform1i(uniforms.cell.u_subtle_outline, 0);
-						if (pelletColor) {
-							gl.uniform4f(uniforms.cell.u_color, ...pelletColor, 1);
+						if (foodColor) {
+							gl.uniform4f(uniforms.cell.u_color, ...foodColor);
 						} else {
 							gl.uniform4f(uniforms.cell.u_color, cell.Rgb, cell.rGb, cell.rgB, 1);
 						}
 					} else {
 						gl.uniform1i(uniforms.cell.u_subtle_outline, settings.cellOutlines ? 1 : 0);
 						if (cellColor)
-							gl.uniform4f(uniforms.cell.u_color, ...cellColor, 1);
+							gl.uniform4f(uniforms.cell.u_color, ...cellColor);
 						else
 							gl.uniform4f(uniforms.cell.u_color, cell.Rgb, cell.rGb, cell.rgB, 1);
 					}
@@ -3324,7 +3364,7 @@
 					gl.uniform1i(uniforms.cell.u_texture_enabled, 0);
 					if (cell.nr > 20) {
 						if (outlineColor)
-							gl.uniform4f(uniforms.cell.u_outline_color, ...outlineColor, 1);
+							gl.uniform4f(uniforms.cell.u_outline_color, ...outlineColor);
 
 						const myIndex = world.mine.indexOf(cell.id);
 						if (myIndex !== -1) {
@@ -3354,7 +3394,7 @@
 
 							if (!skin && showSkins && cell.skin) {
 								if (skinReplacement && cell.skin.includes(skinReplacement.original + '.png'))
-									skin = skinReplacement.replaceImg;
+									skin = skinReplacement.replacement ?? skinReplacement.replaceImg ?? '';
 								else
 									skin = cell.skin;
 							}
@@ -3387,22 +3427,22 @@
 
 					let useSilhouette = false;
 					if (cell.sub) {
-						gl.uniform3f(uniforms.text.u_color1, 0xeb / 255, 0x95 / 255, 0x00 / 255); // #eb9500
-						gl.uniform3f(uniforms.text.u_color2, 0xe4 / 255, 0xb1 / 255, 0x10 / 255); // #e4b110
+						gl.uniform4f(uniforms.text.u_color1, 0xeb / 255, 0x95 / 255, 0x00 / 255, 1); // #eb9500
+						gl.uniform4f(uniforms.text.u_color2, 0xe4 / 255, 0xb1 / 255, 0x10 / 255, 1); // #e4b110
 						useSilhouette = true;
 					} else {
-						gl.uniform3f(uniforms.text.u_color1, 1, 1, 1);
-						gl.uniform3f(uniforms.text.u_color2, 1, 1, 1);
+						gl.uniform4f(uniforms.text.u_color1, 1, 1, 1, 1);
+						gl.uniform4f(uniforms.text.u_color2, 1, 1, 1, 1);
 					}
 
 					if (name === nick) {
-						if (nameColor1) {
-							gl.uniform3f(uniforms.text.u_color1, ...nameColor1);
+						if (aux.sigmodSettings?.nameColor1) {
+							gl.uniform4f(uniforms.text.u_color1, ...aux.sigmodSettings?.nameColor1);
 							useSilhouette = true;
 						}
 
-						if (nameColor2) {
-							gl.uniform3f(uniforms.text.u_color2, ...nameColor2);
+						if (aux.sigmodSettings?.nameColor2) {
+							gl.uniform4f(uniforms.text.u_color2, ...aux.sigmodSettings?.nameColor2);
 							useSilhouette = true;
 						}
 					}
@@ -3473,7 +3513,7 @@
 					}
 				}
 
-				if (!hidePellets)
+				if (!aux.sigmodSettings?.hidePellets)
 					for (const cell of map.pellets.values())
 						draw(cell);
 
@@ -3481,7 +3521,7 @@
 				const sorted = [];
 				for (const cell of map.cells.values()) {
 					const computedR = cell.or + (cell.nr - cell.or) * (now - cell.updated) / settings.drawDelay;
-					sorted.push([ cell, computedR ]);
+					sorted.push([cell, computedR]);
 				}
 				// sort by smallest to biggest
 				sorted.sort(([_a, ar], [_b, br]) => ar - br);
@@ -3596,7 +3636,7 @@
 					const y = (cell.ny - border.t) / gameHeight * canvas.height;
 					const r = Math.max(cell.nr / gameWidth * canvas.width, 2);
 
-					ctx.fillStyle = aux.rgb2hex(cell.Rgb, cell.rGb, cell.rgB);
+					ctx.fillStyle = aux.rgba2hex(cell.Rgb, cell.rGb, cell.rgB, 1);
 					ctx.beginPath();
 					ctx.moveTo(x + r, y);
 					ctx.arc(x, y, r, 0, 2 * Math.PI);
