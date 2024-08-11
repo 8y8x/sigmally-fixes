@@ -938,7 +938,10 @@
 
 		function save() {
 			localStorage.setItem('sigfix', JSON.stringify(settings));
-			channel.postMessage(settings);
+			/** @type {any} */
+			const replicated = { ...settings };
+			delete replicated.selfSkin;
+			channel.postMessage(replicated);
 		}
 
 		/**
