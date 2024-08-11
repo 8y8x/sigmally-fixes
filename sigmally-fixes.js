@@ -207,6 +207,7 @@
 
 		/** @type {object | undefined} */
 		aux.userData = undefined;
+		aux.oldFetch = fetch.bind(window);
 		// this is the best method i've found to get the userData object, since game.js uses strict mode
 		Object.defineProperty(window, 'fetch', {
 			value: new Proxy(fetch, {
@@ -214,6 +215,9 @@
 					let url = args[0];
 					const data = args[1];
 					if (typeof url === 'string') {
+						if (url.includes('/server/recaptcha/v3'))
+							return new Promise(() => {}); // block game.js from attempting to go through captcha flow
+
 						// game.js doesn't think we're connected to a server, we default to eu0 because that's the
 						// default everywhere else
 						if (url.includes('/userdata/')) url = url.replace('///', '//eu0.sigmally.com/server/');
@@ -2171,11 +2175,10 @@
 		};
 
 		/**
-		 * @param {string | undefined} v2
-		 * @param {string | undefined} v3
+		 * @param {string} token
 		 */
-		net.captcha = function(v2, v3) {
-			sendJson(0xdc, { recaptchaV2Token: v2, recaptchaV3Token: v3 });
+		net.captcha = function(token) {
+			sendJson(0xdc, { token });
 		};
 
 		/**
@@ -2388,130 +2391,197 @@
 		play.disabled = spectate.disabled = true;
 
 		(async () => {
-			let grecaptcha, CAPTCHA2, CAPTCHA3;
-			do {
-				grecaptcha = /** @type {any} */ (window).grecaptcha;
-				CAPTCHA2 = /** @type {any} */ (window).CAPTCHA2;
-				CAPTCHA3 = /** @type {any} */ (window).CAPTCHA3;
+			const mount = document.createElement('div');
+			mount.id = 'sf-captcha-mount';
+			mount.style.display = 'none';
+			play.parentNode?.insertBefore(mount, play);
 
-				await aux.wait(50);
-			} while (!(CAPTCHA2 && CAPTCHA3 && grecaptcha && 'execute' in grecaptcha
-				&& 'ready' in grecaptcha && 'render' in grecaptcha && 'reset' in grecaptcha));
+			/** @type {Set<() => void> | undefined} */
+			let onGrecaptchaReady = new Set();
+			/** @type {Set<() => void> | undefined} */
+			let onTurnstileReady = new Set();
+			let grecaptcha, turnstile, CAPTCHA2, CAPTCHA3, TURNSTILE;
 
-			// prevent game.js from invoking recaptcha, as this can cause a lot of lag whenever sigmod spams the play
-			// button (e.g. when using the respawn keybind)
-			// @ts-expect-error
-			window.grecaptcha = {
-				execute: () => new Promise(() => {}),
-				ready: () => {},
-				render: () => {},
-				reset: () => {},
-			};
+			let readyCheck;
+			readyCheck = setInterval(() => {
+				// it's possible that recaptcha or turnstile may be removed in the future, so we be redundant to stay
+				// safe
+				if (onGrecaptchaReady) {
+					({ grecaptcha, CAPTCHA2, CAPTCHA3 } = /** @type {any} */ (window));
+					if (grecaptcha?.ready && CAPTCHA2 && CAPTCHA3) {
+						const handlers = onGrecaptchaReady;
+						onGrecaptchaReady = undefined;
+						grecaptcha.ready(() => handlers.forEach(cb => cb()));
 
-			const container = document.createElement('div');
-			container.id = 'g-recaptcha2';
-			container.style.display = 'none';
-			play.parentNode?.insertBefore(container, play);
+						// prevent game.js from using grecaptcha and messing things up
+						/** @type {any} */ (window).grecaptcha = {
+							execute: () => {},
+							ready: () => {},
+							render: () => {},
+							reset: () => {},
+						};
+					}
+				}
 
-			/** @type {WebSocket | undefined} */
-			let acceptedConnection = undefined;
-			let processing = false;
-			let v2Handle;
-			/** @type {string | undefined} */
-			let v2Token = undefined;
-			/** @type {string | undefined} */
-			let v3Token = undefined;
+				if (onTurnstileReady) {
+					({ turnstile, TURNSTILE } = /** @type {any} */ (window));
+					if (turnstile?.ready && TURNSTILE) {
+						const handlers = onTurnstileReady;
+						onTurnstileReady = undefined;
+						handlers.forEach(cb => cb());
+
+						// prevent game.js from using turnstile and messing things up
+						/** @type {any} */ (window).turnstile = {
+							execute: () => {},
+							ready: () => {},
+							render: () => {},
+							reset: () => {},
+						};
+					}
+				}
+
+				if (!onGrecaptchaReady && !onTurnstileReady)
+					clearInterval(readyCheck);
+			}, 50);
 
 			// we need to give recaptcha enough time to analyze us, otherwise v3 will fail
-			grecaptcha.ready(() => setInterval(async function captchaFlow() {
-				let connection = net.connection();
-				if (!connection) {
-					play.disabled = spectate.disabled = true;
-					return;
-				}
+			// on new token needed:
+			// #1 : update `token` to a temporary 'getting' value
+			// #2 : get the token type used by this server (v2, v3, turnstile)
+			// #3 : go through the captcha flow, waiting for user input if needed
+			// #4 : if connected, call net.captcha and set `token` to 'used', else set `token` to that token with the type as a pair (in case other servers use different types)
+			// edge cases: only allow 1 type of captcha flow at once (if doing turnstile but v3 is now needed, just finish turnstile first)
+			/**
+			 * @param {WebSocket} con
+			 * @returns {Promise<string | undefined>}
+			 */
+			const tokenVariant = async con => {
+				const url = new URL(con.url);
+				if (url.host.includes('sigmally.com'))
+					return aux.oldFetch(`https://${url.host}/server/recaptcha/v3`)
+						.then(res => res.json())
+						.then(res => res.version);
+				else
+					return Promise.resolve(undefined);
+			};
 
-				if (v2Token || v3Token) {
-					net.captcha(v2Token, v3Token);
-					v2Token = v3Token = undefined;
-					processing = false;
-					acceptedConnection = connection;
+			/** @type {unique symbol} */
+			const waiting = Symbol();
+			/** @type {undefined | typeof waiting | { usedBy: WebSocket } | { variant: string, token: string }} */
+			let token = undefined;
+			/** @type {string | undefined} */
+			let turnstileHandle;
+			/** @type {number | undefined} */
+			let v2Handle;
+
+			/**
+			 * @param {WebSocket} con
+			 * @param {string} variant
+			 * @param {string} captchaToken
+			 */
+			const publishToken = (con, variant, captchaToken) => {
+				const con2 = net.connection();
+				if (con === con2) {
+					net.captcha(captchaToken);
+					token = { usedBy: con };
 					play.disabled = spectate.disabled = false;
-					return;
-				}
-
-				if (processing || connection === acceptedConnection)
-					return;
-
-				// start the process of getting a new captcha token
-				acceptedConnection = undefined;
-				processing = true;
-				play.disabled = spectate.disabled = true;
-
-				// (a) : get a v3 token
-				/** @type {string | undefined} */
-				const v3 = await grecaptcha.execute(CAPTCHA3);
-
-				// (b) : send the v3 token to sigmally for validation (sometimes sigmally doesn't accept v3 tokens)
-				const v3Accepted = await fetch('https://' + new URL(connection.url).hostname + '/server/recaptcha/v3', {
-					method: 'POST',
-					body: JSON.stringify({ recaptchaV3Token: v3 }),
-					headers: { 'Content-Type': 'application/json' },
-				})
-					.then(res => res.json()).then(res => !!res?.body?.success)
-					.catch(err => {
-						console.error('Failed to validate v3 token:', err);
-						return false;
-					});
-
-				// (c) : if accepted by this server, send the v3 token to this game
-				if (v3Accepted) {
-					container.style.display = 'none';
-					connection = net.connection();
-					if (connection) {
-						net.captcha(undefined, v3);
-						processing = false;
-						acceptedConnection = connection;
-						play.disabled = spectate.disabled = false;
-					} else {
-						v3Token = v3;
-					}
-
-					return;
-				}
-
-				// (d) : otherwise, render a v2 captcha
-				container.style.display = 'block';
-				play.style.display = spectate.style.display = 'none';
-				if (v2Handle !== undefined) {
-					grecaptcha.reset(v2Handle);
 				} else {
-					v2Handle = grecaptcha.render('g-recaptcha2', {
-						sitekey: CAPTCHA2,
-						callback: v2 => {
-							container.style.display = 'none';
-							play.style.display = spectate.style.display = '';
-
-							if (acceptedConnection) return;
-
-							connection = net.connection();
-							if (connection) {
-								net.captcha(v2, undefined);
-								processing = false;
-								acceptedConnection = connection;
-								play.disabled = spectate.disabled = false;
-							} else {
-								v2Token = v2;
-							}
-						},
-					});
+					token = { variant, token: captchaToken };
 				}
-			}, 500));
+			};
+
+			setInterval(() => {
+				if (token === waiting) return;
+				const con = net.connection();
+				if (!con) return; // can't get a captcha if we don't know where to connect
+
+				if (!token || (typeof token === 'object' && 'usedBy' in token && token.usedBy !== con)) {
+					// get a new token if first time, or if we're on a new connection now
+					token = waiting;
+					play.disabled = spectate.disabled = true;
+					tokenVariant(con)
+						.then(async variant => {
+							const con2 = net.connection();
+							if (con !== con2) {
+								// server changed and may want a different variant; restart
+								token = undefined;
+								return;
+							}
+
+							if (variant === 'v2') {
+								mount.style.display = 'block';
+								play.style.display = spectate.style.display = 'none';
+								if (v2Handle !== undefined) {
+									grecaptcha.reset(v2Handle);
+								} else {
+									const cb = () => void (v2Handle = grecaptcha.render('sf-captcha-mount', {
+										sitekey: CAPTCHA2,
+										callback: v2 => {
+											mount.style.display = 'none';
+											play.style.display = spectate.style.display = '';
+											publishToken(con, variant, v2);
+										},
+									}));
+									if (onGrecaptchaReady)
+										onGrecaptchaReady.add(cb);
+									else
+										grecaptcha.ready(cb);
+								}
+							} else if (variant === 'v3') {
+								const v3 = await grecaptcha.execute(CAPTCHA3);
+								publishToken(con, variant, v3);
+							} else if (variant === 'turnstile') {
+								mount.style.display = 'block';
+								play.style.display = spectate.style.display = 'none';
+								if (turnstileHandle !== undefined) {
+									turnstile.reset(turnstileHandle);
+								} else {
+									const cb = () => void (turnstileHandle = turnstile.render('#sf-captcha-mount', {
+										sitekey: TURNSTILE,
+										callback: turnstileToken => {
+											mount.style.display = 'none';
+											play.style.display = spectate.style.display = '';
+											publishToken(con, variant, turnstileToken);
+										},
+									}));
+									if (onTurnstileReady)
+										onTurnstileReady.add(cb);
+									else
+										cb();
+								}
+							} else {
+								// unknown token variant; assume it'll be fine
+								token = { usedBy: con };
+							}
+						}).catch(err => {
+							token = undefined;
+							console.warn('Error while getting token variant:', err);
+						});
+				} else if ('token' in token) {
+					// token is ready to be used, check variant
+					const got = token;
+					token = waiting;
+					play.disabled = spectate.disabled = true;
+					tokenVariant(con)
+						.then(variant2 => {
+							if (got.variant !== variant2) {
+								// server wants a different token variant
+								token = undefined;
+							} else
+								publishToken(con, got.variant, got.token);
+						}).catch(err => {
+							token = got;
+							console.warn('Error while getting token variant:', err);
+						});
+				}
+			}, 100);
 
 			/** @param {MouseEvent} e */
 			async function clickHandler(e) {
-				if (!acceptedConnection) return;
-				ui.toggleEscOverlay(false);
-				net.play(playData(e.currentTarget === spectate));
+				if (typeof token === 'object' && 'usedBy' in token && token.usedBy === net.connection()) {
+					ui.toggleEscOverlay(false);
+					net.play(playData(e.currentTarget === spectate));
+				}
 			}
 
 			play.addEventListener('click', clickHandler);
