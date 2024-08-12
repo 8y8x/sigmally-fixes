@@ -2499,13 +2499,6 @@
 					clearInterval(readyCheck);
 			}, 50);
 
-			// we need to give recaptcha enough time to analyze us, otherwise v3 will fail
-			// on new token needed:
-			// #1 : update `token` to a temporary 'getting' value
-			// #2 : get the token type used by this server (v2, v3, turnstile)
-			// #3 : go through the captcha flow, waiting for user input if needed
-			// #4 : if connected, call net.captcha and set `token` to 'used', else set `token` to that token with the type as a pair (in case other servers use different types)
-			// edge cases: only allow 1 type of captcha flow at once (if doing turnstile but v3 is now needed, just finish turnstile first)
 			/**
 			 * @param {WebSocket} con
 			 * @returns {Promise<string | undefined>}
