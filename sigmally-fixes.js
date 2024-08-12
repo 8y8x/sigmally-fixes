@@ -155,7 +155,10 @@
 			const sigmod = window.sigmod?.settings;
 			if (sigmod) {
 				let sigmodSettings = aux.sigmodSettings = {};
-				/** @param {'cellColor' | 'foodColor' | 'mapColor' | 'outlineColor' | 'nameColor1' | 'nameColor2'} prop */
+				/**
+				 * @param {'cellColor' | 'foodColor' | 'mapColor' | 'outlineColor' | 'nameColor1' | 'nameColor2'} prop
+				 * @param {any[]} lookups
+				 */
 				const applyColor = (prop, lookups) => {
 					for (const lookup of lookups) {
 						if (lookup) {
@@ -1361,8 +1364,8 @@
 				}
 
 				const [currentOffset, current] = currentSet;
-				const currentDisappearedAt
-					= (current.deadAt !== undefined && current.deadTo === -1) ? currentOffset + current.deadAt : undefined;
+				const currentDisappearedAt = (current.deadAt !== undefined && current.deadTo === -1)
+					? currentOffset + current.deadAt : undefined;
 				const cellDisappearedAt
 					= (cell.deadAt !== undefined && cell.deadTo === -1) ? otherOffset + cell.deadAt : undefined;
 
