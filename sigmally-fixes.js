@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.3.3.1
+// @version      2.3.4
 // @description  Easily 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -419,7 +419,7 @@
 
 			const watermark = document.createElement('span');
 			watermark.innerHTML = '<a href="https://greasyfork.org/scripts/483587/versions" \
-				target="_blank">Sigmally Fixes 2.3.3.1</a> by yx';
+				target="_blank">Sigmally Fixes 2.3.4</a> by yx';
 			title.insertAdjacentElement('afterend', watermark);
 		})();
 
@@ -2233,10 +2233,10 @@
 		};
 
 		/**
-		 * @param {string} token
+		 * @param {string | undefined} token
 		 */
 		net.captcha = function (token) {
-			sendJson(0xdc, { token });
+			sendJson(0xdc, token === undefined ? {} : { token });
 		};
 
 		/**
@@ -2504,21 +2504,22 @@
 
 			/**
 			 * @param {WebSocket} con
-			 * @returns {Promise<string | undefined>}
+			 * @returns {Promise<string>}
 			 */
 			const tokenVariant = async con => {
 				const url = new URL(con.url);
 				if (url.host.includes('sigmally.com'))
 					return aux.oldFetch(`https://${url.host}/server/recaptcha/v3`)
 						.then(res => res.json())
-						.then(res => res.version);
+						.then(res => res.version ?? 'none');
 				else
-					return Promise.resolve(undefined);
+					return Promise.resolve('none');
 			};
 
 			/** @type {unique symbol} */
 			const waiting = Symbol();
-			/** @type {undefined | typeof waiting | { usedBy: WebSocket } | { variant: string, token: string }} */
+			/** @type {undefined | typeof waiting | { usedBy: WebSocket }
+			 * | { variant: string, token: string | undefined }} */
 			let token = undefined;
 			/** @type {string | undefined} */
 			let turnstileHandle;
@@ -2528,7 +2529,7 @@
 			/**
 			 * @param {WebSocket} con
 			 * @param {string} variant
-			 * @param {string} captchaToken
+			 * @param {string | undefined} captchaToken
 			 */
 			const publishToken = (con, variant, captchaToken) => {
 				const con2 = net.connection();
@@ -2601,8 +2602,9 @@
 										cb();
 								}
 							} else {
-								// unknown token variant; assume it'll be fine
-								token = { usedBy: con };
+								// server wants "none" or unknown token variant; don't show a captcha
+								publishToken(con, variant, undefined);
+								play.disabled = spectate.disabled = false;
 							}
 						}).catch(err => {
 							token = undefined;
