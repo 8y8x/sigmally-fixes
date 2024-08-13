@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.3.4
+// @version      2.3.5
 // @description  Easily 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -24,6 +24,7 @@
 'use strict';
 
 (async () => {
+	const sfVersion = '2.3.5';
 	// yes, this actually makes a significant difference
 	const undefined = window.undefined;
 
@@ -418,9 +419,32 @@
 			if (!title) return;
 
 			const watermark = document.createElement('span');
-			watermark.innerHTML = '<a href="https://greasyfork.org/scripts/483587/versions" \
-				target="_blank">Sigmally Fixes 2.3.4</a> by yx';
+			watermark.innerHTML = `<a href="https://greasyfork.org/scripts/483587/versions" \
+				target="_blank">Sigmally Fixes ${sfVersion}</a> by yx`;
 			title.insertAdjacentElement('afterend', watermark);
+
+			// check if this version is problematic; don't do anything if this version is too new to be in versions.json
+			// or if sig.8y8x.dev is no longer supported
+			fetch('https://sig.8y8x.dev/versions.json')
+				.then(res => res.json())
+				.then(res => {
+					if (sfVersion in res && !res[sfVersion].ok && res[sfVersion].alert) {
+						const color = res[sfVersion].color || '#f00';
+						const box = document.createElement('div');
+						box.style.cssText = `background: ${color}3; border: 1px solid ${color}; width: 100%; \
+							height: fit-content; font-size: 1em; padding: 5px; margin: 5px 0; border-radius: 3px; \
+							color: ${color}`;
+						box.innerHTML = res[sfVersion].alert
+							.replaceAll(/\<|\>/g, '') // never allow html tag injection
+							.replaceAll('{link}', '<a href="https://greasyfork.org/scripts/483587">[click here]</a>')
+							.replaceAll('{autolink}', '<a href="\
+								https://update.greasyfork.org/scripts/483587/Sigmally%20Fixes%20V2.user.js">\
+								[click here]</a>');
+
+							watermark.insertAdjacentElement('afterend', box);
+					}
+				})
+				.catch(err => console.warn('Failed to check Sigmally Fixes version:', err));
 		})();
 
 		ui.game = (() => {

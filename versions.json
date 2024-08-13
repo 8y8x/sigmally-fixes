@@ -1,0 +1,13 @@
+{
+	"2.3.5": {
+		"ok": true
+	},
+	"2.3.4": {
+		"ok": true
+	},
+	"2.3.3": {
+		"ok": false,
+		"alert": "Sigmally Fixes 2.3.3 is broken due to captcha updates. Please update to the newest version here: {autolink}",
+		"color": "#f00"
+	}
+}
