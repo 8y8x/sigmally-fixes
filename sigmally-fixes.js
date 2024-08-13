@@ -473,8 +473,10 @@
 
 			const gl = aux.require(
 				newCanvas.getContext('webgl2'),
-				'Couldn\'t get WebGL2 context. This is probably your browser being dumb and it should resolve itself ' +
-				'after a while.',
+				'Couldn\'t get WebGL2 context. Possible causes:\r\n' +
+				'- Maybe GPU/Hardware acceleration needs to be enabled in your browser settings; \r\n' +
+				'- Maybe your browser is just acting weird and it might fix itself after a restart; \r\n' +
+				'- Maybe your GPU drivers are exceptionally old.'
 			);
 
 			game.gl = gl;
