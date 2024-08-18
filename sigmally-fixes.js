@@ -587,7 +587,7 @@
 					if (!line) return;
 
 					line.style.display = 'block';
-					line.textContent = `${entry.place ?? i + 1}. ${entry.name}`;
+					line.textContent = `${entry.place ?? i + 1}. ${entry.name || 'An unnamed cell'}`;
 					if (entry.me)
 						line.style.color = '#faa';
 					else if (entry.sub)
