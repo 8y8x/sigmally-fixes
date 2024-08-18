@@ -441,7 +441,7 @@
 								https://update.greasyfork.org/scripts/483587/Sigmally%20Fixes%20V2.user.js">\
 								[click here]</a>');
 
-							watermark.insertAdjacentElement('afterend', box);
+						watermark.insertAdjacentElement('afterend', box);
 					}
 				})
 				.catch(err => console.warn('Failed to check Sigmally Fixes version:', err));
@@ -476,7 +476,7 @@
 				'Couldn\'t get WebGL2 context. Possible causes:\r\n' +
 				'- Maybe GPU/Hardware acceleration needs to be enabled in your browser settings; \r\n' +
 				'- Maybe your browser is just acting weird and it might fix itself after a restart; \r\n' +
-				'- Maybe your GPU drivers are exceptionally old.'
+				'- Maybe your GPU drivers are exceptionally old.',
 			);
 
 			game.gl = gl;
