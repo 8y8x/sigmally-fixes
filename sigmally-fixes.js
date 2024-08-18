@@ -2606,8 +2606,12 @@
 										grecaptcha.ready(cb);
 								}
 							} else if (variant === 'v3') {
-								const v3 = await grecaptcha.execute(CAPTCHA3);
-								publishToken(con, variant, v3);
+								const cb = () => grecaptcha.execute(CAPTCHA3)
+									.then(v3 => publishToken(con, variant, v3));
+								if (onGrecaptchaReady)
+									onGrecaptchaReady.add(cb);
+								else
+									grecaptcha.ready(cb);
 							} else if (variant === 'turnstile') {
 								mount.style.display = 'block';
 								play.style.display = spectate.style.display = 'none';
