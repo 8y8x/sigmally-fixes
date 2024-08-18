@@ -434,10 +434,10 @@
 						box.style.cssText = `background: ${color}3; border: 1px solid ${color}; width: 100%; \
 							height: fit-content; font-size: 1em; padding: 5px; margin: 5px 0; border-radius: 3px; \
 							color: ${color}`;
-						box.innerHTML = res[sfVersion].alert
-							.replaceAll(/\<|\>/g, '') // never allow html tag injection
-							.replaceAll('{link}', '<a href="https://greasyfork.org/scripts/483587">[click here]</a>')
-							.replaceAll('{autolink}', '<a href="\
+						box.innerHTML = String(res[sfVersion].alert)
+							.replace(/\<|\>/g, '') // never allow html tag injection
+							.replace(/\{link\}/g, '<a href="https://greasyfork.org/scripts/483587">[click here]</a>')
+							.replace(/\{autolink\}/g, '<a href="\
 								https://update.greasyfork.org/scripts/483587/Sigmally%20Fixes%20V2.user.js">\
 								[click here]</a>');
 

@@ -1,4 +1,14 @@
 {
+	"info": [
+		"This file is automatically retrieved on startup starting in version 2.3.5.",
+		"{autolink} transforms into a direct install link with a [click here] button.",
+		"{link} transforms into the greasyfork page link with a [click here] button.",
+		"All versions must have an 'ok' field (boolean).",
+		"If false, the 'alert' field must be a string and the 'color' field must be a hex color string.",
+		"If false, a box will appear under script watermarks (above the name and play buttons) with the alert text.",
+		"Keep the alert short and unintrusive, as it shifts all the buttons down and out of the main UI.",
+		"No HTML; the < and > characters are stripped."
+	],
 	"2.3.5": {
 		"ok": true
 	},
