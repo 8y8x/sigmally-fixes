@@ -423,9 +423,9 @@
 				target="_blank">Sigmally Fixes ${sfVersion}</a> by yx`;
 			title.insertAdjacentElement('afterend', watermark);
 
-			// check if this version is problematic; don't do anything if this version is too new to be in versions.json
-			// or if sig.8y8x.dev is no longer supported
-			fetch('https://sig.8y8x.dev/versions.json')
+			// check if this version is problematic, don't do anything if this version is too new to be in versions.json
+			// take care to ensure users can't be logged
+			fetch('https://raw.githubusercontent.com/8y8x/sigmally-fixes/main/versions.json')
 				.then(res => res.json())
 				.then(res => {
 					if (sfVersion in res && !res[sfVersion].ok && res[sfVersion].alert) {
