@@ -2314,6 +2314,10 @@
 		// sigmod's macro feed runs at a slower interval but presses many times in that interval. allowing queueing 2 w
 		// presses makes it faster (it would be better if people disabled that macro, but no one would do that)
 		let forceW = 0;
+		/** @type {number | undefined} */
+		let lastMouseX = undefined;
+		/** @type {number | undefined} */
+		let lastMouseY = undefined;
 		let mouseX = 0; // -1 <= mouseX <= 1
 		let mouseY = 0; // -1 <= mouseY <= 1
 		let w = false;
@@ -2331,6 +2335,8 @@
 		function mouse() {
 			const [x, y] = input.mouse();
 			net.move(x, y);
+			lastMouseX = mouseX;
+			lastMouseY = mouseY;
 		}
 
 		function unfocused() {
@@ -2338,8 +2344,10 @@
 		}
 
 		setInterval(() => {
-			if (document.visibilityState === 'hidden') return;
+			// allow flicking mouse then immediately switching tabs in the same tick
+			if (document.visibilityState === 'hidden' && lastMouseX === mouseX && lastMouseY === mouseY) return;
 			mouse();
+
 			if (forceW > 0) {
 				--forceW;
 				net.w();
