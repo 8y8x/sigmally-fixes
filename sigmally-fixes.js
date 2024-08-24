@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.3.5
+// @version      2.3.6
 // @description  Easily 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -24,7 +24,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.3.5';
+	const sfVersion = '2.3.6';
 	// yes, this actually makes a significant difference
 	const undefined = window.undefined;
 
@@ -930,7 +930,7 @@
 			massOpacity: 1,
 			massScaleFactor: 1,
 			mergeCamera: false,
-			mergeCameraWeight: 1,
+			mergeCameraWeight: 2,
 			mergeViewArea: false,
 			nameBold: false,
 			nameScaleFactor: 1,
@@ -938,6 +938,7 @@
 			scrollFactor: 1,
 			selfSkin: '',
 			syncSkin: true,
+			tracer: false,
 			unsplittableOpacity: 1,
 		};
 
@@ -1175,6 +1176,8 @@
 			'for different tabs.');
 		checkbox('syncSkin', 'Show self skin on other tabs',
 			'Whether your custom skin should be shown on your other tabs too.');
+		checkbox('tracer', 'Lines between cells and mouse', 'If enabled, draws a line between all of the cells you ' +
+			'control and your mouse. Useful as a hint to your subconscious about which tab you\'re currently on.');
 		separator();
 		checkbox('mergeCamera', 'Merge camera between tabs',
 			'Whether to place the camera in between your nearby tabs. This makes tab changes while multiboxing ' +
@@ -2317,11 +2320,17 @@
 
 		input.zoom = 1;
 
-		function mouse() {
-			net.move(
+		/** @returns [number, number] */
+		input.mouse = () => {
+			return [
 				world.camera.x + mouseX * (innerWidth / innerHeight) * 540 / world.camera.scale,
 				world.camera.y + mouseY * 540 / world.camera.scale,
-			);
+			];
+		};
+
+		function mouse() {
+			const [x, y] = input.mouse();
+			net.move(x, y);
 		}
 
 		function unfocused() {
@@ -2976,6 +2985,47 @@
 				'u_text_aspect_ratio', 'u_text_offset', 'u_text_scale', 'u_texture',
 			]);
 
+			programs.tracer = program(
+				'tracer',
+				shader('tracer.vShader', gl.VERTEX_SHADER, `#version 300 es
+				layout(location = 0) in vec2 a_pos;
+
+				uniform float u_aspect_ratio;
+				uniform vec2 u_camera_pos;
+				uniform float u_camera_scale;
+				uniform vec2 u_pos1;
+				uniform vec2 u_pos2;
+
+				out vec2 v_pos;
+
+				void main() {
+					v_pos = a_pos;
+					float alpha = (a_pos.x + 1.0) / 2.0;
+					float d = length(u_pos2 - u_pos1);
+					float thickness = 0.002 / u_camera_scale;
+					vec2 world_pos = u_pos1 + (u_pos2 - u_pos1) * mat2(alpha, a_pos.y / d * thickness, a_pos.y / d * -thickness, alpha);
+
+					vec2 clip_pos = -u_camera_pos + world_pos;
+					clip_pos *= u_camera_scale * vec2(1.0 / u_aspect_ratio, -1.0);
+					gl_Position = vec4(clip_pos, 0, 1);
+				}
+				`),
+				shader('tracer.fShader', gl.FRAGMENT_SHADER, `#version 300 es
+				precision highp float;
+				in vec2 v_pos;
+
+				out vec4 out_color;
+
+				void main() {
+					out_color = vec4(1.0, 1.0, 1.0, 0.25);
+				}
+				`),
+			);
+			uniforms.tracer = getUniforms('tracer', programs.tracer, [
+				'u_aspect_ratio', 'u_camera_pos', 'u_camera_scale',
+				'u_pos1', 'u_pos2',
+			]);
+
 			// create and bind objects
 			const square = gl.createBuffer();
 			gl.bindBuffer(gl.ARRAY_BUFFER, square);
@@ -3280,6 +3330,11 @@
 				gl.uniform1f(uniforms.text.u_camera_scale, cameraScale);
 				gl.uniform1i(uniforms.text.u_texture, 0);
 				gl.uniform1i(uniforms.text.u_silhouette, 1);
+
+				gl.useProgram(programs.tracer);
+				gl.uniform1f(uniforms.tracer.u_aspect_ratio, aspectRatio);
+				gl.uniform2f(uniforms.tracer.u_camera_pos, cameraPosX, cameraPosY);
+				gl.uniform1f(uniforms.tracer.u_camera_scale, cameraScale);
 			})();
 
 			(function background() {
@@ -3550,6 +3605,24 @@
 				sorted.sort(([_a, ar], [_b, br]) => ar - br);
 				for (const [cell] of sorted)
 					draw(cell);
+
+				// draw tracers
+				if (settings.tracer) {
+					gl.useProgram(programs.tracer);
+
+					const [x, y] = input.mouse();
+					gl.uniform2f(uniforms.tracer.u_pos2, x, y);
+
+					world.mine.forEach(id => {
+						const cell = map.cells.get(id);
+						if (!cell) return;
+
+						const { x, y } = world.xyr(cell, map, now);
+						gl.uniform2f(uniforms.tracer.u_pos1, x, y);
+
+						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+					});
+				}
 			})();
 
 			(function updateStats() {
