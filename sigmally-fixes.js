@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.3.7
+// @version      2.3.8
 // @description  Easily 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -24,7 +24,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.3.7';
+	const sfVersion = '2.3.8';
 	// yes, this actually makes a significant difference
 	const undefined = window.undefined;
 
@@ -1180,38 +1180,53 @@
 		function color(property, title, help) {
 			/**
 			 * @param {HTMLInputElement} input
+			 * @param {HTMLInputElement} visible
 			 */
-			const listen = input => {
+			const listen = (input, visible) => {
 				input.value = aux.rgba2hex6(...settings[property]);
+				visible.checked = settings[property][3] > 0;
 
-				input.addEventListener('input', () => {
+				const changed = () => {
 					settings[property] = aux.hex2rgba(input.value);
+					settings[property][3] = visible.checked ? 1 : 0;
 					save();
-				});
+				};
+				input.addEventListener('input', changed);
+				visible.addEventListener('input', changed);
 			
-				onSaves.add(() => input.value = aux.rgba2hex6(...settings[property]));
+				onSaves.add(() => {
+					input.value = aux.rgba2hex6(...settings[property]);
+					visible.checked = settings[property][3] > 0;
+				});
 			};
 
 			const vanilla = fromHTML(`
 				<div style="height: 25px; position: relative;" title="${help}">
 					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">${title}</div>
 					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
+						<input id="sf-${property}-visible" type="checkbox" />
 						<input id="sf-${property}" type="color" />
 					</div>
 				</div>
 			`);
-			listen(/** @type {HTMLInputElement} */(vanilla.querySelector(`input#sf-${property}`)));
+			listen(/** @type {HTMLInputElement} */(vanilla.querySelector(`input#sf-${property}`)),
+				/** @type {HTMLInputElement} */(vanilla.querySelector(`input#sf-${property}-visible`)));
 			vanillaContainer.appendChild(vanilla);
-			
+
 			const sigmod = fromHTML(`
 				<div class="modRowItems justify-sb" title="${help}">
 					<span>${title}</span>
 					<div style="width: 75px; text-align: center;">
+						<div class="modCheckbox" style="display: inline-block;">
+							<input id="sfsm-${property}-visible" type="checkbox" />
+							<label class="cbx" for="sfsm-${property}-visible"></label>
+						</div>
 						<input id="sfsm-${property}" type="color" />
 					</div>
 				</div>
 			`);
-			listen(/** @type {HTMLInputElement} */(sigmod.querySelector(`input#sfsm-${property}`)));
+			listen(/** @type {HTMLInputElement} */(sigmod.querySelector(`input#sfsm-${property}`)),
+				/** @type {HTMLInputElement} */(sigmod.querySelector(`input#sfsm-${property}-visible`)));
 			sigmodContainer.appendChild(sigmod);
 		}
 
@@ -1253,7 +1268,7 @@
 		color('outlineMultiColor', 'Current tab outline color',
 			'The outline color of your current multibox tab.');
 		color('outlineMultiInactiveColor', 'Other tab outline color',
-			'The outline color for the cells of your other unfocused multibox tabs.');
+			'The outline color for the cells of your other unfocused multibox tabs. Turn off the checkbox to disable.');
 		slider('mergeCameraWeight', 'Merge camera weighting factor', 1, 0, 2, 0.01, 2, true,
 			'The amount of focus to put on bigger cells. Only used with \'merge camera\'. 0 focuses every cell ' +
 			'equally, 1 focuses on every cell based on its radius, 2 focuses on every cell based on its mass. ' +
@@ -2975,8 +2990,8 @@
 
 					if (u_selected > 0) {
 						float inv_thickness = 1.0 - u_outline_selected_thickness;
-						float oa = clamp(blur * (d2 - inv_thickness*inv_thickness), 0.0, 1.0);
 						vec4 outline = (u_selected == 1) ? u_outline_selected_color : u_outline_inactive_color;
+						float oa = clamp(blur * (d2 - inv_thickness*inv_thickness) * outline.a, 0.0, 1.0);
 						out_color.rgb = out_color.rgb * (1.0 - oa) + outline.rgb * oa;
 					}
 
