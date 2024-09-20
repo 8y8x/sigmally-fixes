@@ -9,6 +9,9 @@
 		"Keep the alert short and unintrusive, as it shifts all the buttons down and out of the main UI.",
 		"No HTML; the < and > characters are stripped."
 	],
+	"2.3.7": {
+		"ok": true
+	},
 	"2.3.6": {
 		"ok": true
 	},

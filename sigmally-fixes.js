@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.3.6
+// @version      2.3.7
 // @description  Easily 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -24,7 +24,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.3.6';
+	const sfVersion = '2.3.7';
 	// yes, this actually makes a significant difference
 	const undefined = window.undefined;
 
@@ -125,6 +125,22 @@
 				Math.floor(g * 255).toString(16).padStart(2, '0'),
 				Math.floor(b * 255).toString(16).padStart(2, '0'),
 				Math.floor(a * 255).toString(16).padStart(2, '0'),
+			].join('');
+		};
+
+		// i don't feel like making an awkward adjustment to aux.rgba2hex
+		/**
+		 * @param {number} r
+		 * @param {number} g
+		 * @param {number} b
+		 * @param {any} _a
+		 */
+		aux.rgba2hex6 = (r, g, b, _a) => {
+			return [
+				'#',
+				Math.floor(r * 255).toString(16).padStart(2, '0'),
+				Math.floor(g * 255).toString(16).padStart(2, '0'),
+				Math.floor(b * 255).toString(16).padStart(2, '0'),
 			].join('');
 		};
 
@@ -934,7 +950,10 @@
 			mergeViewArea: false,
 			nameBold: false,
 			nameScaleFactor: 1,
-			outlineMulti: 0,
+			outlineMulti: 0.2,
+			// delta's default colors, #ff00aa and #ffffff
+			outlineMultiColor: /** @type {[number, number, number, number]} */ ([1, 0, 2/3, 1]),
+			outlineMultiInactiveColor: /** @type {[number, number, number, number]} */ ([1, 1, 1, 1]),
 			scrollFactor: 1,
 			selfSkin: '',
 			syncSkin: true,
@@ -1153,6 +1172,49 @@
 			sigmodContainer.appendChild(sigmod);
 		}
 
+		/**
+		 * @param {PropertyOfType<typeof settings, [number, number, number, number]>} property
+		 * @param {string} title
+		 * @param {string} help
+		 */
+		function color(property, title, help) {
+			/**
+			 * @param {HTMLInputElement} input
+			 */
+			const listen = input => {
+				input.value = aux.rgba2hex6(...settings[property]);
+
+				input.addEventListener('input', () => {
+					settings[property] = aux.hex2rgba(input.value);
+					save();
+				});
+			
+				onSaves.add(() => input.value = aux.rgba2hex6(...settings[property]));
+			};
+
+			const vanilla = fromHTML(`
+				<div style="height: 25px; position: relative;" title="${help}">
+					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">${title}</div>
+					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
+						<input id="sf-${property}" type="color" />
+					</div>
+				</div>
+			`);
+			listen(/** @type {HTMLInputElement} */(vanilla.querySelector(`input#sf-${property}`)));
+			vanillaContainer.appendChild(vanilla);
+			
+			const sigmod = fromHTML(`
+				<div class="modRowItems justify-sb" title="${help}">
+					<span>${title}</span>
+					<div style="width: 75px; text-align: center;">
+						<input id="sfsm-${property}" type="color" />
+					</div>
+				</div>
+			`);
+			listen(/** @type {HTMLInputElement} */(sigmod.querySelector(`input#sfsm-${property}`)));
+			sigmodContainer.appendChild(sigmod);
+		}
+
 		function separator(text = '•') {
 			vanillaContainer.appendChild(fromHTML(`<div style="text-align: center; width: 100%;">${text}</div>`));
 			sigmodContainer.appendChild(fromHTML(`<span class="text-center">${text}</span>`));
@@ -1188,6 +1250,10 @@
 		slider('outlineMulti', 'Current tab cell outline thickness', 0, 0, 1, 0.01, 2, true,
 			'Draws an inverse outline on your cells. This is a necessity when using the \'merge camera\' setting. ' +
 			'Setting to 0 turns this off. Only shows when near one of your tabs.');
+		color('outlineMultiColor', 'Current tab outline color',
+			'The outline color of your current multibox tab.');
+		color('outlineMultiInactiveColor', 'Other tab outline color',
+			'The outline color for the cells of your other unfocused multibox tabs.');
 		slider('mergeCameraWeight', 'Merge camera weighting factor', 1, 0, 2, 0.01, 2, true,
 			'The amount of focus to put on bigger cells. Only used with \'merge camera\'. 0 focuses every cell ' +
 			'equally, 1 focuses on every cell based on its radius, 2 focuses on every cell based on its mass. ' +
@@ -2719,7 +2785,7 @@
 
 			// note: linking errors should not happen in production
 			aux.require(
-				gl.getProgramParameter(p, gl.LINK_STATUS) || !gl.isContextLost(),
+				gl.getProgramParameter(p, gl.LINK_STATUS) || gl.isContextLost(),
 				`Can\'t link WebGL2 program "${name}". You might be on a weird browser.\n\nFull error log:\n` +
 				gl.getProgramInfoLog(p),
 			);
@@ -2739,7 +2805,7 @@
 
 			// note: compilation errors should not happen in production
 			aux.require(
-				gl.getShaderParameter(s, gl.COMPILE_STATUS) || !gl.isContextLost(),
+				gl.getShaderParameter(s, gl.COMPILE_STATUS) || gl.isContextLost(),
 				`Can\'t compile WebGL2 shader "${name}". You might be on a weird browser.\n\nFull error log:\n` +
 				gl.getShaderInfoLog(s),
 			);
@@ -2880,7 +2946,10 @@
 				uniform vec4 u_color;
 				uniform float u_outer_radius;
 				uniform vec4 u_outline_color;
-				uniform float u_outline_selected;
+				uniform float u_outline_selected_thickness;
+				uniform vec4 u_outline_selected_color;
+				uniform vec4 u_outline_inactive_color;
+				uniform int u_selected;
 				uniform bool u_subtle_outline;
 				uniform sampler2D u_texture;
 				uniform bool u_texture_enabled;
@@ -2904,9 +2973,11 @@
 						out_color.rgb = out_color.rgb * (1.0 - oa_edge) + u_color.rgb * 0.9 * oa_edge;
 					}
 
-					if (u_outline_selected > 0.0) {
-						float oa = clamp(blur * (d2 - (1.0 - u_outline_selected)*(1.0 - u_outline_selected)), 0.0, 1.0);
-						out_color.rgb = out_color.rgb * (1.0 - oa) + (1.0 - out_color.rgb) * oa;
+					if (u_selected > 0) {
+						float inv_thickness = 1.0 - u_outline_selected_thickness;
+						float oa = clamp(blur * (d2 - inv_thickness*inv_thickness), 0.0, 1.0);
+						vec4 outline = (u_selected == 1) ? u_outline_selected_color : u_outline_inactive_color;
+						out_color.rgb = out_color.rgb * (1.0 - oa) + outline.rgb * oa;
 					}
 
 					float oa = clamp(blur * (d2 - 0.96*0.96), 0.0, 1.0) * u_outline_color.a;
@@ -2918,8 +2989,9 @@
 			);
 			uniforms.cell = getUniforms('cell', programs.cell, [
 				'u_aspect_ratio', 'u_camera_pos', 'u_camera_scale',
-				'u_alpha', 'u_color', 'u_inner_radius', 'u_outline_color', 'u_outline_selected', 'u_outer_radius',
-				'u_pos', 'u_subtle_outline', 'u_texture_enabled',
+				'u_alpha', 'u_color', 'u_inner_radius', 'u_outline_color', 'u_outline_inactive_color',
+				'u_outline_selected_thickness', 'u_outline_selected_color', 'u_outer_radius', 'u_pos', 'u_selected',
+				'u_subtle_outline', 'u_texture_enabled',
 			]);
 
 
@@ -3331,6 +3403,10 @@
 				gl.uniform1f(uniforms.cell.u_aspect_ratio, aspectRatio);
 				gl.uniform2f(uniforms.cell.u_camera_pos, cameraPosX, cameraPosY);
 				gl.uniform1f(uniforms.cell.u_camera_scale, cameraScale);
+				gl.uniform1f(uniforms.cell.u_outline_selected_thickness,
+					world.camera.merged ? settings.outlineMulti : 0);
+				gl.uniform4f(uniforms.cell.u_outline_selected_color, ...settings.outlineMultiColor);
+				gl.uniform4f(uniforms.cell.u_outline_inactive_color, ...settings.outlineMultiInactiveColor);
 
 				gl.useProgram(programs.text);
 				gl.uniform1f(uniforms.text.u_aspect_ratio, aspectRatio);
@@ -3417,7 +3493,6 @@
 					gl.uniform1f(uniforms.cell.u_outer_radius, r * 1.01);
 
 					gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 0);
-					gl.uniform1f(uniforms.cell.u_outline_selected, 0);
 
 					if (cell.jagged) {
 						const virusTexture = textureFromCache(virusSrc);
@@ -3447,6 +3522,7 @@
 							gl.uniform4f(uniforms.cell.u_color, cell.Rgb, cell.rGb, cell.rgB, 1);
 					}
 
+					gl.uniform1i(uniforms.cell.u_selected, 0);
 					gl.uniform1i(uniforms.cell.u_texture_enabled, 0);
 					if (cell.nr > 20) {
 						if (outlineColor)
@@ -3454,8 +3530,7 @@
 
 						const myIndex = world.mine.indexOf(cell.id);
 						if (myIndex !== -1) {
-							if (world.camera.merged)
-								gl.uniform1f(uniforms.cell.u_outline_selected, settings.outlineMulti);
+							gl.uniform1i(uniforms.cell.u_selected, 1);
 
 							if (!canSplit[myIndex] && settings.unsplittableOpacity > 0) {
 								if (darkTheme)
@@ -3466,18 +3541,18 @@
 						}
 
 						let skin = '';
+						for (const [_, data] of sync.others) {
+							if (data.owned.has(cell.id)) {
+								gl.uniform1i(uniforms.cell.u_selected, 2);
+								if (settings.syncSkin)
+									skin = data.skin;
+								break;
+							}
+						}
+
 						if (settings.selfSkin && (world.mine.includes(cell.id) || world.mineDead.has(cell.id))) {
 							skin = settings.selfSkin;
 						} else {
-							if (settings.syncSkin) {
-								for (const [_, data] of sync.others) {
-									if (data.owned.has(cell.id)) {
-										skin = data.skin;
-										break;
-									}
-								}
-							}
-
 							if (!skin && showSkins && cell.skin) {
 								if (skinReplacement && cell.skin.includes(skinReplacement.original + '.png'))
 									skin = skinReplacement.replacement ?? skinReplacement.replaceImg ?? '';
@@ -3835,5 +3910,7 @@
 
 
 	// @ts-expect-error for debugging purposes. dm me on discord @8y8x to work out stability if you need something
-	window.sigfix = { destructor, aux, ui, settings, sync, world, net, render };
+	window.sigfix = {
+		destructor, aux, ui, settings, sync, world, net, gl: { init: initWebGL, programs, uniforms }, render,
+	};
 })();
