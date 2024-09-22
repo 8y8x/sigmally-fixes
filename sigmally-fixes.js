@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.3.8
+// @version      2.3.9
 // @description  Easily 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -24,7 +24,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.3.8';
+	const sfVersion = '2.3.9';
 	// yes, this actually makes a significant difference
 	const undefined = window.undefined;
 
@@ -3508,6 +3508,7 @@
 					gl.uniform1f(uniforms.cell.u_outer_radius, r * 1.01);
 
 					gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 0);
+					gl.uniform1i(uniforms.cell.u_selected, 0);
 
 					if (cell.jagged) {
 						const virusTexture = textureFromCache(virusSrc);
@@ -3537,7 +3538,6 @@
 							gl.uniform4f(uniforms.cell.u_color, cell.Rgb, cell.rGb, cell.rgB, 1);
 					}
 
-					gl.uniform1i(uniforms.cell.u_selected, 0);
 					gl.uniform1i(uniforms.cell.u_texture_enabled, 0);
 					if (cell.nr > 20) {
 						if (outlineColor)
