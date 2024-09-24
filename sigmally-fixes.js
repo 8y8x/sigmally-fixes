@@ -1262,7 +1262,7 @@
 		checkbox('mergeViewArea', 'Combine visible cells between tabs',
 			'When enabled, all tabs will share what cells they see between each other. Due to browser limitations, ' +
 			'this might be slow on lower-end PCs.');
-		slider('outlineMulti', 'Current tab cell outline thickness', 0, 0, 1, 0.01, 2, true,
+		slider('outlineMulti', 'Current tab cell outline thickness', 0.2, 0, 1, 0.01, 2, true,
 			'Draws an inverse outline on your cells. This is a necessity when using the \'merge camera\' setting. ' +
 			'Setting to 0 turns this off. Only shows when near one of your tabs.');
 		color('outlineMultiColor', 'Current tab outline color',
