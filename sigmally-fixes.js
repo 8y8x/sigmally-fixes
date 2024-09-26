@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.3.9
+// @version      2.3.10
 // @description  Easily 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -24,7 +24,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.3.9';
+	const sfVersion = '2.3.10';
 	// yes, this actually makes a significant difference
 	const undefined = window.undefined;
 
@@ -2392,9 +2392,6 @@
 		const input = {};
 
 		// #1 : general inputs
-		// sigmod's macro feed runs at a slower interval but presses many times in that interval. allowing queueing 2 w
-		// presses makes it faster (it would be better if people disabled that macro, but no one would do that)
-		let forceW = 0;
 		/** @type {number | undefined} */
 		let lastMouseX = undefined;
 		/** @type {number | undefined} */
@@ -2429,10 +2426,7 @@
 			if (document.visibilityState === 'hidden' && lastMouseX === mouseX && lastMouseY === mouseY) return;
 			mouse();
 
-			if (forceW > 0) {
-				--forceW;
-				net.w();
-			} else if (w) net.w();
+			if (w) net.w();
 		}, 40);
 
 		// sigmod freezes the player by overlaying an invisible div, so we just listen for canvas movements instead
@@ -2481,7 +2475,6 @@
 					break;
 				case 'KeyW':
 					w = true;
-					forceW = Math.min(forceW + 1, 2);
 					break;
 				case 'Space': {
 					if (!e.repeat) {
@@ -2522,7 +2515,6 @@
 		addEventListener('blur', () => {
 			// dispatch event to make sure sigmod gets it too
 			document.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW', key: 'w' }));
-			forceW = 0;
 			w = false;
 		});
 
