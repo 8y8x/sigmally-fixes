@@ -162,6 +162,7 @@
 		 * 	nameColor1?: [number, number, number, number],
 		 * 	nameColor2?: [number, number, number, number],
 		 * 	hidePellets?: boolean,
+		 * 	rapidFeedKey?: string,
 		 * 	removeOutlines?: boolean,
 		 * 	skinReplacement?: { original: string | null, replacement?: string | null, replaceImg?: string | null },
 		 * 	virusImage?: string,
@@ -205,6 +206,7 @@
 				aux.sigmodSettings.removeOutlines = sigmod.game?.removeOutlines;
 				aux.sigmodSettings.skinReplacement = sigmod.game?.skins;
 				aux.sigmodSettings.virusImage = sigmod.game?.virusImage;
+				aux.sigmodSettings.rapidFeedKey = sigmod.macros?.keys?.rapidFeed;
 			}
 		}, 50);
 
@@ -2398,6 +2400,7 @@
 		let lastMouseY = undefined;
 		let mouseX = 0; // -1 <= mouseX <= 1
 		let mouseY = 0; // -1 <= mouseY <= 1
+		let forceW = false;
 		let w = false;
 
 		input.zoom = 1;
@@ -2422,11 +2425,15 @@
 		}
 
 		setInterval(() => {
+			// if holding w with sigmod, tabbing out, then tabbing in, avoid spitting out only one W
+			const consumedForceW = forceW;
+			forceW = false;
+
 			// allow flicking mouse then immediately switching tabs in the same tick
 			if (document.visibilityState === 'hidden' && lastMouseX === mouseX && lastMouseY === mouseY) return;
 			mouse();
 
-			if (w) net.w();
+			if (consumedForceW || w) net.w();
 		}, 40);
 
 		// sigmod freezes the player by overlaying an invisible div, so we just listen for canvas movements instead
@@ -2474,6 +2481,7 @@
 						net.qdown();
 					break;
 				case 'KeyW':
+					forceW = true;
 					w = true;
 					break;
 				case 'Space': {
@@ -2513,8 +2521,10 @@
 
 		// when switching tabs, make sure W is not being held
 		addEventListener('blur', () => {
-			// dispatch event to make sure sigmod gets it too
-			document.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW', key: 'w' }));
+			// force sigmod to get the signal
+			if (aux.sigmodSettings?.rapidFeedKey)
+				document.dispatchEvent(new KeyboardEvent('keyup', { key: aux.sigmodSettings.rapidFeedKey }));
+
 			w = false;
 		});
 
