@@ -2436,6 +2436,13 @@
 			if (consumedForceW || w) net.w();
 		}, 40);
 
+		// anti-afk when another tab is playing
+		setInterval(() => {
+			let anyAlive = false;
+			sync.others.forEach(data => anyAlive ||= data.owned.size > 0);
+			if (anyAlive && unfocused()) net.qup(); // send literally any packet at all
+		}, 20_000);
+
 		// sigmod freezes the player by overlaying an invisible div, so we just listen for canvas movements instead
 		addEventListener('mousemove', e => {
 			if (ui.escOverlayVisible()) return;
