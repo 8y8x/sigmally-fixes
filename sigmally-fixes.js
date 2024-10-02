@@ -1405,6 +1405,10 @@
 			// only update the world if we aren't rendering ourselves (example case: games open on two monitors)
 			if (document.visibilityState === 'hidden')
 				world.update();
+
+			// might be preferable over document.visibilityState
+			if (!document.hasFocus())
+				input.antiAfk();
 		});
 
 		worldsync.addEventListener('message', e => {
@@ -2437,11 +2441,17 @@
 		}, 40);
 
 		// anti-afk when another tab is playing
-		setInterval(() => {
+		let lastCheck = performance.now();
+		input.antiAfk = () => {
+			const now = performance.now();
+			// only check every 10s, don't want to spam packets but don't want to miss resetting the afk timer
+			if (now - lastCheck < 10_000) return;
+			lastCheck = now;
+
 			let anyAlive = false;
 			sync.others.forEach(data => anyAlive ||= data.owned.size > 0);
 			if (anyAlive && unfocused()) net.qup(); // send literally any packet at all
-		}, 20_000);
+		};
 
 		// sigmod freezes the player by overlaying an invisible div, so we just listen for canvas movements instead
 		addEventListener('mousemove', e => {
