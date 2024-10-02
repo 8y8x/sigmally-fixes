@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.3.10
+// @version      2.3.11
 // @description  Easily 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -24,7 +24,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.3.10';
+	const sfVersion = '2.3.11';
 	// yes, this actually makes a significant difference
 	const undefined = window.undefined;
 
@@ -2450,7 +2450,7 @@
 
 			let anyAlive = false;
 			sync.others.forEach(data => anyAlive ||= data.owned.size > 0);
-			if (anyAlive && unfocused()) net.qup(); // send literally any packet at all
+			if (anyAlive) net.qup(); // send literally any packet at all
 		};
 
 		// sigmod freezes the player by overlaying an invisible div, so we just listen for canvas movements instead
