@@ -9,18 +9,23 @@
 		"Keep the alert short and unintrusive, as it shifts all the buttons down and out of the main UI.",
 		"No HTML; the < and > characters are stripped."
 	],
+	"2.3.12": {
+		"ok": true
+	},
+	"2.3.11": {
+		"ok": true
+	},
+	"2.3.10": {
+		"ok": true
+	},
 	"2.3.9": {
 		"ok": true
 	},
 	"2.3.8": {
-		"ok": false,
-		"alert": "2.3.7 and 2.3.8 may unexpectedly outline viruses while multiboxing. {autolink} to update.",
-		"color": "#39f"
+		"ok": true
 	},
 	"2.3.7": {
-		"ok": false,
-		"alert": "2.3.7 and 2.3.8 may unexpectedly outline viruses while multiboxing. {autolink} to update.",
-		"color": "#39f"
+		"ok": true
 	},
 	"2.3.6": {
 		"ok": true
