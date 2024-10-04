@@ -1258,8 +1258,6 @@
 			'Whether your custom skin should be shown on your other tabs too.');
 		checkbox('tracer', 'Lines between cells and mouse', 'If enabled, draws a line between all of the cells you ' +
 			'control and your mouse. Useful as a hint to your subconscious about which tab you\'re currently on.');
-		checkbox('rtx', 'RTX', 'Adds a glow effect to every cell. There is no "RTX" technology, it\'s just a ' +
-			'funny name.');
 		separator();
 		checkbox('mergeCamera', 'Merge camera between tabs',
 			'Whether to place the camera in between your nearby tabs. This makes tab changes while multiboxing ' +
@@ -1286,6 +1284,8 @@
 			'non-Chrome browsers probably won\'t respect this setting.');
 		checkbox('blockNearbyRespawns', 'Block respawns near other tabs',
 			'Disables the respawn keybind when near one of your bigger tabs.');
+		checkbox('rtx', 'RTX', 'Adds a glow effect to every cell. There is no "RTX" technology, it\'s just a ' +
+			'funny name.');
 		separator();
 		slider('nameScaleFactor', 'Name scale factor', 1, 0.5, 2, 0.01, 2, false, 'The size multiplier of names.');
 		slider('massScaleFactor', 'Mass scale factor', 1, 0.5, 4, 0.01, 2, false,
