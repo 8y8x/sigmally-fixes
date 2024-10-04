@@ -2957,10 +2957,11 @@
 				out vec2 v_t_coord;
 
 				void main() {
-					v_pos = a_pos;
+					float radius_with_stroke = max(u_outer_radius + 10.0, u_outer_radius * 1.02);
+					v_pos = a_pos * (radius_with_stroke / u_outer_radius);
 					v_t_coord = a_pos / (u_inner_radius / u_outer_radius) * 0.5 + 0.5;
 
-					vec2 clip_pos = -u_camera_pos + u_pos + a_pos * u_outer_radius;
+					vec2 clip_pos = -u_camera_pos + u_pos + v_pos * u_outer_radius;
 					clip_pos *= u_camera_scale * vec2(1.0 / u_aspect_ratio, -1.0);
 					gl_Position = vec4(clip_pos, 0, 1);
 				}
@@ -2987,10 +2988,12 @@
 				out vec4 out_color;
 
 				void main() {
+					float radius_with_stroke = max(u_outer_radius + 10.0, u_outer_radius * 1.02);
 					float blur = 0.5 * u_outer_radius * (540.0 * u_camera_scale);
 					float d2 = v_pos.x * v_pos.x + v_pos.y * v_pos.y;
 
-					float a = clamp(-blur * (d2 - 1.0), 0.0, 1.0);
+					float edge = radius_with_stroke / u_outer_radius;
+					float a = clamp(-blur * (d2 - edge), 0.0, 1.0);
 					out_color = u_color;
 
 					if (u_texture_enabled) {
@@ -2999,7 +3002,8 @@
 					}
 
 					if (u_subtle_outline) {
-						float oa_edge = clamp(blur * (d2 - 0.98*0.98), 0.0, 1.0);
+						float inner_edge = 2.0 - edge; // 1.0 - (the stroke width)
+						float oa_edge = clamp(blur * (d2 - inner_edge) * u_color.a, 0.0, 1.0);
 						out_color.rgb = out_color.rgb * (1.0 - oa_edge) + u_color.rgb * 0.9 * oa_edge;
 					}
 
@@ -3113,6 +3117,7 @@
 					float alpha = (a_pos.x + 1.0) / 2.0;
 					float d = length(u_pos2 - u_pos1);
 					float thickness = 0.002 / u_camera_scale;
+					// black magic
 					vec2 world_pos = u_pos1 + (u_pos2 - u_pos1) * mat2(alpha, a_pos.y / d * thickness, a_pos.y / d * -thickness, alpha);
 
 					vec2 clip_pos = -u_camera_pos + world_pos;
@@ -3127,7 +3132,7 @@
 				out vec4 out_color;
 
 				void main() {
-					out_color = vec4(1.0, 1.0, 1.0, 0.25);
+					out_color = vec4(0.5, 0.5, 0.5, 0.25);
 				}
 				`),
 			);
@@ -3435,7 +3440,7 @@
 				gl.uniform2f(uniforms.cell.u_camera_pos, cameraPosX, cameraPosY);
 				gl.uniform1f(uniforms.cell.u_camera_scale, cameraScale);
 				gl.uniform1f(uniforms.cell.u_outline_selected_thickness,
-					world.camera.merged ? settings.outlineMulti : 0);
+					world.camera.merged ? settings.outlineMulti : -Infinity);
 				gl.uniform4f(uniforms.cell.u_outline_selected_color, ...settings.outlineMultiColor);
 				gl.uniform4f(uniforms.cell.u_outline_inactive_color, ...settings.outlineMultiInactiveColor);
 
@@ -3521,12 +3526,12 @@
 					let { x, y, r, jx, jy, jr } = world.xyr(cell, map, now);
 					if (jellyPhysics) {
 						gl.uniform2f(uniforms.cell.u_pos, jx, jy);
-						gl.uniform1f(uniforms.cell.u_inner_radius, (settings.jellySkinLag ? r : jr) * 1.01);
-						gl.uniform1f(uniforms.cell.u_outer_radius, jr * 1.01);
+						gl.uniform1f(uniforms.cell.u_inner_radius, settings.jellySkinLag ? r : jr);
+						gl.uniform1f(uniforms.cell.u_outer_radius, jr);
 					} else {
 						gl.uniform2f(uniforms.cell.u_pos, x, y);
 						gl.uniform1f(uniforms.cell.u_inner_radius, r);
-						gl.uniform1f(uniforms.cell.u_outer_radius, r * 1.01);
+						gl.uniform1f(uniforms.cell.u_outer_radius, r);
 					}
 
 					gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 0);
