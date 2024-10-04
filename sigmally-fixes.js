@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.3.11
+// @version      2.3.12
 // @description  Easily 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -24,7 +24,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.3.11';
+	const sfVersion = '2.3.12';
 	// yes, this actually makes a significant difference
 	const undefined = window.undefined;
 
@@ -1343,7 +1343,7 @@
 	 * 	self: string,
 	 * 	camera: { tx: number, ty: number },
 	 * 	cells: { cells: Map<number, Cell>, pellets: Map<number, Cell> } | undefined,
-	 * 	owned: Map<number, { x: number, y: number, r: number } | false>,
+	 * 	owned: Map<number, { x: number, y: number, r: number, jx: number, jy: number, jr: number } | false>,
 	 * 	skin: string,
 	 * 	updated: { now: number, timeOrigin: number },
 	 * }} SyncData
@@ -1374,6 +1374,7 @@
 			for (const id of world.mine) {
 				const cell = world.cells.get(id);
 				if (!cell) continue;
+				
 				owned.set(id, world.xyr(cell, world, now));
 			}
 			for (const id of world.mineDead)
@@ -1531,12 +1532,15 @@
 				return;
 
 			// #4 : all tabs are synced, we can update the cells
+			const jellyPhysics = aux.setting('input#jellyPhysics', false);
 			for (const [offset, cell] of all.values()) {
 				const old = pellets.get(cell.id) ?? cells.get(cell.id);
 				if (old) {
-					const { x, y, r } = world.xyr(old, sync.merge, now);
+					const { x, y, r, jx, jy, jr } = world.xyr(old, sync.merge, now);
 					old.ox = x; old.oy = y; old.or = r;
+					old.jx = jx; old.jy = jy; old.jr = jr;
 					old.nx = cell.nx; old.ny = cell.ny; old.nr = cell.nr;
+
 					if (cell.deadAt !== undefined) {
 						if (old.deadAt === undefined) {
 							old.deadAt = now;
@@ -1554,9 +1558,9 @@
 					/** @type {Cell} */
 					const ncell = {
 						id: cell.id,
-						ox: cell.ox, nx: cell.nx,
-						oy: cell.oy, ny: cell.ny,
-						or: cell.or, nr: cell.nr,
+						ox: cell.ox, nx: cell.nx, jx: cell.jx,
+						oy: cell.oy, ny: cell.ny, jy: cell.jy,
+						or: cell.or, nr: cell.nr, jr: cell.jr,
 						Rgb: cell.Rgb, rGb: cell.rGb, rgB: cell.rgB,
 						jagged: cell.jagged,
 						name: cell.name, skin: cell.skin, sub: cell.sub, clan: cell.clan,
@@ -1603,9 +1607,9 @@
 	///////////////////////////
 	/** @typedef {{
 	 * id: number,
-	 * ox: number, nx: number,
-	 * oy: number, ny: number,
-	 * or: number, nr: number,
+	 * ox: number, nx: number, jx: number,
+	 * oy: number, ny: number, jy: number,
+	 * or: number, nr: number, jr: number,
 	 * Rgb: number, rGb: number, rgB: number,
 	 * updated: number, born: number, deadTo: number, deadAt: number | undefined,
 	 * jagged: boolean,
@@ -1630,7 +1634,7 @@
 		 * @param {Cell} cell
 		 * @param {{ cells: Map<number, Cell>, pellets: Map<number, Cell> }} map
 		 * @param {number} now
-		 * @returns {{ x: number, y: number, r: number }}
+		 * @returns {{ x: number, y: number, r: number, jx: number, jy: number, jr: number }}
 		 */
 		world.xyr = (cell, map, now) => {
 			let a = (now - cell.updated) / settings.drawDelay;
@@ -1646,10 +1650,16 @@
 				}
 			}
 
+			const x = cell.ox + (nx - cell.ox) * a;
+			const y = cell.oy + (ny - cell.oy) * a;
+			const r = cell.or + (cell.nr - cell.or) * a;
+
+			const dt = (now - cell.updated) / 1000;
 			return {
-				x: cell.ox + (nx - cell.ox) * a,
-				y: cell.oy + (ny - cell.oy) * a,
-				r: cell.or + (cell.nr - cell.or) * a,
+				x, y, r,
+				jx: aux.exponentialEase(cell.jx, x, 2, dt),
+				jy: aux.exponentialEase(cell.jy, y, 2, dt),
+				jr: aux.exponentialEase(cell.jr, r, 5, dt),
 			};
 		};
 
@@ -1659,109 +1669,94 @@
 			const dt = (now - last) / 1000;
 			last = now;
 
-			// move camera
-			let cameraX = 0;
-			let cameraY = 0;
-			let focused = false;
-			let zoomout = 1;
-
+			const jellyPhysics = aux.setting('input#jellyPhysics', false);
 			const map = (settings.mergeViewArea && sync.merge) ? sync.merge : world;
-			if (settings.mergeCamera) {
-				let localTotalR = 0;
-				let weight = 0;
+			const weight = settings.mergeCamera ? settings.mergeCameraWeight : 0;
 
-				for (const id of world.mine) {
+			/**
+			 * @param {Iterable<number>} owned
+			 * @param {Map<number, {
+			 * 	x: number, y: number, r: number, jx: number, jy: number, jr: number
+			 * } | false> | undefined} fallback
+			 * @returns {{
+			 * 	weightedX: number, weightedY: number, totalWeight: number,
+			 * 	scale: number, width: number, height: number
+			 * }}
+			 */
+			const cameraDesc = (owned, fallback) => {
+				let weightedX = 0;
+				let weightedY = 0;
+				let totalWeight = 0;
+				let totalR = 0;
+
+				for (const id of owned) {
+					/** @type {{ x: number, y: number, r: number, jx: number, jy: number, jr: number }} */
+					let xyr;
+
 					const cell = map.cells.get(id);
-					if (!cell || cell.deadAt !== undefined) continue;
+					if (!cell) {
+						const partial = fallback?.get(id);
+						if (!partial) continue;
+						xyr = partial;
+					} else if (cell.deadAt !== undefined) continue;
+					else xyr = world.xyr(cell, map, now);
 
-					const { x, y, r } = world.xyr(cell, map, now);
-					const weighted = r ** settings.mergeCameraWeight;
-					cameraX += x * weighted;
-					cameraY += y * weighted;
-					localTotalR += r;
-					weight += weighted;
+					if (jellyPhysics) {
+						const weighted = xyr.jr ** weight;
+						weightedX += xyr.jx * weighted;
+						weightedY += xyr.jy * weighted;
+						totalWeight += weighted;
+						totalR += xyr.jr;
+					} else {
+						const weighted = xyr.r ** weight;
+						weightedX += xyr.x * weighted;
+						weightedY += xyr.y * weighted;
+						totalWeight += weighted;
+						totalR += xyr.r;
+					}
 				}
 
-				const localX = (cameraX / weight) || 0;
-				const localY = (cameraY / weight) || 0;
-				const localScale = Math.min(64 / localTotalR, 1) ** 0.4;
-				const localWidth = 1920 / 2 / localScale;
-				const localHeight = 1080 / 2 / localScale;
+				const scale = Math.min(64 / totalR, 1) ** 0.4;
+				const width = 1920 / 2 / scale;
+				const height = 1080 / 2 / scale;
 
-				world.camera.merged = false;
-				if (localTotalR > 1) {
+				return { weightedX, weightedY, totalWeight, scale, width, height };
+			};
+
+			const localDesc = cameraDesc(world.mine, undefined);
+			let { weightedX, weightedY, totalWeight } = localDesc;
+			const localX = weightedX / totalWeight;
+			const localY = weightedY / totalWeight;
+			/** @type {number} */
+			let zoomout;
+
+			world.camera.merged = false;
+			if (settings.mergeCamera) {
+				zoomout = 0.25;
+				if (localDesc.totalWeight > 1) {
 					for (const data of sync.others.values()) {
-						let thisX = 0;
-						let thisY = 0;
-						let thisTotalR = 0;
-						let thisWeight = 0;
-						for (const [id, cell] of data.owned) {
-							const merged
-								= (settings.mergeViewArea && sync.merge) ? sync.merge.cells.get(id) : undefined;
-							if (merged && sync.merge) {
-								if (merged.deadAt !== undefined) continue;
-								const { x, y, r } = world.xyr(merged, sync.merge, now);
-								const weighted = r ** settings.mergeCameraWeight;
-								thisX += x * weighted;
-								thisY += y * weighted;
-								thisTotalR += r;
-								thisWeight += weighted;
-							} else if (cell) {
-								const weighted = cell.r ** settings.mergeCameraWeight;
-								thisX += cell.x * weighted;
-								thisY += cell.y * weighted;
-								thisTotalR += cell.r;
-								thisWeight += weighted;
-							}
-						}
+						const thisDesc = cameraDesc(data.owned.keys(), data.owned);
+						if (thisDesc.totalWeight <= 1) continue;
+						const thisX = thisDesc.weightedX / thisDesc.totalWeight;
+						const thisY = thisDesc.weightedY / thisDesc.totalWeight;
 
-						if (thisTotalR < 1) continue;
-
-						const thisCameraX = thisX / thisWeight;
-						const thisCameraY = thisY / thisWeight;
-						const thisScale = Math.min(64 / thisTotalR, 1) ** 0.4;
-						const thisWidth = 1920 / 2 / thisScale;
-						const thisHeight = 1080 / 2 / thisScale;
-
-						if (Math.abs(thisCameraX - localX) < localWidth + thisWidth + 1000
-							&& Math.abs(thisCameraY - localY) < localHeight + thisHeight + 1000) {
-							cameraX += thisX;
-							cameraY += thisY;
-							weight += thisWeight;
+						if (Math.abs(thisX - localX) < localDesc.width + thisDesc.width + 1000
+							&& Math.abs(thisY - localY) < localDesc.height + thisDesc.height + 1000) {
+							weightedX += thisDesc.weightedX;
+							weightedY += thisDesc.weightedY;
+							totalWeight += thisDesc.totalWeight;
 							world.camera.merged = true;
 						}
 					}
 				}
-
-				cameraX /= weight;
-				cameraY /= weight;
-				focused = weight >= 1;
-				zoomout = 0.25;
 			} else {
-				let totalCells = 0;
-				let totalR = 0;
-				for (const id of world.mine) {
-					const cell = map.cells.get(id);
-					if (!cell || cell.deadAt !== undefined) continue;
-
-					const { x, y, r } = world.xyr(cell, map, now);
-					cameraX += x;
-					cameraY += y;
-					totalR += r;
-					++totalCells;
-				}
-
-				cameraX /= totalCells;
-				cameraY /= totalCells;
-				focused = totalCells > 0;
-				zoomout = Math.min(64 / totalR, 1) ** 0.4;
-				world.camera.merged = false;
+				zoomout = localDesc.scale;
 			}
 
 			let xyEaseFactor;
-			if (focused) {
-				world.camera.tx = cameraX;
-				world.camera.ty = cameraY;
+			if (totalWeight >= 1) {
+				world.camera.tx = weightedX / totalWeight;
+				world.camera.ty = weightedY / totalWeight;
 				world.camera.tscale = zoomout * input.zoom;
 
 				xyEaseFactor = 2;
@@ -2074,8 +2069,9 @@
 
 						const cell = world.pellets.get(id) ?? world.cells.get(id);
 						if (cell && cell.deadAt === undefined) {
-							const { x: ix, y: iy, r: ir } = world.xyr(cell, world, now);
+							const { x: ix, y: iy, r: ir, jx, jy, jr } = world.xyr(cell, world, now);
 							cell.ox = ix; cell.oy = iy; cell.or = ir;
+							cell.jx = jx; cell.jy = jy; cell.jr = jr;
 							cell.nx = x; cell.ny = y; cell.nr = r;
 							cell.jagged = jagged;
 							cell.updated = now;
@@ -2105,9 +2101,9 @@
 							/** @type {Cell} */
 							const ncell = {
 								id,
-								ox: x, nx: x,
-								oy: y, ny: y,
-								or: r, nr: r,
+								ox: x, nx: x, jx: x,
+								oy: y, ny: y, jy: y,
+								or: r, nr: r, jr: r,
 								Rgb: Rgb ?? 1, rGb: rGb ?? 1, rgB: rgB ?? 1,
 								jagged,
 								updated: now, born: now,
@@ -3411,6 +3407,7 @@
 			const showMinimap = aux.setting('input#showMinimap', true);
 			const showNames = aux.setting('input#showNames', true);
 			const showSkins = aux.setting('input#showSkins', true);
+			const jellyPhysics = aux.setting('input#jellyPhysics', false);
 
 			/** @type {HTMLInputElement | null} */
 			const nickElement = document.querySelector('input#nick');
@@ -3521,10 +3518,16 @@
 					alpha = alpha > 1 ? 1 : alpha < 0 ? 0 : alpha;
 					gl.uniform1f(uniforms.cell.u_alpha, alpha * settings.cellOpacity);
 
-					const { x, y, r } = world.xyr(cell, map, now);
-					gl.uniform2f(uniforms.cell.u_pos, x, y);
-					gl.uniform1f(uniforms.cell.u_inner_radius, r * 1.01);
-					gl.uniform1f(uniforms.cell.u_outer_radius, r * 1.01);
+					let { x, y, r, jx, jy, jr } = world.xyr(cell, map, now);
+					if (jellyPhysics) {
+						gl.uniform2f(uniforms.cell.u_pos, jx, jy);
+						gl.uniform1f(uniforms.cell.u_inner_radius, (settings.jellySkinLag ? r : jr) * 1.01);
+						gl.uniform1f(uniforms.cell.u_outer_radius, jr * 1.01);
+					} else {
+						gl.uniform2f(uniforms.cell.u_pos, x, y);
+						gl.uniform1f(uniforms.cell.u_inner_radius, r);
+						gl.uniform1f(uniforms.cell.u_outer_radius, r * 1.01);
+					}
 
 					gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 0);
 					gl.uniform1i(uniforms.cell.u_selected, 0);
@@ -3617,8 +3620,11 @@
 					gl.useProgram(programs.text);
 
 					gl.uniform1f(uniforms.text.u_alpha, alpha);
-					gl.uniform2f(uniforms.text.u_pos, x, y);
-					gl.uniform1f(uniforms.text.u_radius, r);
+					if (jellyPhysics)
+						gl.uniform2f(uniforms.text.u_pos, jx, jy);
+					else
+						gl.uniform2f(uniforms.text.u_pos, x, y);
+					gl.uniform1f(uniforms.text.u_radius, r); // jelly physics never affects the text *size*
 
 					let useSilhouette = false;
 					if (cell.sub) {
@@ -3734,8 +3740,11 @@
 						const cell = map.cells.get(id);
 						if (!cell) return;
 
-						const { x, y } = world.xyr(cell, map, now);
-						gl.uniform2f(uniforms.tracer.u_pos1, x, y);
+						let { x, y, jx, jy } = world.xyr(cell, map, now);
+						if (jellyPhysics)
+							gl.uniform2f(uniforms.tracer.u_pos1, jx, jy);
+						else
+							gl.uniform2f(uniforms.tracer.u_pos1, x, y);
 
 						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 					});
