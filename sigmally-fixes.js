@@ -956,6 +956,7 @@
 			// delta's default colors, #ff00aa and #ffffff
 			outlineMultiColor: /** @type {[number, number, number, number]} */ ([1, 0, 2/3, 1]),
 			outlineMultiInactiveColor: /** @type {[number, number, number, number]} */ ([1, 1, 1, 1]),
+			rtx: false,
 			scrollFactor: 1,
 			selfSkin: '',
 			syncSkin: true,
@@ -1257,6 +1258,8 @@
 			'Whether your custom skin should be shown on your other tabs too.');
 		checkbox('tracer', 'Lines between cells and mouse', 'If enabled, draws a line between all of the cells you ' +
 			'control and your mouse. Useful as a hint to your subconscious about which tab you\'re currently on.');
+		checkbox('rtx', 'RTX', 'Adds a glow effect to every cell. There is no "RTX" technology, it\'s just a ' +
+			'funny name.');
 		separator();
 		checkbox('mergeCamera', 'Merge camera between tabs',
 			'Whether to place the camera in between your nearby tabs. This makes tab changes while multiboxing ' +
@@ -1532,7 +1535,6 @@
 				return;
 
 			// #4 : all tabs are synced, we can update the cells
-			const jellyPhysics = aux.setting('input#jellyPhysics', false);
 			for (const [offset, cell] of all.values()) {
 				const old = pellets.get(cell.id) ?? cells.get(cell.id);
 				if (old) {
@@ -3030,6 +3032,58 @@
 
 
 
+			programs.cellGlow = program(
+				'cellGlow',
+				shader('cellGlow.vShader', gl.VERTEX_SHADER, `#version 300 es
+				layout(location = 0) in vec2 a_pos;
+
+				uniform float u_aspect_ratio;
+				uniform vec2 u_camera_pos;
+				uniform float u_camera_scale;
+
+				uniform vec2 u_pos;
+				uniform float u_radius;
+
+				out vec2 v_pos;
+
+				void main() {
+					v_pos = a_pos;
+
+					// should probably make the 4.0 a setting
+					vec2 clip_pos = -u_camera_pos + u_pos + a_pos * (u_radius * 4.0 + 50.0);
+					clip_pos *= u_camera_scale * vec2(1.0 / u_aspect_ratio, -1.0);
+					gl_Position = vec4(clip_pos, 0, 1);
+				}
+				`),
+				shader('cellGlow.fShader', gl.FRAGMENT_SHADER, `#version 300 es
+				precision highp float;
+				in vec2 v_pos;
+
+				uniform float u_camera_scale;
+
+				uniform float u_alpha;
+				uniform vec4 u_color;
+				uniform float u_radius;
+
+				out vec4 out_color;
+
+				void main() {
+					float d2 = v_pos.x * v_pos.x + v_pos.y * v_pos.y;
+					// 20 radius (4 mass) => 0.1
+					// 200 radius (400 mass) => 0.15
+					// 2000 radius (40,000 mass) => 0.2
+					float strength = log(5.0 * u_radius) / log(10.0) * 0.05;
+					out_color = vec4(u_color.rgb, u_color.a * u_alpha * (1.0 - pow(d2, 0.25)) * strength);
+				}
+				`),
+			);
+			uniforms.cellGlow = getUniforms('cellGlow', programs.cellGlow, [
+				'u_aspect_ratio', 'u_camera_pos', 'u_camera_scale',
+				'u_alpha', 'u_color', 'u_pos', 'u_radius',
+			]);
+
+
+
 			programs.text = program(
 				'text',
 				shader('text.vShader', gl.VERTEX_SHADER, `#version 300 es
@@ -3444,6 +3498,11 @@
 				gl.uniform4f(uniforms.cell.u_outline_selected_color, ...settings.outlineMultiColor);
 				gl.uniform4f(uniforms.cell.u_outline_inactive_color, ...settings.outlineMultiInactiveColor);
 
+				gl.useProgram(programs.cellGlow);
+				gl.uniform1f(uniforms.cellGlow.u_aspect_ratio, aspectRatio);
+				gl.uniform2f(uniforms.cellGlow.u_camera_pos, cameraPosX, cameraPosY);
+				gl.uniform1f(uniforms.cellGlow.u_camera_scale, cameraScale);
+
 				gl.useProgram(programs.text);
 				gl.uniform1f(uniforms.text.u_aspect_ratio, aspectRatio);
 				gl.uniform2f(uniforms.text.u_camera_pos, cameraPosX, cameraPosY);
@@ -3510,20 +3569,29 @@
 
 				/**
 				 * @param {Cell} cell
+				 * @returns {number}
 				 */
-				function draw(cell) {
-					// #1 : draw cell
-					gl.useProgram(programs.cell);
-
+				const calcAlpha = cell => {
 					let alpha = (now - cell.born) / 100;
 					if (cell.deadAt !== undefined) {
 						const alpha2 = 1 - (now - cell.deadAt) / 100;
 						if (alpha2 < alpha) alpha = alpha2;
 					}
 					alpha = alpha > 1 ? 1 : alpha < 0 ? 0 : alpha;
+					return alpha;
+				}
+
+				/**
+				 * @param {Cell} cell
+				 */
+				function draw(cell) {
+					// #1 : draw cell
+					gl.useProgram(programs.cell);
+
+					const alpha = calcAlpha(cell);
 					gl.uniform1f(uniforms.cell.u_alpha, alpha * settings.cellOpacity);
 
-					let { x, y, r, jx, jy, jr } = world.xyr(cell, map, now);
+					const { x, y, r, jx, jy, jr } = world.xyr(cell, map, now);
 					if (jellyPhysics) {
 						gl.uniform2f(uniforms.cell.u_pos, jx, jy);
 						gl.uniform1f(uniforms.cell.u_inner_radius, settings.jellySkinLag ? r : jr);
@@ -3733,6 +3801,38 @@
 				sorted.sort(([_a, ar], [_b, br]) => ar - br);
 				for (const [cell] of sorted)
 					draw(cell);
+
+				// redraw if using rtx
+				if (settings.rtx) {
+					gl.blendFunc(gl.SRC_ALPHA, gl.ONE); // additive blending
+					gl.useProgram(programs.cellGlow);
+
+					/** @param {Cell} cell */
+					const drawRtx = cell => {
+						gl.uniform1f(uniforms.cellGlow.u_alpha, calcAlpha(cell) * settings.cellOpacity);
+						gl.uniform4f(uniforms.cellGlow.u_color, cell.Rgb, cell.rGb, cell.rgB, 1);
+
+						const { x, y, r, jx, jy, jr } = world.xyr(cell, map, now);
+						if (jellyPhysics) {
+							gl.uniform2f(uniforms.cellGlow.u_pos, jx, jy);
+							gl.uniform1f(uniforms.cellGlow.u_radius, jr);
+						} else {
+							gl.uniform2f(uniforms.cellGlow.u_pos, x, y);
+							gl.uniform1f(uniforms.cellGlow.u_radius, r);
+						}
+
+						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+					};
+
+					if (!aux.sigmodSettings?.hidePellets)
+						for (const cell of map.pellets.values())
+							drawRtx(cell);
+
+					for (const [cell] of sorted)
+						drawRtx(cell);
+
+					gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+				}
 
 				// draw tracers
 				if (settings.tracer) {
