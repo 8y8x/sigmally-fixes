@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.3.12
+// @version      2.3.13
 // @description  Easily 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -24,7 +24,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.3.12';
+	const sfVersion = '2.3.13';
 	// yes, this actually makes a significant difference
 	const undefined = window.undefined;
 
@@ -1735,10 +1735,10 @@
 			world.camera.merged = false;
 			if (settings.mergeCamera) {
 				zoomout = 0.25;
-				if (localDesc.totalWeight > 1) {
+				if (localDesc.totalWeight > 0) {
 					for (const data of sync.others.values()) {
 						const thisDesc = cameraDesc(data.owned.keys(), data.owned);
-						if (thisDesc.totalWeight <= 1) continue;
+						if (thisDesc.totalWeight <= 0) continue;
 						const thisX = thisDesc.weightedX / thisDesc.totalWeight;
 						const thisY = thisDesc.weightedY / thisDesc.totalWeight;
 
@@ -1756,7 +1756,7 @@
 			}
 
 			let xyEaseFactor;
-			if (totalWeight >= 1) {
+			if (totalWeight > 0) {
 				world.camera.tx = weightedX / totalWeight;
 				world.camera.ty = weightedY / totalWeight;
 				world.camera.tscale = zoomout * input.zoom;
