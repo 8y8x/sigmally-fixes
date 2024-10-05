@@ -9,8 +9,13 @@
 		"Keep the alert short and unintrusive, as it shifts all the buttons down and out of the main UI.",
 		"No HTML; the < and > characters are stripped."
 	],
-	"2.3.12": {
+	"2.3.13": {
 		"ok": true
+	},
+	"2.3.12": {
+		"ok": false,
+		"alert": "The multibox camera may sometimes break in Sigmally Fixes 2.3.12. {autolink} to update.",
+		"color": "#fc0"
 	},
 	"2.3.11": {
 		"ok": true
