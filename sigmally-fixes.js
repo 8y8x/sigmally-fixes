@@ -187,7 +187,7 @@
 				};
 				applyColor('cellColor', [sigmod.game?.cellColor]);
 				applyColor('foodColor', [sigmod.game?.foodColor]);
-				applyColor('mapColor', [sigmod.mapColor]);
+				applyColor('mapColor', [sigmod.game?.map?.color, sigmod.mapColor]);
 				// sigmod treats the map border as cell borders for some reason
 				if (!['#00f', '#00f0', '#0000ff', '#000000ffff'].includes(sigmod.game?.borderColor))
 					applyColor('outlineColor', [sigmod.game?.borderColor]);
@@ -1384,7 +1384,7 @@
 				owned.set(id, false);
 
 			// it is stupidly expensive to replicate pellets, so make sure we can disable it
-			const hidePellets = aux.sigmod?.fps?.hideFood;
+			const hidePellets = aux.sigmodSettings?.hidePellets;
 
 			/** @type {SyncData} */
 			const syncData = {
