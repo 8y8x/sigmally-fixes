@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.3.13
+// @version      2.3.14
 // @description  Easily 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -24,7 +24,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.3.13';
+	const sfVersion = '2.3.14';
 	// yes, this actually makes a significant difference
 	const undefined = window.undefined;
 
@@ -1407,8 +1407,10 @@
 
 		frame.addEventListener('message', () => {
 			// only update the world if we aren't rendering ourselves (example case: games open on two monitors)
-			if (document.visibilityState === 'hidden')
+			if (document.visibilityState === 'hidden') {
+				input.move();
 				world.update();
+			}
 
 			// might be preferable over document.visibilityState
 			if (!document.hasFocus())
@@ -2426,7 +2428,13 @@
 			return ui.escOverlayVisible() || document.activeElement?.tagName === 'INPUT';
 		}
 
-		setInterval(() => {
+		let lastMovement = performance.now();
+		input.move = () => {
+			// called every frame because tabbing out reduces setInterval frequency, which messes up mouse flick fixes
+			const now = performance.now();
+			if (now - lastMovement < 40) return;
+			lastMovement = now;
+
 			// if holding w with sigmod, tabbing out, then tabbing in, avoid spitting out only one W
 			const consumedForceW = forceW;
 			forceW = false;
@@ -2436,7 +2444,7 @@
 			mouse();
 
 			if (consumedForceW || w) net.w();
-		}, 40);
+		};
 
 		// anti-afk when another tab is playing
 		let lastCheck = performance.now();
@@ -2961,7 +2969,7 @@
 				void main() {
 					float radius_with_stroke = max(u_outer_radius + 10.0, u_outer_radius * 1.02);
 					v_pos = a_pos * (radius_with_stroke / u_outer_radius);
-					v_t_coord = a_pos / (u_inner_radius / u_outer_radius) * 0.5 + 0.5;
+					v_t_coord = (v_pos * 0.5 + 0.5) * (u_outer_radius / u_inner_radius);
 
 					vec2 clip_pos = -u_camera_pos + u_pos + v_pos * u_outer_radius;
 					clip_pos *= u_camera_scale * vec2(1.0 / u_aspect_ratio, -1.0);
@@ -2999,8 +3007,11 @@
 					out_color = u_color;
 
 					if (u_texture_enabled) {
-						vec4 tc = texture(u_texture, v_t_coord);
-						out_color = out_color * (1.0 - tc.a) + tc;
+						// make sure the image clipping is square!
+						if (0.0 <= v_t_coord.x && v_t_coord.x <= 1.0 && 0.0 <= v_t_coord.y && v_t_coord.y <= 1.0) {
+							vec4 tc = texture(u_texture, v_t_coord);
+							out_color = out_color * (1.0 - tc.a) + tc;
+						}
 					}
 
 					if (u_subtle_outline) {
@@ -3474,6 +3485,7 @@
 
 			// note: most routines are named, for benchmarking purposes
 			(function updateCells() {
+				input.move();
 				world.update();
 				sync.frame();
 			})();
@@ -3809,6 +3821,8 @@
 
 					/** @param {Cell} cell */
 					const drawRtx = cell => {
+						if (cell.jagged) return;
+
 						gl.uniform1f(uniforms.cellGlow.u_alpha, calcAlpha(cell) * settings.cellOpacity);
 						gl.uniform4f(uniforms.cellGlow.u_color, cell.Rgb, cell.rGb, cell.rgB, 1);
 
