@@ -2969,7 +2969,7 @@
 				void main() {
 					float radius_with_stroke = max(u_outer_radius + 10.0, u_outer_radius * 1.02);
 					v_pos = a_pos * (radius_with_stroke / u_outer_radius);
-					v_t_coord = (v_pos * 0.5 + 0.5) * (u_outer_radius / u_inner_radius);
+					v_t_coord = (v_pos * (u_outer_radius / u_inner_radius)) * 0.5 + 0.5;
 
 					vec2 clip_pos = -u_camera_pos + u_pos + v_pos * u_outer_radius;
 					clip_pos *= u_camera_scale * vec2(1.0 / u_aspect_ratio, -1.0);
@@ -3824,7 +3824,13 @@
 						if (cell.jagged) return;
 
 						gl.uniform1f(uniforms.cellGlow.u_alpha, calcAlpha(cell) * settings.cellOpacity);
-						gl.uniform4f(uniforms.cellGlow.u_color, cell.Rgb, cell.rGb, cell.rgB, 1);
+
+						if (cell.nr <= 20 && foodColor)
+							gl.uniform4f(uniforms.cellGlow.u_color, ...foodColor);
+						else if (cellColor)
+							gl.uniform4f(uniforms.cellGlow.u_color, ...cellColor);
+						else
+							gl.uniform4f(uniforms.cellGlow.u_color, cell.Rgb, cell.rGb, cell.rgB, 1);
 
 						const { x, y, r, jx, jy, jr } = world.xyr(cell, map, now);
 						if (jellyPhysics) {
