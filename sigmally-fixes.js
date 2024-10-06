@@ -1196,7 +1196,7 @@
 				};
 				input.addEventListener('input', changed);
 				visible.addEventListener('input', changed);
-			
+
 				onSaves.add(() => {
 					input.value = aux.rgba2hex6(...settings[property]);
 					visible.checked = settings[property][3] > 0;
@@ -1284,8 +1284,7 @@
 			'non-Chrome browsers probably won\'t respect this setting.');
 		checkbox('blockNearbyRespawns', 'Block respawns near other tabs',
 			'Disables the respawn keybind when near one of your bigger tabs.');
-		checkbox('rtx', 'RTX', 'Adds a glow effect to every cell. There is no "RTX" technology, it\'s just a ' +
-			'funny name.');
+		checkbox('rtx', 'RTX', 'Makes everything glow. (Not actually ray-tracing shaders!)');
 		separator();
 		slider('nameScaleFactor', 'Name scale factor', 1, 0.5, 2, 0.01, 2, false, 'The size multiplier of names.');
 		slider('massScaleFactor', 'Mass scale factor', 1, 0.5, 4, 0.01, 2, false,
@@ -1377,7 +1376,7 @@
 			for (const id of world.mine) {
 				const cell = world.cells.get(id);
 				if (!cell) continue;
-				
+
 				owned.set(id, world.xyr(cell, world, now));
 			}
 			for (const id of world.mineDead)
@@ -3183,7 +3182,8 @@
 					float d = length(u_pos2 - u_pos1);
 					float thickness = 0.002 / u_camera_scale;
 					// black magic
-					vec2 world_pos = u_pos1 + (u_pos2 - u_pos1) * mat2(alpha, a_pos.y / d * thickness, a_pos.y / d * -thickness, alpha);
+					vec2 world_pos = u_pos1 + (u_pos2 - u_pos1)
+						* mat2(alpha, a_pos.y / d * thickness, a_pos.y / d * -thickness, alpha);
 
 					vec2 clip_pos = -u_camera_pos + world_pos;
 					clip_pos *= u_camera_scale * vec2(1.0 / u_aspect_ratio, -1.0);
@@ -3591,7 +3591,7 @@
 					}
 					alpha = alpha > 1 ? 1 : alpha < 0 ? 0 : alpha;
 					return alpha;
-				}
+				};
 
 				/**
 				 * @param {Cell} cell
