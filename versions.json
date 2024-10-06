@@ -9,8 +9,13 @@
 		"Keep the alert short and unintrusive, as it shifts all the buttons down and out of the main UI.",
 		"No HTML; the < and > characters are stripped."
 	],
-	"2.3.13": {
+	"2.3.14": {
 		"ok": true
+	},
+	"2.3.13": {
+		"ok": false,
+		"alert": "Sigmally Fixes 2.3.13 has multiple new bugs. {autolink} to update.",
+		"color": "#fc0"
 	},
 	"2.3.12": {
 		"ok": false,
