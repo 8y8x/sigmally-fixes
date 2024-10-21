@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.3.15
+// @version      2.3.16
 // @description  Easily 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -24,7 +24,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.3.15';
+	const sfVersion = '2.3.16';
 	// yes, this actually makes a significant difference
 	const undefined = window.undefined;
 
@@ -1550,9 +1550,9 @@
 							old.deadTo = cell.deadTo;
 						}
 					} else if (old.deadAt !== undefined) {
-						old.ox = old.nx;
-						old.oy = old.ny;
-						old.or = old.nr;
+						old.ox = old.jx = old.nx;
+						old.oy = old.jy = old.ny;
+						old.or = old.jr = old.nr;
 						old.deadTo = -1;
 						old.deadAt = undefined;
 					}
@@ -2958,22 +2958,26 @@
 				uniform vec2 u_camera_pos;
 				uniform float u_camera_scale;
 
-				uniform float u_radius_stroke;
+				uniform float u_radius;
+				uniform float u_radius_skin;
 				uniform vec2 u_pos;
 
-				out vec2 v_pos; // -1 to 1, based on u_radius_stroke
+				out vec2 v_pos;
+				out vec2 v_uv;
 
 				void main() {
 					v_pos = a_pos;
+					v_uv = a_pos * (u_radius / u_radius_skin) * 0.5 + 0.5;
 
-					vec2 clip_pos = -u_camera_pos + u_pos + v_pos * u_radius_stroke;
+					vec2 clip_pos = -u_camera_pos + u_pos + v_pos * u_radius;
 					clip_pos *= u_camera_scale * vec2(1.0 / u_aspect_ratio, -1.0);
 					gl_Position = vec4(clip_pos, 0, 1);
 				}
 				`),
 				shader('cell.fShader', gl.FRAGMENT_SHADER, `#version 300 es
 				precision highp float;
-				in vec2 v_pos; // -1 to 1, based on u_radius_stroke
+				in vec2 v_pos;
+				in vec2 v_uv;
 
 				uniform float u_camera_scale;
 
@@ -2983,9 +2987,9 @@
 				uniform vec4 u_outline_inactive_color;
 				uniform vec4 u_outline_selected_color;
 				uniform float u_outline_selected_thickness;
+				uniform vec4 u_outline_unsplittable_color;
 				uniform float u_radius;
 				uniform float u_radius_skin;
-				uniform float u_radius_stroke;
 				uniform int u_selected;
 				uniform bool u_subtle_outline;
 				uniform sampler2D u_texture;
@@ -3000,40 +3004,37 @@
 					out_color = u_color;
 
 					if (u_texture_enabled) {
-						// draw texture according to u_radius_skin, with *square* clipping
-						// not sure why i have to do u_radius_stroke / u_radius_skin but oh well
-						vec2 uv = v_pos * (u_radius_stroke / u_radius_skin) * 0.5 + 0.5;
-						float outer_offset = max(max(0.0 - uv.x, uv.x - 1.0), max(0.0 - uv.y, uv.y - 1.0));
-						// <0 if within range, >0 if out of range
-
-						vec4 tc = texture(u_texture, uv);
-						tc.a *= clamp(1.0 - blur * outer_offset, 0.0, 1.0);
-						out_color = out_color * (1.0 - tc.a) + tc;
+						// square clipping, outskirts should use the cell color
+						if (0.0 <= min(v_uv.x, v_uv.y) && max(v_uv.x, v_uv.y) <= 1.0) {
+							vec4 tc = texture(u_texture, v_uv);
+							out_color = out_color * (1.0 - tc.a) + tc;
+						}
 					}
 
+					float subtle_thickness = max(u_radius * 0.02, 10.0);
 					if (u_subtle_outline) {
-						// subtle outline double the width of u_radius_stroke - u_radius
-						float inner_radius = u_radius_stroke - 2.0 * (u_radius_stroke - u_radius);
-						float a = clamp(blur * (d - inner_radius / u_radius_stroke), 0.0, 1.0) * u_color.a;
-						out_color.rgb = out_color.rgb * (1.0 - a) + u_color.rgb * 0.9 * a;
+						float inner_radius = (u_radius - subtle_thickness) / u_radius;
+						float a = clamp(blur * (d - inner_radius), 0.0, 1.0) * u_outline_color.a;
+						out_color.rgb = out_color.rgb * (1.0 - a) + u_outline_color.rgb * a;
 					}
 
 					if (u_selected > 0) {
 						// thick multibox outline, a % of the visible cell radius
 						float inv_thickness = 1.0 - u_outline_selected_thickness;
 						vec4 outline = (u_selected == 1) ? u_outline_selected_color : u_outline_inactive_color;
-						float a = clamp(blur * (d - inv_thickness*inv_thickness), 0.0, 1.0) * outline.a;
+						float a = clamp(blur * (d - inv_thickness), 0.0, 1.0) * outline.a;
 						out_color.rgb = out_color.rgb * (1.0 - a) + outline.rgb * a;
 					}
 
-					// unsplittable cell outline, 'twice' the thickness of the subtle outline
-					float inner_radius = u_radius_stroke - 3.0 * (u_radius_stroke - u_radius);
-					float oa = clamp(blur * (d - inner_radius / u_radius_stroke), 0.0, 1.0) * u_outline_color.a;
-					out_color.rgb = out_color.rgb * (1.0 - oa) + u_outline_color.rgb * oa;
+					// unsplittable cell outline, 2x the subtle thickness
+					// (except at small sizes, it shouldn't look overly thick)
+					float unsplittable_thickness = max(u_radius * 0.04, 10.0);
+					float inner_radius = (u_radius - unsplittable_thickness) / u_radius;
+					float oa = clamp(blur * (d - inner_radius), 0.0, 1.0) * u_outline_unsplittable_color.a;
+					out_color.rgb = out_color.rgb * (1.0 - oa) + u_outline_unsplittable_color.rgb * oa;
 
 					// final circle mask
-					float radius = u_subtle_outline ? 1.0 : u_radius / u_radius_stroke;
-					float a = clamp(-blur * (d - radius), 0.0, 1.0);
+					float a = clamp(-blur * (d - 1.0), 0.0, 1.0);
 					out_color.a *= a * u_alpha;
 				}
 				`),
@@ -3041,8 +3042,8 @@
 			uniforms.cell = getUniforms('cell', programs.cell, [
 				'u_aspect_ratio', 'u_camera_pos', 'u_camera_scale',
 				'u_alpha', 'u_color', 'u_outline_color', 'u_outline_inactive_color', 'u_outline_selected_thickness',
-				'u_outline_selected_color', 'u_pos', 'u_radius', 'u_radius_skin', 'u_radius_stroke', 'u_selected',
-				'u_subtle_outline', 'u_texture_enabled',
+				'u_outline_selected_color', 'u_outline_unsplittable_color', 'u_pos', 'u_radius', 'u_radius_skin',
+				'u_selected', 'u_subtle_outline', 'u_texture_enabled',
 			]);
 
 
@@ -3609,27 +3610,30 @@
 					gl.uniform1f(uniforms.cell.u_alpha, alpha * settings.cellOpacity);
 
 					const { x, y, r, jx, jy, jr } = world.xyr(cell, map, now);
+					// without jelly physics, the radius of cells is adjusted such that its subtle outline doesn't go
+					// past its original radius.
+					// jelly physics does not do this, so colliding cells need to look kinda 'joined' together,
+					// so we multiply the radius by 1.01 (approximately the size increase from the stroke thickness)
 					if (jellyPhysics) {
 						gl.uniform2f(uniforms.cell.u_pos, jx, jy);
-						gl.uniform1f(uniforms.cell.u_radius, jr);
-						gl.uniform1f(uniforms.cell.u_radius_skin, settings.jellySkinLag ? r : jr);
-						gl.uniform1f(uniforms.cell.u_radius_stroke, Math.max(jr + 5, jr * 1.01));
+						gl.uniform1f(uniforms.cell.u_radius, jr * 1.01);
+						gl.uniform1f(uniforms.cell.u_radius_skin, (settings.jellySkinLag ? r : jr) * 1.01);
 					} else {
 						gl.uniform2f(uniforms.cell.u_pos, x, y);
 						gl.uniform1f(uniforms.cell.u_radius, r);
 						gl.uniform1f(uniforms.cell.u_radius_skin, r);
-						gl.uniform1f(uniforms.cell.u_radius_stroke, Math.max(r + 5, r * 1.01));
 					}
 
-					gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 0);
 					gl.uniform1i(uniforms.cell.u_selected, 0);
-
+					gl.uniform4f(uniforms.cell.u_outline_unsplittable_color, 0, 0, 0, 0);
+					
 					if (cell.jagged) {
 						const virusTexture = textureFromCache(virusSrc);
 						if (!virusTexture)
 							return;
-
+						
 						gl.uniform4f(uniforms.cell.u_color, 0, 0, 0, 0);
+						gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 0);
 						gl.uniform1i(uniforms.cell.u_texture_enabled, 1);
 						gl.bindTexture(gl.TEXTURE_2D, virusTexture);
 
@@ -3656,6 +3660,9 @@
 					if (cell.nr > 20) {
 						if (outlineColor)
 							gl.uniform4f(uniforms.cell.u_outline_color, ...outlineColor);
+						else
+							gl.uniform4f(uniforms.cell.u_outline_color,
+								cell.Rgb * 0.9, cell.rGb * 0.9, cell.rgB * 0.9, 1);
 
 						const myIndex = world.mine.indexOf(cell.id);
 						if (myIndex !== -1) {
@@ -3663,9 +3670,11 @@
 
 							if (!canSplit[myIndex] && settings.unsplittableOpacity > 0) {
 								if (darkTheme)
-									gl.uniform4f(uniforms.cell.u_outline_color, 1, 1, 1, settings.unsplittableOpacity);
+									gl.uniform4f(uniforms.cell.u_outline_unsplittable_color,
+										1, 1, 1, settings.unsplittableOpacity);
 								else
-									gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, settings.unsplittableOpacity);
+									gl.uniform4f(uniforms.cell.u_outline_unsplittable_color,
+										0, 0, 0, settings.unsplittableOpacity);
 							}
 						}
 
