@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.3.16
+// @version      2.3.17
 // @description  Easily 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -24,7 +24,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.3.16';
+	const sfVersion = '2.3.17';
 	// yes, this actually makes a significant difference
 	const undefined = window.undefined;
 
@@ -2617,15 +2617,18 @@
 					if (grecaptcha?.ready && CAPTCHA2 && CAPTCHA3) {
 						const handlers = onGrecaptchaReady;
 						onGrecaptchaReady = undefined;
-						grecaptcha.ready(() => handlers.forEach(cb => cb()));
 
-						// prevent game.js from using grecaptcha and messing things up
-						/** @type {any} */ (window).grecaptcha = {
-							execute: () => { },
-							ready: () => { },
-							render: () => { },
-							reset: () => { },
-						};
+						grecaptcha.ready(() => {
+							handlers.forEach(cb => cb());
+							// prevent game.js from using grecaptcha and messing things up
+							({ grecaptcha } = /** @type {any} */ (window));
+							/** @type {any} */ (window).grecaptcha = {
+								execute: () => { },
+								ready: () => { },
+								render: () => { },
+								reset: () => { },
+							};
+						});
 					}
 				}
 
