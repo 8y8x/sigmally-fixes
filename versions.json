@@ -10,6 +10,9 @@
 		"No HTML; the < and > characters are stripped."
 	],
 	"2.3.17": {
+		"ok": false,
+		"alert": "To play, turn off mods and join a game, then enable them again. Sigmally Fixes will be updated soon.",
+		"color": "#fc0"
 	},
 	"2.3.16": {
 		"ok": false,
