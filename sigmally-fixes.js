@@ -2703,6 +2703,8 @@
 			/** @type {number | undefined} */
 			let v2Handle;
 
+			input.captchaAcceptedAt = undefined;
+
 			/**
 			 * @param {string} url
 			 * @param {string} variant
@@ -2722,6 +2724,7 @@
 							if (res.status === 'complete') {
 								token = used;
 								play.disabled = spectate.disabled = false;
+								input.captchaAcceptedAt = performance.now();
 							}
 						})
 						.catch(err => {
