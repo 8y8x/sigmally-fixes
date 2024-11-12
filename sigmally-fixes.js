@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.3.17
+// @version      2.3.18
 // @description  Easily 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -24,7 +24,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.3.17';
+	const sfVersion = '2.3.18';
 	// yes, this actually makes a significant difference
 	const undefined = window.undefined;
 
@@ -1836,13 +1836,14 @@
 		/** @type {number | undefined} */
 		let pendingPingFrom;
 		let pingInterval;
-		let reconnectAttempts = 0;
+		let wasOpen = false;
 		/** @type {WebSocket} */
 		let ws;
 
 		/** -1 if ping reply took too long @type {number | undefined} */
 		net.latency = undefined;
 		net.ready = false;
+		net.rejected = false;
 
 		// #2 : connecting/reconnecting the websocket
 		/** @type {HTMLSelectElement | null} */
@@ -1850,13 +1851,17 @@
 		/** @type {HTMLOptionElement | null} */
 		const firstGamemode = document.querySelector('#gamemode option');
 
-		function connect() {
+		net.url = () => {
 			let server = 'wss://' + (gamemode?.value || firstGamemode?.value || 'ca0.sigmally.com/ws/');
 			if (location.search.startsWith('?ip='))
 				server = location.search.slice('?ip='.length);
 
+			return server;
+		};
+
+		function connect() {
 			try {
-				ws = new destructor.realWebSocket(server);
+				ws = new destructor.realWebSocket(net.url());
 			} catch (err) {
 				console.error('can\'t make WebSocket:', err);
 				aux.require(null, 'The server is invalid. Try changing the server, reloading the page, or clearing ' +
@@ -1879,6 +1884,8 @@
 
 			net.latency = undefined;
 			net.ready = false;
+			if (!wasOpen) net.rejected = true;
+			wasOpen = false;
 
 			// hide/clear UI
 			ui.stats.misc.textContent = '';
@@ -1893,9 +1900,31 @@
 			while (world.mine.length) world.mine.pop();
 			world.mineDead.clear();
 			sync.broadcast(performance.now());
-
-			setTimeout(connect, 500 * Math.min(++reconnectAttempts, 10));
 		}
+
+		let reconnectAttempts = 0;
+		/** @type {number | undefined} */
+		let willReconnectAt;
+		setInterval(() => {
+			// retry after 500, 1000, 1500, 3000ms of closing
+			// OR if a captcha was (very recently) accepted
+			if (ws.readyState !== WebSocket.CLOSING && ws.readyState !== WebSocket.CLOSED)
+				return;
+
+			const now = performance.now();
+			if (input.captchaAcceptedAt && now - input.captchaAcceptedAt <= 3000) {
+				willReconnectAt = undefined;
+				connect();
+				return;
+			}
+
+			if (willReconnectAt === undefined) {
+				willReconnectAt = now + Math.min(500 * ++reconnectAttempts, 3000);
+			} else if (now >= willReconnectAt) {
+				willReconnectAt = undefined;
+				connect();
+			}
+		}, 50);
 
 		/** @param {Event} err */
 		function wsError(err) {
@@ -1903,6 +1932,8 @@
 		}
 
 		function wsOpen() {
+			net.rejected = false;
+			wasOpen = true;
 			reconnectAttempts = 0;
 
 			ui.chat.barrier();
@@ -2348,13 +2379,6 @@
 		};
 
 		/**
-		 * @param {string | undefined} token
-		 */
-		net.captcha = function (token) {
-			sendJson(0xdc, token === undefined ? {} : { token });
-		};
-
-		/**
 		 * @param {{ name: string, skin: string, [x: string]: any }} data
 		 */
 		net.play = function (data) {
@@ -2654,13 +2678,13 @@
 			}, 50);
 
 			/**
-			 * @param {WebSocket} con
+			 * @param {string} url
 			 * @returns {Promise<string>}
 			 */
-			const tokenVariant = async con => {
-				const url = new URL(con.url);
-				if (url.host.includes('sigmally.com'))
-					return aux.oldFetch(`https://${url.host}/server/recaptcha/v3`)
+			const tokenVariant = async url => {
+				const host = new URL(url).host;
+				if (host.includes('sigmally.com'))
+					return aux.oldFetch(`https://${host}/server/recaptcha/v3`)
 						.then(res => res.json())
 						.then(res => res.version ?? 'none');
 				else
@@ -2668,8 +2692,10 @@
 			};
 
 			/** @type {unique symbol} */
+			const used = Symbol();
+			/** @type {unique symbol} */
 			const waiting = Symbol();
-			/** @type {undefined | typeof waiting | { usedBy: WebSocket }
+			/** @type {undefined | typeof waiting | typeof used
 			 * | { variant: string, token: string | undefined }} */
 			let token = undefined;
 			/** @type {string | undefined} */
@@ -2678,16 +2704,30 @@
 			let v2Handle;
 
 			/**
-			 * @param {WebSocket} con
+			 * @param {string} url
 			 * @param {string} variant
 			 * @param {string | undefined} captchaToken
 			 */
-			const publishToken = (con, variant, captchaToken) => {
-				const con2 = net.connection();
-				if (con === con2) {
-					net.captcha(captchaToken);
-					token = { usedBy: con };
-					play.disabled = spectate.disabled = false;
+			const publishToken = (url, variant, captchaToken) => {
+				const url2 = net.url();
+				if (url === url2) {
+					const host = new URL(url).host;
+					aux.oldFetch(`https://${host}/server/recaptcha/v3`, {
+						method: 'POST',
+						headers: { 'content-type': 'application/json' },
+						body: JSON.stringify({ token: captchaToken }),
+					})
+						.then(res => res.json())
+						.then(res => {
+							if (res.status === 'complete') {
+								token = used;
+								play.disabled = spectate.disabled = false;
+							}
+						})
+						.catch(err => {
+							token = undefined;
+							throw err;
+						});
 				} else {
 					token = { variant, token: captchaToken };
 				}
@@ -2695,17 +2735,17 @@
 
 			setInterval(() => {
 				if (token === waiting) return;
-				const con = net.connection();
-				if (!con) return; // can't get a captcha if we don't know where to connect
+				if (!net.rejected) return play.disabled &&= spectate.disabled &&= false;
+				const url = net.url();
 
-				if (!token || (typeof token === 'object' && 'usedBy' in token && token.usedBy !== con)) {
+				if (typeof token !== 'object') {
 					// get a new token if first time, or if we're on a new connection now
 					token = waiting;
 					play.disabled = spectate.disabled = true;
-					tokenVariant(con)
+					tokenVariant(url)
 						.then(async variant => {
-							const con2 = net.connection();
-							if (con !== con2) {
+							const url2 = net.url();
+							if (url !== url2) {
 								// server changed and may want a different variant; restart
 								token = undefined;
 								return;
@@ -2722,7 +2762,7 @@
 										callback: v2 => {
 											mount.style.display = 'none';
 											play.style.display = spectate.style.display = '';
-											publishToken(con, variant, v2);
+											publishToken(url, variant, v2);
 										},
 									}));
 									if (onGrecaptchaReady)
@@ -2732,7 +2772,7 @@
 								}
 							} else if (variant === 'v3') {
 								const cb = () => grecaptcha.execute(CAPTCHA3)
-									.then(v3 => publishToken(con, variant, v3));
+									.then(v3 => publishToken(url, variant, v3));
 								if (onGrecaptchaReady)
 									onGrecaptchaReady.add(cb);
 								else
@@ -2748,7 +2788,7 @@
 										callback: turnstileToken => {
 											mount.style.display = 'none';
 											play.style.display = spectate.style.display = '';
-											publishToken(con, variant, turnstileToken);
+											publishToken(url, variant, turnstileToken);
 										},
 									}));
 									if (onTurnstileReady)
@@ -2758,25 +2798,25 @@
 								}
 							} else {
 								// server wants "none" or unknown token variant; don't show a captcha
-								publishToken(con, variant, undefined);
+								publishToken(url, variant, undefined);
 								play.disabled = spectate.disabled = false;
 							}
 						}).catch(err => {
 							token = undefined;
 							console.warn('Error while getting token variant:', err);
 						});
-				} else if ('token' in token) {
+				} else {
 					// token is ready to be used, check variant
 					const got = token;
 					token = waiting;
 					play.disabled = spectate.disabled = true;
-					tokenVariant(con)
+					tokenVariant(url)
 						.then(variant2 => {
 							if (got.variant !== variant2) {
 								// server wants a different token variant
 								token = undefined;
 							} else
-								publishToken(con, got.variant, got.token);
+								publishToken(url, got.variant, got.token);
 						}).catch(err => {
 							token = got;
 							console.warn('Error while getting token variant:', err);
@@ -2786,7 +2826,7 @@
 
 			/** @param {MouseEvent} e */
 			async function clickHandler(e) {
-				if (typeof token === 'object' && 'usedBy' in token && token.usedBy === net.connection()) {
+				if (net.connection() && !net.rejected) {
 					ui.toggleEscOverlay(false);
 					net.play(playData(e.currentTarget === spectate));
 				}
