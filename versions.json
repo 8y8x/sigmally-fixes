@@ -9,74 +9,79 @@
 		"Keep the alert short and unintrusive, as it shifts all the buttons down and out of the main UI.",
 		"No HTML; the < and > characters are stripped."
 	],
+	"2.3.18": {
+		"ok": true
+	},
 	"2.3.17": {
 		"ok": false,
-		"alert": "To play, turn off mods and join a game, then enable them again. Sigmally Fixes will be updated soon.",
-		"color": "#fc0"
+		"alert": "Captcha flow was updated. Please update Sigmally Fixes to v2.3.18 to play: {autolink}",
+		"color": "#f00"
 	},
 	"2.3.16": {
 		"ok": false,
-		"alert": "Google captchas are broken on this version, please update to v2.3.17 to play: {autolink}",
+		"alert": "Google captchas are broken on v2.3.16, please update to the newest version: {autolink}",
 		"color": "#f00"
 	},
 	"2.3.15": {
 		"ok": false,
-		"alert": "Google captchas are broken on this version, please update to v2.3.17 to play: {autolink}",
+		"alert": "Google captchas are broken on v2.3.15, please update to the newest version: {autolink}",
 		"color": "#f00"
 	},
 	"2.3.14": {
-		"ok": true
+		"ok": false,
+		"alert": "Captcha flow was updated. Please update Sigmally Fixes to v2.3.18 to play: {autolink}",
+		"color": "#f00"
 	},
 	"2.3.13": {
 		"ok": false,
-		"alert": "Google captchas are broken on this version, please update to v2.3.17 to play: {autolink}",
+		"alert": "Google captchas are broken on v2.3.13, please update to the newest version: {autolink}",
 		"color": "#f00",
 		"__alert": "Sigmally Fixes 2.3.13 has multiple new bugs. {autolink} to update."
 	},
 	"2.3.12": {
 		"ok": false,
-		"alert": "Google captchas are broken on this version, please update to v2.3.17 to play: {autolink}",
+		"alert": "Google captchas are broken on v2.3.12, please update to the newest version: {autolink}",
 		"color": "#f00",
 		"__alert": "The multibox camera may sometimes break in Sigmally Fixes 2.3.12. {autolink} to update."
 	},
 	"2.3.11": {
 		"ok": false,
-		"alert": "Google captchas are broken on this version, please update to v2.3.17 to play: {autolink}",
+		"alert": "Google captchas are broken on v2.3.11, please update to the newest version: {autolink}",
 		"color": "#f00"
 	},
 	"2.3.10": {
 		"ok": false,
-		"alert": "Google captchas are broken on this version, please update to v2.3.17 to play: {autolink}",
+		"alert": "Google captchas are broken on v2.3.10, please update to the newest version: {autolink}",
 		"color": "#f00"
 	},
 	"2.3.9": {
 		"ok": false,
-		"alert": "Google captchas are broken on this version, please update to v2.3.17 to play: {autolink}",
+		"alert": "Google captchas are broken on v2.3.9, please update to the newest version: {autolink}",
 		"color": "#f00"
 	},
 	"2.3.8": {
 		"ok": false,
-		"alert": "Google captchas are broken on this version, please update to v2.3.17 to play: {autolink}",
+		"alert": "Google captchas are broken on v2.3.8, please update to the newest version: {autolink}",
 		"color": "#f00"
 	},
 	"2.3.7": {
 		"ok": false,
-		"alert": "Google captchas are broken on this version, please update to v2.3.17 to play: {autolink}",
+		"alert": "Google captchas are broken on v2.3.7, please update to the newest version: {autolink}",
 		"color": "#f00"
 	},
 	"2.3.6": {
 		"ok": false,
-		"alert": "Google captchas are broken on this version, please update to v2.3.17 to play: {autolink}",
+		"alert": "Google captchas are broken on v2.3.6, please update to the newest version: {autolink}",
 		"color": "#f00"
 	},
 	"2.3.5": {
 		"ok": false,
-		"alert": "Google captchas are broken on this version, please update to v2.3.17 to play: {autolink}",
+		"alert": "Google captchas are broken on v2.3.5, please update to the newest version: {autolink}",
 		"color": "#f00"
 	},
 	"2.3.4": {
 		"ok": false,
-		"alert": "Google captchas are broken on this version, please update to v2.3.17 to play: {autolink}",
+		"alert": "Google captchas are broken on v2.3.4, please update to the newest version: {autolink}",
 		"color": "#f00"
 	},
 	"2.3.3": {
