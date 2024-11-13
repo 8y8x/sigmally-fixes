@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.3.18
+// @version      2.3.19
 // @description  Easily 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -24,7 +24,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.3.18';
+	const sfVersion = '2.3.19';
 	// yes, this actually makes a significant difference
 	const undefined = window.undefined;
 
@@ -2619,6 +2619,7 @@
 		);
 
 		play.disabled = spectate.disabled = true;
+		const playText = play.textContent;
 
 		(async () => {
 			const mount = document.createElement('div');
@@ -2712,6 +2713,7 @@
 			 */
 			const publishToken = (url, variant, captchaToken) => {
 				const url2 = net.url();
+				play.textContent = `${playText} (validating)`;
 				if (url === url2) {
 					const host = new URL(url).host;
 					aux.oldFetch(`https://${host}/server/recaptcha/v3`, {
@@ -2724,10 +2726,13 @@
 							if (res.status === 'complete') {
 								token = used;
 								play.disabled = spectate.disabled = false;
+								play.textContent = playText;
 								input.captchaAcceptedAt = performance.now();
+								net.rejected = false; // wait until we try connecting again
 							}
 						})
 						.catch(err => {
+							play.textContent = playText;
 							token = undefined;
 							throw err;
 						});
@@ -2737,14 +2742,22 @@
 			};
 
 			setInterval(() => {
+				const canPlay = !net.rejected && net.connection()?.readyState === WebSocket.OPEN;
+				if (play.disabled !== !canPlay) {
+					play.disabled = spectate.disabled = !canPlay;
+					play.textContent = playText;
+				}
+
 				if (token === waiting) return;
-				if (!net.rejected) return play.disabled &&= spectate.disabled &&= false;
+				if (!net.rejected) return;
+
 				const url = net.url();
 
 				if (typeof token !== 'object') {
 					// get a new token if first time, or if we're on a new connection now
 					token = waiting;
 					play.disabled = spectate.disabled = true;
+					play.textContent = `${playText} (getting type)`;
 					tokenVariant(url)
 						.then(async variant => {
 							const url2 = net.url();
@@ -2757,6 +2770,7 @@
 							if (variant === 'v2') {
 								mount.style.display = 'block';
 								play.style.display = spectate.style.display = 'none';
+								play.textContent = playText;
 								if (v2Handle !== undefined) {
 									grecaptcha.reset(v2Handle);
 								} else {
@@ -2774,6 +2788,7 @@
 										grecaptcha.ready(cb);
 								}
 							} else if (variant === 'v3') {
+								play.textContent = `${playText} (solving)`;
 								const cb = () => grecaptcha.execute(CAPTCHA3)
 									.then(v3 => publishToken(url, variant, v3));
 								if (onGrecaptchaReady)
@@ -2783,6 +2798,7 @@
 							} else if (variant === 'turnstile') {
 								mount.style.display = 'block';
 								play.style.display = spectate.style.display = 'none';
+								play.textContent = playText;
 								if (turnstileHandle !== undefined) {
 									turnstile.reset(turnstileHandle);
 								} else {
@@ -2803,6 +2819,7 @@
 								// server wants "none" or unknown token variant; don't show a captcha
 								publishToken(url, variant, undefined);
 								play.disabled = spectate.disabled = false;
+								play.textContent = playText;
 							}
 						}).catch(err => {
 							token = undefined;
@@ -2813,6 +2830,7 @@
 					const got = token;
 					token = waiting;
 					play.disabled = spectate.disabled = true;
+					play.textContent = `${playText} (getting type)`;
 					tokenVariant(url)
 						.then(variant2 => {
 							if (got.variant !== variant2) {
