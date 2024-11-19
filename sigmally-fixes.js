@@ -3690,12 +3690,12 @@
 
 					gl.uniform1i(uniforms.cell.u_selected, 0);
 					gl.uniform4f(uniforms.cell.u_outline_unsplittable_color, 0, 0, 0, 0);
-					
+
 					if (cell.jagged) {
 						const virusTexture = textureFromCache(virusSrc);
 						if (!virusTexture)
 							return;
-						
+
 						gl.uniform4f(uniforms.cell.u_color, 0, 0, 0, 0);
 						gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 0);
 						gl.uniform1i(uniforms.cell.u_texture_enabled, 1);
