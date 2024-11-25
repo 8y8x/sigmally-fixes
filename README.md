@@ -7,3 +7,10 @@ I don't necessarily need to keep my commits private, and I wanted to implement v
 log IPs or other usage, hence I made this repo public.
 
 If you have problems, please contact me on Discord (@8y8x) instead of making an issue or pull request.
+
+# Compiling WebAssembly
+WebAssembly is used for the heavy lifting (managing and rendering cells), as JavaScript is simply far too slow on
+lower-end devices.
+The module is written for compatibility with all [feature extensions](https://webassembly.org/features/) disabled.
+
+To compile it to `b64-wasm.txt`, run `build.sh`.
