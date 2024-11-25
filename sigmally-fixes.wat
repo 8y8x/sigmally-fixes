@@ -484,6 +484,176 @@
 
 
 
+	;; generates UBO contents for rendering the given cell, returns a pointer to the start of that data
+	(func $render.cell_ubo (export "render.cell_ubo") (param $cell_ptr i32) (param $is_pellet i32) (param $now f64)
+		(param $draw_delay f64)
+		(result i32)
+		(local $alpha f64) (local $old f64) (local $new f64) (local $ubo_ptr i32) (local $xyr_alpha f64)
+
+		;; $ubo_ptr = 0xf_ff80
+		(local.set $ubo_ptr (i32.const 0xf_ff80))
+
+		;; $alpha = (now - cell.born) / 100
+		(local.set $alpha
+			(f64.div
+				(local.get $now)
+				(f64.load offset=0x48 (local.get $cell_ptr)))
+			(f64.const 100))
+
+		;; if cell.dead_at != inf
+		(f64.ne
+			(f64.load offset=0x50 (local.get $cell_ptr))
+			(f64.const inf))
+		if
+			;; $alpha = min($alpha, 1 - (($now - cell.dead_at) / 100))
+			(local.set $alpha
+				(f64.min
+					(local.get $alpha)
+					(f64.sub
+						(f64.const 1)
+						(f64.div
+							(f64.sub
+								(local.get $now)
+								(f64.load offset=0x50 (local.get $cell_ptr)))
+							(f64.const 100)))))
+		end
+
+		;; ubo.cell_alpha = min(max($alpha as f32, 0), 1)
+		(f32.store offset=0x58 (local.get $ubo_ptr)
+			(f32.min
+				(f32.max
+					(f32.demote_f64 (local.get $alpha)) (f32.const 0))
+				(f32.const 1)))
+
+		;; $xyr_alpha = ($now - cell.updated) / $draw_delay
+		(local.set $xyr_alpha
+			(f64.div
+				(f64.sub
+					(local.get $now)
+					(f64.load offset=0x40 (local.get $cell_ptr)))
+				(local.get $draw_delay)))
+
+		;; $xyr_alpha = min(max($xyr_alpha, 0), 1)
+		(local.set $xyr_alpha
+			(f64.min
+				(f64.max (local.get $xyr_alpha) (f64.const 0))
+				(f64.const 1)))
+
+		;; TODO: nx and ny should be from deadTo
+
+		;; old = cell.ox
+		(local.set $old
+			(f64.load offset=0x08 (local.get $cell_ptr)))
+		;; new = cell.nx
+		(local.set $new
+			(f64.load offset=0x28 (local.get $cell_ptr)))
+		;; ubo.cell_xy.x = (old + ((new - old) * xyr_alpha)) as f32
+		(f32.store offset=0x08 (local.get $ubo_ptr)
+			(f32.demote_f64
+				(f64.add
+					(local.get $old)
+					(f64.mul
+						(f64.sub (local.get $new) (local.get $old))
+						(local.get $xyr_alpha)))))
+
+		;; old = cell.oy
+		(local.set $old
+			(f64.load offset=0x10 (local.get $cell_ptr)))
+		;; new = cell.ny
+		(local.set $new
+			(f64.load offset=0x30 (local.get $cell_ptr)))
+		;; ubo.cell_xy.y = (old + ((new - old) * xyr_alpha)) as f32
+		(f32.store offset=0x0c (local.get $ubo_ptr)
+			(f32.demote_f64
+				(f64.add
+					(local.get $old)
+					(f64.mul
+						(f64.sub (local.get $new) (local.get $old))
+						(local.get $xyr_alpha)))))
+
+		;; TODO: no jelly physics assumed
+		;; old = cell.or
+		(local.set $old
+			(f64.load offset=0x18 (local.get $cell_ptr)))
+		;; new = cell.nr
+		(local.set $new
+			(f64.load offset=0x38 (local.get $cell_ptr)))
+		;; new = old + ((new - old) * xyr_alpha)
+		(local.set $new
+			(f64.add
+				(local.get $old)
+				(f64.mul
+					(f64.sub (local.get $new) (local.get $old))
+					(local.get $xyr_alpha))))
+		;; ubo.cell_radius = $new as f32
+		(f32.store offset=0x00 (local.get $ubo_ptr)
+			(f32.demote_f64 (local.get $new)))
+		;; ubo.cell_radius_skin = $new as f32
+		(f32.store offset=0x04 (local.get $ubo_ptr)
+			(f32.demote_f64 (local.get $new)))
+
+		;; ubo.cell_outline_subtle_color.a = 0
+		(f32.store offset=0x2c (local.get $ubo_ptr) (f32.const 0))
+		;; ubo.cell_outline_unsplittable_color.a = 0
+		(f32.store offset=0x3c (local.get $ubo_ptr) (f32.const 0))
+		;; ubo.cell_outline_active_color.a = 0
+		(f32.store offset=0x4c (local.get $ubo_ptr) (f32.const 0))
+		;; (TODO) ubo.cell_outline_active_thickness = $active_thickness
+		;; (f32.store offset=0x50 (local.get $ubo_ptr) (local.get $active_thickness))
+		;; ubo.cell_skin_enabled = 0 (NO SKIN SUPPORT YET)
+		(i32.store offset=0x54 (local.get $ubo_ptr) (i32.const 0))
+
+		;; if cell.jagged:
+		(i32.load8_u offset=0x68 (local.get $cell_ptr))
+		if
+			;; set to a temporary color, because no skins
+
+			;; ubo.cell_color.r = 0.8
+			(f32.store offset=0x10 (local.get $ubo_ptr) (f32.const 0.8))
+			;; ubo.cell_color.g = 0.5
+			(f32.store offset=0x14 (local.get $ubo_ptr) (f32.const 0.5))
+			;; ubo.cell_color.b = 0.5
+			(f32.store offset=0x18 (local.get $ubo_ptr) (f32.const 0.5))
+			;; ubo.cell_color.a = 0.5
+			(f32.store offset=0x1c (local.get $ubo_ptr) (f32.const 0.5))
+
+			;; return early
+			(return (local.get $ubo_ptr))
+		end
+
+		;; TODO: no custom food or cell colors
+		;; ubo.cell_color.r = (cell.Rgb as f32) / 255
+		(f32.store offset=0x10 (local.get $ubo_ptr)
+			(f32.div
+				(f32.convert_i32_u
+					(i32.load8_u offset=0x04 (local.get $cell_ptr)))
+				(f32.const 255)))
+		;; ubo.cell_color.g = (cell.rGb as f32) / 255
+		(f32.store offset=0x14 (local.get $ubo_ptr)
+			(f32.div
+				(f32.convert_i32_u
+					(i32.load8_u offset=0x05 (local.get $cell_ptr)))
+				(f32.const 255)))
+		;; ubo.cell_color.b = (cell.rgB as f32) / 255
+		(f32.store offset=0x18 (local.get $ubo_ptr)
+			(f32.div
+				(f32.convert_i32_u
+					(i32.load8_u offset=0x06 (local.get $cell_ptr)))
+				(f32.const 255)))
+		;; ubo.cell_color.a = 1
+		(f32.store offset=0x1c (local.get $ubo_ptr) (f32.const 1))
+
+		;; TODO: no subtle outlines
+
+		;; TODO: no unsplittable outlines
+
+		;; TODO: no active outlines
+
+		(return (local.get $ubo_ptr))
+	)
+
+
+
 	;; creates memory for a new tab
 	(func $tab.allocate (export "tab.allocate") (result i32)
 		;; #1 : grow memory
