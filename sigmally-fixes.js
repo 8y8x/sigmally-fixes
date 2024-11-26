@@ -210,7 +210,14 @@
 
 				wasm['settings.sm.update'](0, 0, 0, -1);
 			}
-		}, 50);
+
+			wasm['settings.update'](
+				aux.setting('input#jellyPhysics', false)
+			);
+
+			ui.stats.matchTheme();
+			ui.chat.matchTheme();
+		}, 200);
 
 		/**
 		 * @param {string} selector
@@ -234,7 +241,7 @@
 		}
 
 		settings();
-		setInterval(settings, 50);
+		setInterval(settings, 200);
 		// apply saved gamemode because sigmally fixes connects before the main game even loads
 		if (aux.settings?.gamemode) {
 			/** @type {HTMLSelectElement | null} */
@@ -542,8 +549,34 @@
 				line-height: 1.1; opacity: 0.5;';
 			container.appendChild(misc);
 
+			const update = (score, fps, ping) => {
+				ui.leaderboard.container.style.display = (showNames && world.leaderboard.length > 0) ? '' : 'none';
+
+				if (typeof aux.userData?.boost === 'number' && aux.userData.boost > Date.now())
+					score *= 2;
+
+				if (score > 0)
+					ui.stats.score.textContent = 'Score: ' + Math.floor(score);
+				else
+					ui.stats.score.textContent = '';
+
+				let measures = `${Math.floor(fps)} FPS`;
+				if (net.latency !== undefined) {
+					if (net.latency === -1)
+						measures += ' ????ms ping';
+					else
+						measures += ` ${Math.floor(net.latency)}ms ping`;
+				}
+
+				ui.stats.measures.textContent = measures;
+
+				if (score > world.stats.highestScore) {
+					world.stats.highestScore = score;
+				}
+			};
+
 			/** @param {object} statData */
-			function update(statData) {
+			function updateMisc(statData) {
 				let uptime;
 				if (statData.uptime < 60) {
 					uptime = '<1min';
@@ -573,7 +606,7 @@
 
 			matchTheme();
 
-			return { container, score, measures, misc, update, matchTheme };
+			return { container, score, measures, misc, update, updateMisc, matchTheme };
 		})();
 
 		ui.leaderboard = (() => {
@@ -2104,6 +2137,14 @@
 			pingInterval = setInterval(ping, 2_000);
 		}
 
+		let lastStatsUpdate = performance.now();
+		setInterval(() => {
+			const now = performance.now();
+			if (now - lastStatsUpdate < 400) return;
+			lastStatsUpdate = now;
+			ui.stats.update(0, render.fps, net.latency);
+		}, 500);
+
 
 
 		// #4 : set up message handler
@@ -2142,6 +2183,8 @@
 					void wasm['ws.handle_update'](0, performance.now());
 
 					world.clean();
+					lastStatsUpdate = now;
+					ui.stats.update(0, render.fps, net.latency);
 					break;
 				}
 
@@ -2250,7 +2293,7 @@
 					[statString, off] = readZTString(dat, off);
 
 					const statData = JSON.parse(statString);
-					ui.stats.update(statData);
+					ui.stats.updateMisc(statData);
 
 					if (pendingPingFrom) {
 						net.latency = now - pendingPingFrom;
@@ -3388,7 +3431,52 @@
 			return render.imageCache[ref] = false;
 		};
 
-		// #3 : define base textures
+		// #3 : define minimap helpers
+		let lastMinimapDraw = performance.now();
+		render.minimapBase = undefined;
+		render.drawMinimapBase = () => {
+			// text needs to be small and sharp, i don't trust webgl with that, so we use a 2d context
+			const { canvas, ctx } = ui.minimap;
+			canvas.width = canvas.height = 200 * devicePixelRatio; // clears the canvas
+			const sectorSize = canvas.width / 5;
+
+			// draw section names
+			ctx.font = `${Math.floor(sectorSize / 3)}px Ubuntu`;
+			ctx.fillStyle = darkTheme ? '#fff' : '#000';
+			ctx.globalAlpha = 0.3;
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'middle';
+
+			const cols = ['1', '2', '3', '4', '5'];
+			const rows = ['A', 'B', 'C', 'D', 'E'];
+			cols.forEach((col, y) => {
+				rows.forEach((row, x) => {
+					ctx.fillText(row + col, (x + 0.5) * sectorSize, (y + 0.5) * sectorSize);
+				});
+			});
+
+			render.minimapBase = ctx.getImageData(0, 0, canvas.width, canvas.height);
+		};
+		render.drawMinimapBase();
+		document.fonts.ready.then(() => render.drawMinimapBase());
+
+		setInterval(() => {
+			// sigmod overlay resizes itself differently, so we correct it whenever we need to
+			/** @type {HTMLCanvasElement | null} */
+			const sigmodMinimap = document.querySelector('canvas.minimap');
+			if (sigmodMinimap) {
+				// we need to check before updating the canvas, otherwise we will clear it
+				if (sigmodMinimap.style.width !== '200px' || sigmodMinimap.style.height !== '200px')
+					sigmodMinimap.style.width = sigmodMinimap.style.height = '200px';
+
+				if (sigmodMinimap.width !== canvas.width || sigmodMinimap.height !== canvas.height)
+					sigmodMinimap.width = sigmodMinimap.height = 200 * devicePixelRatio;
+			}
+
+			ui.minimap.canvas.style.display = aux.setting('input#showMinimap', true) ? '' : 'none';
+		}, 200);
+
+		// #4 : define base textures
 		// no point in breaking this across multiple lines
 		// eslint-disable-next-line max-len
 		const gridRef = wasm.string.to_ref_string('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAAAAXNSR0IArs4c6QAAAKVJREFUaEPtkkEKwlAUxBzw/jeWL4J4gECkSrqftC/pzjnn9gfP3ofcf/mWbY8OuVLBilypxutbKlIRyUC/liQWYyuC1UnDikhiMbYiWJ00rIgkFmMrgtVJw4pIYjG2IlidNKyIJBZjK4LVScOKSGIxtiJYnTSsiCQWYyuC1UnDikhiMbYiWJ00rIgkFmMrgtVJw4pIYjG2IlidNPwU2TbpHV/DPgFxJfgvliP9RQAAAABJRU5ErkJggg==');
@@ -3398,13 +3486,13 @@
 		wasm['render.update_virus_ref'](virusRef);
 		render.image(virusRef);
 
-		// #4 : define the render function
-		let fps = 0;
+		// #5 : define the render function
+		render.fps = 0;
 		let lastFrame = performance.now();
 		function renderGame() {
 			now = performance.now();
 			const dt = Math.max(now - lastFrame, 0.1) / 1000; // there's a chance (now - lastFrame) can be 0
-			fps += (1 / dt - fps) / 10;
+			render.fps += (1 / dt - render.fps) / 10;
 			lastFrame = now;
 
 			if (gl.isContextLost()) {
@@ -3420,7 +3508,6 @@
 			const showBorder = aux.setting('input#showBorder', true);
 			const showGrid = aux.setting('input#showGrid', true);
 			const showMass = aux.setting('input#showMass', false);
-			const showMinimap = aux.setting('input#showMinimap', true);
 			const showNames = aux.setting('input#showNames', true);
 			const showSkins = aux.setting('input#showSkins', true);
 			const jellyPhysics = aux.setting('input#jellyPhysics', false);
@@ -3591,77 +3678,23 @@
 				gl.bindTexture(gl.TEXTURE_2D, null);
 			})();
 
-			(function updateStats() {
-				if (fastDraw) return;
-				ui.stats.matchTheme(); // not sure how to listen to when the checkbox changes when the game loads
-				if (showNames && world.leaderboard.length > 0)
-					ui.leaderboard.container.style.display = '';
-				else
-					ui.leaderboard.container.style.display = 'none';
-
-				let score = 0;
-				world.mine.forEach(id => {
-					const cell = world.cells.get(id);
-					if (!cell || cell.deadAt !== undefined) return;
-
-					score += cell.nr * cell.nr / 100;
-				});
-
-				if (typeof aux.userData?.boost === 'number' && aux.userData.boost > Date.now())
-					score *= 2;
-
-				if (score > 0)
-					ui.stats.score.textContent = 'Score: ' + Math.floor(score);
-				else
-					ui.stats.score.textContent = '';
-
-				let measures = `${Math.floor(fps)} FPS`;
-				if (net.latency !== undefined) {
-					if (net.latency === -1)
-						measures += ' ????ms ping';
-					else
-						measures += ` ${Math.floor(net.latency)}ms ping`;
-				}
-
-				ui.stats.measures.textContent = measures;
-
-				if (score > world.stats.highestScore) {
-					world.stats.highestScore = score;
-				}
-			})();
-
 			(function minimap() {
 				if (fastDraw) return;
-				if (!showMinimap) {
-					ui.minimap.canvas.style.display = 'none';
-					return;
-				} else {
-					ui.minimap.canvas.style.display = '';
-				}
+				if (now - lastMinimapDraw < 40) return;
+				lastMinimapDraw = now;
 
-				const { border } = world;
-				if (!border) return;
+				if (!showMinimap) return;
 
 				// text needs to be small and sharp, i don't trust webgl with that, so we use a 2d context
 				const { canvas, ctx } = ui.minimap;
-				canvas.width = canvas.height = 200 * devicePixelRatio;
-
-				// sigmod overlay resizes itself differently, so we correct it whenever we need to
-				/** @type {HTMLCanvasElement | null} */
-				const sigmodMinimap = document.querySelector('canvas.minimap');
-				if (sigmodMinimap) {
-					// we need to check before updating the canvas, otherwise we will clear it
-					if (sigmodMinimap.style.width !== '200px' || sigmodMinimap.style.height !== '200px')
-						sigmodMinimap.style.width = sigmodMinimap.style.height = '200px';
-
-					if (sigmodMinimap.width !== canvas.width || sigmodMinimap.height !== canvas.height)
-						sigmodMinimap.width = sigmodMinimap.height = 200 * devicePixelRatio;
-				}
 
 				ctx.clearRect(0, 0, canvas.width, canvas.height);
+				ctx.putImageData(render.minimapBase, 0, 0);
 
-				const gameWidth = (border.r - border.l);
-				const gameHeight = (border.b - border.t);
+				const { border } = world;
+				if (!border) return;
+				const gameWidth = border.r - border.l;
+				const gameHeight = border.b - border.t;
 
 				// highlight current section
 				ctx.fillStyle = '#ff0';
@@ -3672,24 +3705,7 @@
 				const sectorSize = canvas.width / 5;
 				ctx.fillRect(sectionX * sectorSize, sectionY * sectorSize, sectorSize, sectorSize);
 
-				// draw section names
-				ctx.font = `${Math.floor(sectorSize / 3)}px Ubuntu`;
-				ctx.fillStyle = darkTheme ? '#fff' : '#000';
-				ctx.globalAlpha = 0.3;
-				ctx.textAlign = 'center';
-				ctx.textBaseline = 'middle';
-
-				const cols = ['1', '2', '3', '4', '5'];
-				const rows = ['A', 'B', 'C', 'D', 'E'];
-				cols.forEach((col, y) => {
-					rows.forEach((row, x) => {
-						ctx.fillText(row + col, (x + 0.5) * sectorSize, (y + 0.5) * sectorSize);
-					});
-				});
-
 				ctx.globalAlpha = 1;
-
-
 
 				// draw cells
 				/** @param {Cell} cell */
@@ -3780,8 +3796,6 @@
 					ctx.fillText(`X: ${ownX}, Y: ${ownY}`, 0, -1000);
 				}
 			})();
-
-			ui.chat.matchTheme();
 
 			render.debug = false;
 
