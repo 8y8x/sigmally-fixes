@@ -550,7 +550,7 @@
 			container.appendChild(misc);
 
 			const update = (score, fps, ping) => {
-				ui.leaderboard.container.style.display = (showNames && world.leaderboard.length > 0) ? '' : 'none';
+				ui.leaderboard.container.style.display = (aux.setting('input#showNames', true) && world.leaderboard.length > 0) ? '' : 'none';
 
 				if (typeof aux.userData?.boost === 'number' && aux.userData.boost > Date.now())
 					score *= 2;
