@@ -9,14 +9,34 @@
 	;; dead_to: u32 @ 0x58    name_ptr: u32 @ 0x5c    skin_ptr: u32 @ 0x60    clan_ptr: u32 @ 0x64
 	;; jagged: u8 @ 0x68    sub: u8 @ 0x69
 	;;
-	;; overall, 70 bytes. the other 58 (wasteful...) are only for padding
+	;; overall, 0x70 bytes out of 0x80
 	;;
 	;; some semantics:
 	;; - dead_at is infinity if not dead
 	;; - dead_to is zero if not dead (it's impossible for cells to have an id of 0)
 
-	(func $settings.draw_delay (import "settings" "draw_delay") (result f64))
+	;; tabs are structured as so:
+	;; - the first $tab.width_pellets bytes are reserved for pellets, each 128 bytes
+	;; - the next $tab.width_cells bytes are reserved for cells, each 128 bytes
+	;; - the next u32 is the number of pellets stored
+	;; - the next u32 is the number of cells stored
+
+	(func $string.to_ref_as_skin (import "string" "to_ref_as_skin") (param $from i32) (param $to i32) (result i32))
 	(func $string.to_ref (import "string" "to_ref") (param $from i32) (param $to i32) (result i32))
+
+	(global $render.cell_ubo_ptr_real i32 (i32.const 0xf_ff00))
+	(global $render.text_ubo_ptr_real i32 (i32.const 0xf_ff80))
+	(global $render.virus_ref (mut i32) (i32.const 0))
+
+	(global $settings.jelly_physics (mut i32) (i32.const 0))
+
+	(global $settings.sm.cell_color.r (mut f32) (f32.const 0))
+	(global $settings.sm.cell_color.g (mut f32) (f32.const 0))
+	(global $settings.sm.cell_color.b (mut f32) (f32.const 0))
+	(global $settings.sm.cell_color.a (mut f32) (f32.const -1))
+
+	(global $settings.sf.draw_delay (mut f64) (f64.const 0))
+	(global $settings.sf.mass_opacity (mut f32) (f32.const 1))
 
 	(global $tab.count (mut i32) (i32.const 1))
 	(global $tab.max_cells (mut i32) (i32.const 1024))
@@ -251,41 +271,6 @@
 
 
 
-	;; returns a pointer to a cell or pellet with the given $id over the space starting at $cell_ptr,
-	;; or zero if it doesn't exist.
-	(func $cell.generic_by_id (param $id i32) (param $cell_ptr i32) (result i32)
-		(local $cell_id i32)
-
-		loop $loop
-			;; $cell_id = load($cell_ptr)
-			(local.set $cell_id
-				(i32.load (local.get $cell_ptr)))
-			;; if $cell_id == $id:
-			(i32.eq (local.get $cell_id) (local.get $id))
-			if
-				;; found the cell pointer, return it
-				(return (local.get $cell_ptr))
-			end
-
-			;; if $cell_id == 0:
-			(i32.eqz (local.get $cell_id))
-			if
-				;; reached the end of the cell space
-				(return (i32.const 0))
-			end
-
-			;; $cell_ptr += 128
-			(local.set $cell_ptr
-				(i32.add (local.get $cell_ptr) (i32.const 128)))
-
-			br $loop
-		end
-
-		i32.const 0
-	)
-
-
-
 	;; if a tab runs out of cell or pellet slots, all tab spaces should be expanded.
 	;; ~doubles the size of all tab spaces and copies data appropriately, or returns 0
 	;; if unsuccessful.
@@ -428,22 +413,6 @@
 
 
 
-	;; returns the animation alpha for xyr for a given cell
-	(func $cell.xyr_alpha (export "cell.xyr_alpha") (param $cell_ptr i32) (param $now f64) (param $draw_delay f64) (result f64)
-		;; push (now - cell.updated) / draw_delay
-		(f64.div
-			(f64.sub
-				(local.get $now)
-				(f64.load offset=0x40 (local.get $cell_ptr)))
-			(local.get $draw_delay))
-		;; return min(max(pop, 0), 1)
-		(f64.min
-			(f64.max (f64.const 0))
-			(f64.const 1))
-	)
-
-
-
 	;; memcpy, 8 bytes at a time. size must be a nonzero multiple of 8
 	(func $misc.memcpy8 (export "misc.memcpy8") (param $from i32) (param $to i32) (param $size i32)
 		(local $from_end i32)
@@ -484,21 +453,20 @@
 
 
 
-	;; generates UBO contents for rendering the given cell, returns a pointer to the start of that data
-	(func $render.cell_ubo (export "render.cell_ubo") (param $cell_ptr i32) (param $is_pellet i32) (param $now f64)
-		(param $draw_delay f64)
-		(result i32)
+	;; generates UBO contents for rendering the given cell, returns the skin url to bind as a texture
+	(func $render.cell_ubo (export "render.cell_ubo") (param $tab i32) (param $cell_ptr i32) (param $now f64) (param $is_pellet i32) (result i32)
 		(local $alpha f64) (local $old f64) (local $new f64) (local $ubo_ptr i32) (local $xyr_alpha f64)
+		(local $cell_ptr2 i32) (local $dead_to i32) (local $nx f64) (local $ny f64) (local $skin_ref i32)
 
-		;; $ubo_ptr = 0xf_ff80
-		(local.set $ubo_ptr (i32.const 0xf_ff80))
+		(local.set $ubo_ptr (global.get $render.cell_ubo_ptr_real))
 
 		;; $alpha = (now - cell.born) / 100
 		(local.set $alpha
 			(f64.div
-				(local.get $now)
-				(f64.load offset=0x48 (local.get $cell_ptr)))
-			(f64.const 100))
+				(f64.sub
+					(local.get $now)
+					(f64.load offset=0x48 (local.get $cell_ptr)))
+				(f64.const 100)))
 
 		;; if cell.dead_at != inf
 		(f64.ne
@@ -525,13 +493,13 @@
 					(f32.demote_f64 (local.get $alpha)) (f32.const 0))
 				(f32.const 1)))
 
-		;; $xyr_alpha = ($now - cell.updated) / $draw_delay
+		;; $xyr_alpha = ($now - cell.updated) / $settings.sf.draw_delay
 		(local.set $xyr_alpha
 			(f64.div
 				(f64.sub
 					(local.get $now)
 					(f64.load offset=0x40 (local.get $cell_ptr)))
-				(local.get $draw_delay)))
+				(global.get $settings.sf.draw_delay)))
 
 		;; $xyr_alpha = min(max($xyr_alpha, 0), 1)
 		(local.set $xyr_alpha
@@ -540,38 +508,57 @@
 				(f64.const 1)))
 
 		;; TODO: nx and ny should be from deadTo
+		;; $dead_to = cell.dead_to
+		(local.set $dead_to
+			(i32.load offset=0x58 (local.get $cell_ptr)))
+
+		;; push ny, nx onto stack
+		;; if $dead_to == 0:
+		(i32.eqz (local.get $dead_to))
+		if
+			;; $nx = cell.nx
+			(local.set $nx
+				(f64.load offset=0x28 (local.get $cell_ptr)))
+			;; ny = cell.ny
+			(local.set $ny
+				(f64.load offset=0x30 (local.get $cell_ptr)))
+		else
+			;; cell is dead, animate towards the dead cell
+			;; $cell_ptr2 = $cell.by_id($tab, $dead_to, not a pellet)
+			(local.set $cell_ptr2
+				(call $cell.by_id (local.get $tab) (local.get $dead_to) (i32.const 0)))
+			;; going to assume a pellet cannot eat a player (i.e. $cell_ptr2 is valid)
+			;; $nx = cell.nx
+			(local.set $nx
+				(f64.load offset=0x28 (local.get $cell_ptr2)))
+			(local.set $ny
+				(f64.load offset=0x30 (local.get $cell_ptr2)))
+		end
 
 		;; old = cell.ox
 		(local.set $old
 			(f64.load offset=0x08 (local.get $cell_ptr)))
-		;; new = cell.nx
-		(local.set $new
-			(f64.load offset=0x28 (local.get $cell_ptr)))
-		;; ubo.cell_xy.x = (old + ((new - old) * xyr_alpha)) as f32
+		;; ubo.cell_xy.x = (old + ((nx - old) * xyr_alpha)) as f32
 		(f32.store offset=0x08 (local.get $ubo_ptr)
 			(f32.demote_f64
 				(f64.add
 					(local.get $old)
 					(f64.mul
-						(f64.sub (local.get $new) (local.get $old))
+						(f64.sub (local.get $nx) (local.get $old))
 						(local.get $xyr_alpha)))))
 
 		;; old = cell.oy
 		(local.set $old
 			(f64.load offset=0x10 (local.get $cell_ptr)))
-		;; new = cell.ny
-		(local.set $new
-			(f64.load offset=0x30 (local.get $cell_ptr)))
-		;; ubo.cell_xy.y = (old + ((new - old) * xyr_alpha)) as f32
+		;; ubo.cell_xy.y = (old + ((ny - old) * xyr_alpha)) as f32
 		(f32.store offset=0x0c (local.get $ubo_ptr)
 			(f32.demote_f64
 				(f64.add
 					(local.get $old)
 					(f64.mul
-						(f64.sub (local.get $new) (local.get $old))
+						(f64.sub (local.get $ny) (local.get $old))
 						(local.get $xyr_alpha)))))
 
-		;; TODO: no jelly physics assumed
 		;; old = cell.or
 		(local.set $old
 			(f64.load offset=0x18 (local.get $cell_ptr)))
@@ -585,12 +572,43 @@
 				(f64.mul
 					(f64.sub (local.get $new) (local.get $old))
 					(local.get $xyr_alpha))))
-		;; ubo.cell_radius = $new as f32
-		(f32.store offset=0x00 (local.get $ubo_ptr)
-			(f32.demote_f64 (local.get $new)))
-		;; ubo.cell_radius_skin = $new as f32
-		(f32.store offset=0x04 (local.get $ubo_ptr)
-			(f32.demote_f64 (local.get $new)))
+		;; if $settings.jelly_physics:
+		global.get $settings.jelly_physics
+		if
+			;; ubo.cell_radius_skin = ($new * 1.01) as f32
+			(f32.store offset=0x04 (local.get $ubo_ptr)
+				(f32.demote_f64
+					(f64.mul (local.get $new) (f64.const 1.01))))
+			;; $old = cell.jr
+			(local.set $old
+				(f64.load offset=0x20 (local.get $cell_ptr)))
+			;; do NOT update $new, leave it interpolated between cell.or and cell.nr
+			;; the real way to do this is $new = aux.exponentialEase($old, $new, 5, 60 * dt).
+			;; however, the graph y = 1 - 0.8^(60dt) is extremely similar to y = 12dt above 50fps
+			;; and WebAssembly does not support exponentiation. therefore, we just use that approximation.
+			;; $new = $old + (($new - $old) * (0.012 * ($now - $cell.updated)))
+			(local.set $new
+				(f64.add
+					(local.get $old)
+					(f64.mul
+						(f64.sub (local.get $new) (local.get $old))
+						(f64.mul
+							(f64.const 0.012)
+							(f64.sub
+								(local.get $now)
+								(f64.load offset=0x40 (local.get $cell_ptr)))))))
+			;; ubo.cell_radius = ($new * 1.01) as f32
+			(f32.store offset=0x00 (local.get $ubo_ptr)
+				(f32.demote_f64
+					(f64.mul (local.get $new) (f64.const 1.01))))
+		else
+			;; ubo.cell_radius = $new as f32
+			(f32.store offset=0x00 (local.get $ubo_ptr)
+				(f32.demote_f64 (local.get $new)))
+			;; ubo.cell_radius_skin = $new as f32
+			(f32.store offset=0x04 (local.get $ubo_ptr)
+				(f32.demote_f64 (local.get $new)))
+		end
 
 		;; ubo.cell_outline_subtle_color.a = 0
 		(f32.store offset=0x2c (local.get $ubo_ptr) (f32.const 0))
@@ -600,25 +618,24 @@
 		(f32.store offset=0x4c (local.get $ubo_ptr) (f32.const 0))
 		;; (TODO) ubo.cell_outline_active_thickness = $active_thickness
 		;; (f32.store offset=0x50 (local.get $ubo_ptr) (local.get $active_thickness))
-		;; ubo.cell_skin_enabled = 0 (NO SKIN SUPPORT YET)
-		(i32.store offset=0x54 (local.get $ubo_ptr) (i32.const 0))
 
 		;; if cell.jagged:
 		(i32.load8_u offset=0x68 (local.get $cell_ptr))
 		if
-			;; set to a temporary color, because no skins
+			;; ubo.cell_color.r = 0
+			(f32.store offset=0x10 (local.get $ubo_ptr) (f32.const 0))
+			;; ubo.cell_color.g = 0
+			(f32.store offset=0x14 (local.get $ubo_ptr) (f32.const 0))
+			;; ubo.cell_color.b = 0
+			(f32.store offset=0x18 (local.get $ubo_ptr) (f32.const 0))
+			;; ubo.cell_color.a = 0
+			(f32.store offset=0x1c (local.get $ubo_ptr) (f32.const 0))
 
-			;; ubo.cell_color.r = 0.8
-			(f32.store offset=0x10 (local.get $ubo_ptr) (f32.const 0.8))
-			;; ubo.cell_color.g = 0.5
-			(f32.store offset=0x14 (local.get $ubo_ptr) (f32.const 0.5))
-			;; ubo.cell_color.b = 0.5
-			(f32.store offset=0x18 (local.get $ubo_ptr) (f32.const 0.5))
-			;; ubo.cell_color.a = 0.5
-			(f32.store offset=0x1c (local.get $ubo_ptr) (f32.const 0.5))
+			;; ubo.cell_skin_enabled = 1
+			(i32.store offset=0x54 (local.get $ubo_ptr) (i32.const 1))
 
-			;; return early
-			(return (local.get $ubo_ptr))
+			;; return virus ref early
+			(return (global.get $render.virus_ref))
 		end
 
 		;; TODO: no custom food or cell colors
@@ -644,12 +661,239 @@
 		(f32.store offset=0x1c (local.get $ubo_ptr) (f32.const 1))
 
 		;; TODO: no subtle outlines
+		;; if $is_pellet == 0:
+		(i32.eqz (local.get $is_pellet))
+		if
+			;; subtle outlines
+			;; ubo.cell_outline_subtle.r = 0
+			(f32.store offset=0x20 (local.get $ubo_ptr) (f32.const 0))
+			;; ubo.cell_outline_subtle.g = 0
+			(f32.store offset=0x24 (local.get $ubo_ptr) (f32.const 0))
+			;; ubo.cell_outline_subtle.b = 0
+			(f32.store offset=0x28 (local.get $ubo_ptr) (f32.const 0))
+			;; ubo.cell_outline_subtle.a = 0.1
+			(f32.store offset=0x2c (local.get $ubo_ptr) (f32.const 0.1))
 
-		;; TODO: no unsplittable outlines
+			;; TODO: no unsplittable outlines
 
-		;; TODO: no active outlines
+			;; TODO: no active outlines
 
-		(return (local.get $ubo_ptr))
+			;; $skin_ref = cell.skin_ref
+			(local.set $skin_ref
+				(i32.load offset=0x60 (local.get $cell_ptr)))
+		else
+
+		end
+
+		;; ubo.cell_skin_enabled = $skin_ref
+		(i32.store offset=0x54 (local.get $ubo_ptr) (local.get $skin_ref))
+
+		;; return $skin_ref
+		(return (local.get $skin_ref))
+	)
+
+
+
+	(func $render.cell_ubo_ptr (export "render.cell_ubo_ptr") (result i32)
+		(global.get $render.cell_ubo_ptr_real)
+	)
+
+
+
+	(func $render.text_ubo_basics (export "render.text_ubo_basics") (param $cell_ptr i32) (param $now f64)
+		(local $alpha f64) (local $old f64) (local $new f64)
+
+		;; $alpha = min(max(($now - cell.updated) / $settings.sf.draw_delay, 0), 1)
+		(local.set $alpha
+			(f64.min
+				(f64.max
+					(f64.div
+						(f64.sub (local.get $now) (f64.load offset=0x40 (local.get $cell_ptr)))
+						(global.get $settings.sf.draw_delay))
+					(f64.const 0))
+				(f64.const 1)))
+
+		;; $old = cell.ox
+		(local.set $old (f64.load offset=0x08 (local.get $cell_ptr)))
+		;; $new = cell.oy
+		(local.set $new (f64.load offset=0x28 (local.get $cell_ptr)))
+		;; text_ubo.cell_xy.x = ($old + ($new - $old) * $alpha) as f32
+		(f32.store offset=0x08 (global.get $render.text_ubo_ptr_real)
+			(f32.demote_f64
+				(f64.add
+					(local.get $old)
+					(f64.mul
+						(f64.sub (local.get $new) (local.get $old))
+						(local.get $alpha)))))
+
+		;; $old = cell.oy
+		(local.set $old (f64.load offset=0x10 (local.get $cell_ptr)))
+		;; $new = cell.ny
+		(local.set $new (f64.load offset=0x30 (local.get $cell_ptr)))
+		;; text_ubo.cell_xy.y = ($old + ($new - $old) * $alpha) as f32
+		(f32.store offset=0x0c (global.get $render.text_ubo_ptr_real)
+			(f32.demote_f64
+				(f64.add
+					(local.get $old)
+					(f64.mul
+						(f64.sub (local.get $new) (local.get $old))
+						(local.get $alpha)))))
+
+		;; $old = cell.or
+		(local.set $old (f64.load offset=0x18 (local.get $cell_ptr)))
+		;; $new = cell.nr
+		(local.set $new (f64.load offset=0x38 (local.get $cell_ptr)))
+		;; text_ubo.cell_radius = ($old + ($new - $old) * $alpha) as f32
+		(f32.store offset=0x00 (global.get $render.text_ubo_ptr_real)
+			(f32.demote_f64
+				(f64.add
+					(local.get $old)
+					(f64.mul
+						(f64.sub (local.get $new) (local.get $old))
+						(local.get $alpha)))))
+
+		;; TODO: support text color
+		;; text_ubo.text_color1.r = 1
+		(f32.store offset=0x20 (global.get $render.text_ubo_ptr_real) (f32.const 1))
+		;; text_ubo.text_color1.g = 1
+		(f32.store offset=0x24 (global.get $render.text_ubo_ptr_real) (f32.const 1))
+		;; text_ubo.text_color1.b = 1
+		(f32.store offset=0x28 (global.get $render.text_ubo_ptr_real) (f32.const 1))
+		;; text_ubo.text_color1.a = 1
+		(f32.store offset=0x2c (global.get $render.text_ubo_ptr_real) (f32.const 1))
+
+		;; text_ubo.text_color2.r = 1
+		(f32.store offset=0x30 (global.get $render.text_ubo_ptr_real) (f32.const 1))
+		;; text_ubo.text_color2.g = 1
+		(f32.store offset=0x34 (global.get $render.text_ubo_ptr_real) (f32.const 1))
+		;; text_ubo.text_color2.b = 1
+		(f32.store offset=0x38 (global.get $render.text_ubo_ptr_real) (f32.const 1))
+		;; text_ubo.text_color2.a = 1
+		(f32.store offset=0x3c (global.get $render.text_ubo_ptr_real) (f32.const 1))
+	)
+
+
+
+	;; sets up the text ubo for drawing the player's name; returns cell.name_ref
+	(func $render.text_ubo_name (export "render.text_ubo_name") (param $cell_ptr i32) (result i32)
+		;; TODO: check showNames, cell.name_ref = $settings.name_ref
+		;; text_ubo.text_scale = 1
+		(f32.store offset=0x14 (global.get $render.text_ubo_ptr_real) (f32.const 1))
+		;; text_ubo.text_offset = 0
+		(f32.store offset=0x18 (global.get $render.text_ubo_ptr_real) (f32.const 0))
+		;; text_ubo.text_digit_count = 0
+		(i32.store offset=0x1c (global.get $render.text_ubo_ptr_real) (i32.const 0))
+		;; if text would be colored, enable silhouettes
+		;; text_ubo.text_silhouette_enabled = 0
+		(i32.store offset=0x40 (global.get $render.text_ubo_ptr_real) (i32.const 0))
+
+		;; TODO: text alpha when cell is fading in/out
+		(f32.store offset=0x04 (global.get $render.text_ubo_ptr_real) (f32.const 1))
+
+		;; return cell.name_ref
+		(i32.load offset=0x5c (local.get $cell_ptr))
+	)
+
+
+
+	;; sets up the text ubo for drawing the player's mass; returns the mass itself
+	(func $render.text_ubo_mass (export "render.text_ubo_mass") (param $cell_ptr i32) (result i32)
+		(local $digits i32) (local $mass i32)
+
+		;; $mass = (cell.nr * cell.nr / 100) as i32
+		(local.set $mass
+			(i32.trunc_f64_u
+				(f64.mul
+					(f64.mul
+						(f64.load offset=0x38 (local.get $cell_ptr))
+						(f64.load offset=0x38 (local.get $cell_ptr)))
+					(f64.const 0.01))))
+
+		;; don't draw if cell is too small
+		;; if $mass < 75: return 0
+		(i32.lt_u (local.get $mass) (i32.const 75))
+		if
+			(return (i32.const 0))
+		end
+
+		;; $digits = 2 (guaranteed at least 2 digits)
+		(local.set $digits (i32.const 2))
+		;; if $mass >= 100: $digits = 3
+		(i32.ge_u (local.get $mass) (i32.const 100))
+		if (local.set $digits (i32.const 3)) end
+		;; if $mass >= 1000: $digits = 4
+		(i32.ge_u (local.get $mass) (i32.const 1000))
+		if (local.set $digits (i32.const 4)) end
+		;; if $mass >= 10_000: $digits = 5
+		(i32.ge_u (local.get $mass) (i32.const 10_000))
+		if (local.set $digits (i32.const 5)) end
+		;; if $mass >= 100_000: $digits = 6 (possible if a cell is about to autosplit into two 50k+ pieces, or more)
+		(i32.ge_u (local.get $mass) (i32.const 100_000))
+		if (local.set $digits (i32.const 6)) end
+		;; if $mass >= 1_000_000: $mass = 999_999 (don't want to use more than 6 digit textures)
+		(i32.ge_u (local.get $mass) (i32.const 1_000_000))
+		if (local.set $mass (i32.const 999_999)) end
+
+		;; TODO: text_alpha, no names/no mass
+		;; text_ubo.text_alpha *= $settings.sf.mass_opacity
+		(f32.store offset=0x04 (global.get $render.text_ubo_ptr_real)
+			(f32.mul
+				(f32.load offset=0x04 (global.get $render.text_ubo_ptr_real))
+				(global.get $settings.sf.mass_opacity)))
+		;; text_ubo.text_scale = 0.5
+		(f32.store offset=0x14 (global.get $render.text_ubo_ptr_real) (f32.const 0.5))
+		;; text_ubo.text_offset = 1/3 + 1/6 (so, 0.5)
+		(f32.store offset=0x18 (global.get $render.text_ubo_ptr_real) (f32.const 0.5))
+		;; text_ubo.text_digit_count = $digits
+		(i32.store offset=0x1c (global.get $render.text_ubo_ptr_real) (local.get $digits))
+		;; text_ubo.text_silhouette_enabled = 0
+		(i32.store offset=0x40 (global.get $render.text_ubo_ptr_real) (i32.const 0))
+
+		;; return $mass
+		local.get $mass
+	)
+
+
+
+	(func $render.text_ubo_ptr (export "render.text_ubo_ptr") (result i32)
+		(global.get $render.text_ubo_ptr_real)
+	)
+
+
+
+	(func $render.update_virus_ref (export "render.update_virus_ref") (param $ref i32)
+		(global.set $render.virus_ref (local.get $ref))
+	)
+
+
+
+	;; updates all vanilla-specific settings
+	(func $settings.update (export "settings.update")
+		(param $jelly_physics i32)
+
+		(global.set $settings.jelly_physics (local.get $jelly_physics))
+	)
+
+
+
+	;; updates all sigmally fixes-specific settings
+	(func $settings.sf.update (export "settings.sf.update")
+		(param $draw_delay f64) (param $mass_opacity f32)
+
+		(global.set $settings.sf.draw_delay (local.get $draw_delay))
+		(global.set $settings.sf.mass_opacity (local.get $mass_opacity))
+	)
+
+
+
+	;; updates all sigmod-specific settings
+	(func $settings.sm.update (export "settings.sm.update")
+		(param $cell_color.r f32) (param $cell_color.g f32) (param $cell_color.b f32) (param $cell_color.a f32)
+
+		(global.set $settings.sm.cell_color.r (local.get $cell_color.r))
+		(global.set $settings.sm.cell_color.g (local.get $cell_color.g))
+		(global.set $settings.sm.cell_color.b (local.get $cell_color.b))
+		(global.set $settings.sm.cell_color.a (local.get $cell_color.a))
 	)
 
 
@@ -828,8 +1072,9 @@
 	;; we use insertion sort here, as the tab is almost always sorted (or very close to being sorted), so it
 	;; usually performs at O(n)
 	(func $tab.sort (export "tab.sort") (param $tab i32) (param $now f64)
-		(local $alpha f64) (local $cell_base i32) (local $draw_delay f64) (local $length i32) (local $i i32) (local $j i32)
-		(local $i_radius f64) (local $i_id i32)
+		(local $alpha f64) (local $cell_base i32) (local $length i32) (local $i i32) (local $j i32)
+		(local $i_radius f64) (local $j_radius f64) (local $old f64) (local $new f64)
+		(local $cell_ptr_i i32) (local $cell_ptr_j i32)
 
 		;; $cell_base = 0x10_0000 + (($tab.width_space * $tab) + ($tab.width_pellets))
 		(local.set $cell_base
@@ -859,19 +1104,36 @@
 				(i32.const 0xf_ff80)
 				(i32.const 128))
 
-			;; $i_id = cell[i].id
-			(local.set $i_id
-				(i32.load offset=0x00
-					(i32.add
-						(local.get $cell_base)
-						(i32.mul (local.get $i) (i32.const 128)))))
+			;; $cell_ptr_i = $cell_base + (i * 128)
+			(local.set $cell_ptr_i
+				(i32.add
+					(local.get $cell_base)
+					(i32.mul (local.get $i) (i32.const 128))))
 
-			;; $i_radius = cell[i].nr
+			;; $old = cell[i].or
+			(local.set $old
+				(f64.load offset=0x18 (local.get $cell_ptr_i)))
+			;; $new = cell[i].nr
+			(local.set $new
+				(f64.load offset=0x38 (local.get $cell_ptr_i)))
+			;; $alpha = min(max(($now - cell.updated) / $settings.sf.draw_delay, 0), 1)
+			(local.set $alpha
+				(f64.min
+					(f64.max
+						(f64.div
+							(f64.sub
+								(local.get $now)
+								(f64.load offset=0x40 (local.get $cell_ptr_i)))
+							(global.get $settings.sf.draw_delay))
+						(f64.const 0))
+					(f64.const 1)))
+			;; $i_radius = $old + ($new - $old) * $alpha
 			(local.set $i_radius
-				(f64.load offset=0x38
-					(i32.add
-						(local.get $cell_base)
-						(i32.mul (local.get $i) (i32.const 128)))))
+				(f64.add
+					(local.get $old)
+					(f64.mul
+						(f64.sub (local.get $new) (local.get $old))
+						(local.get $alpha))))
 
 			;; j = i - 1
 			(local.set $j
@@ -882,30 +1144,47 @@
 				(i32.lt_s (local.get $j) (i32.const 0))
 				br_if $block2
 
-				;; if (cell[j].nr < $i_radius): break, placed correctly
-				;; TODO: consider cell IDs, xyr alpha
-				(f64.lt
-					(f64.load offset=0x38
-						(i32.add
-							(local.get $cell_base)
-							(i32.mul (local.get $j) (i32.const 128))))
-					(local.get $i_radius))
+				;; $cell_ptr_j = $cell_base + (j * 128)
+				(local.set $cell_ptr_j
+					(i32.add
+						(local.get $cell_base)
+						(i32.mul (local.get $j) (i32.const 128))))
+
+				;; $old = cell[j].or
+				(local.set $old
+					(f64.load offset=0x18 (local.get $cell_ptr_j)))
+				;; $new = cell[j].nr
+				(local.set $new
+					(f64.load offset=0x38 (local.get $cell_ptr_j)))
+				;; $alpha = min(max(($now - cell[j].updated) / $settings.sf.draw_delay, 0), 1)
+				(local.set $alpha
+					(f64.min
+						(f64.max
+							(f64.div
+								(f64.sub
+									(local.get $now)
+									(f64.load offset=0x40 (local.get $cell_ptr_j)))
+								(global.get $settings.sf.draw_delay))
+							(f64.const 0))
+						(f64.const 1)))
+				;; $j_radius = $old + ($new - $old) * $alpha
+				(local.set $j_radius
+					(f64.add
+						(local.get $old)
+						(f64.mul
+							(f64.sub (local.get $new) (local.get $old))
+							(local.get $alpha))))
+
+				;; if ($j_radius < $i_radius): break, placed correctly
+				(f64.lt (local.get $j_radius) (local.get $i_radius))
 				br_if $block2
 
-				;; if (cell[j].nr == $i_radius and cell[j].id < $i_id): break, placed correctly
+				;; if ($j_radius == $i_radius and cell[j].id < cell[i].id): break, placed correctly
 				(i32.and
-					(f64.eq
-						(f64.load offset=0x38
-							(i32.add
-								(local.get $cell_base)
-								(i32.mul (local.get $j) (i32.const 128))))
-						(local.get $i_radius))
+					(f64.eq (local.get $j_radius) (local.get $i_radius))
 					(i32.lt_u
-						(i32.load offset=0x00
-							(i32.add
-								(local.get $cell_base)
-								(i32.mul (local.get $j) (i32.const 128))))
-						(local.get $i_id)))
+						(i32.load offset=0x00 (local.get $cell_ptr_j))
+						(i32.load offset=0x00 (local.get $cell_ptr_i))))
 				br_if $block2
 
 				;; cell[j + 1] = cell[j]
@@ -955,9 +1234,6 @@
 		(local $name_ref i32) (local $skin_ref i32) (local $clan_ref i32) (local $rgb i32)
 		(local $is_pellet i32) (local $alpha f64) (local $inv_alpha f64)
 		(local $draw_delay f64)
-
-		;; $draw_delay = $settings.draw_delay()
-		(local.set $draw_delay (call $settings.draw_delay))
 
 		;; $o = 1
 		(local.set $o (i32.const 1))
@@ -1110,9 +1386,9 @@
 			(i32.and (local.get $flags) (i32.const 0x04))
 			if
 				;; read skin
-				;; $skin_ref = $string.to_ref($o, $o = $misc.until_zero($o))
+				;; $skin_ref = $string.to_ref_as_skin($o, $o = $misc.until_zero($o))
 				(local.set $skin_ref
-					(call $string.to_ref
+					(call $string.to_ref_as_skin
 						(local.get $o)
 						(local.tee $o
 							(call $misc.until_zero (local.get $o)))))
@@ -1162,9 +1438,18 @@
 				br $loop2
 			end
 
-			;; $alpha = $cell.xyr_alpha($cell_ptr, $now, $draw_delay)
+			;; $alpha = (now - cell.updated) / settings.sf.draw_delay
 			(local.set $alpha
-				(call $cell.xyr_alpha (local.get $cell_ptr) (local.get $now) (local.get $draw_delay)))
+				(f64.div
+					(f64.sub
+						(local.get $now)
+						(f64.load offset=0x40 (local.get $cell_ptr)))
+					(global.get $settings.sf.draw_delay)))
+			;; $alpha = min(max($alpha, 0), 1)
+			(local.set $alpha
+				(f64.min
+					(f64.max (local.get $alpha) (f64.const 0))
+					(f64.const 1)))
 			;; $inv_alpha = 1 - $alpha
 			(local.set $inv_alpha
 				(f64.sub (f64.const 1) (local.get $alpha)))
@@ -1200,9 +1485,25 @@
 						(f64.load offset=0x38 (local.get $cell_ptr))
 						(local.get $alpha))))
 
-			;; cell.jr = r
+			;; $alpha = 0.012 * ($now - cell.updated) (see derivation in $render.cell_ubo)
+			(local.set $alpha
+				(f64.mul
+					(f64.const 0.012)
+					(f64.sub
+						(local.get $now)
+						(f64.load offset=0x40 (local.get $cell_ptr)))))
+			;; $inv_alpha = 1 - $inv_alpha
+			(local.set $inv_alpha
+				(f64.sub (f64.const 1) (local.get $alpha)))
+			;; cell.jr = cell.jr * inv_alpha + cell.or * alpha
 			(f64.store offset=0x20 (local.get $cell_ptr)
-				(local.get $r))
+				(f64.add
+					(f64.mul
+						(f64.load offset=0x20 (local.get $cell_ptr))
+						(local.get $inv_alpha))
+					(f64.mul
+						(f64.load offset=0x18 (local.get $cell_ptr))
+						(local.get $alpha))))
 
 			;; cell.nx = x
 			(f64.store offset=0x28 (local.get $cell_ptr) (local.get $x))

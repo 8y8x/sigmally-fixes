@@ -207,6 +207,8 @@
 				aux.sigmodSettings.skinReplacement = sigmod.game?.skins;
 				aux.sigmodSettings.virusImage = sigmod.game?.virusImage;
 				aux.sigmodSettings.rapidFeedKey = sigmod.macros?.keys?.rapidFeed;
+
+				wasm['settings.sm.update'](0, 0, 0, -1);
 			}
 		}, 50);
 
@@ -937,7 +939,7 @@
 	/////////////////////////////
 	const wasm = await (async () => {
 		const src = 'data:application/octet-stream;base64,'
-			+ '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A0AgASgCAEUNASABQQA2AgAgAUGAAWohAQwACwtBgIDAACMGIABsIwVqaiEBAkADQCABKAIARQ0BIAFBADYCACABQYABaiEBDAALC0GAgMAAIwYgAGwjBSMDampqQQA2AgBBgIDAACMGIABsIwUjA2pBBGpqakEANgIAC40BAQF/QYCAwAAjBiAAbGohAgJAA0AgAigCAEUNASACKwNQRAAAAAAAwHJAoCABYwRAIAAgAkEBEAUFIAJBgAFqIQILDAALC0GAgMAAIwVqIwYgAGxqIQICQANAIAIoAgBFDQEgAisDUEQAAAAAAMByQKAgAWMEQCAAIAJBABAFBSACQYABaiECCwwACwsL6gEGAXwBfwF8A38BfAF/QYCAwAAjBiAAbCMFamohAyAAEAohBUEBIQYCQANAIAYgBU8NASADIAZBgAFsakGA/z9BgAEQDSADIAZBgAFsaigCACEJIAMgBkGAAWxqKwM4IQggBkEBayEHAkADQCAHQQBIDQEgAyAHQYABbGorAzggCGMNASADIAdBgAFsaisDOCAIYSADIAdBgAFsaigCACAJSXENASADIAdBgAFsaiADIAdBAWpBgAFsakGAARANIAdBAWshBwwACwtBgP8/IAMgB0EBakGAAWxqQYABEA0gBkEBaiEGDAALCwvEBQQGfwN8CH8DfBAAIRVBASEHIAcvAQAhAiAHQQJqIQcCQANAIAJFDQEgAkEBayECIAcoAgAhBSAHQQRqIQcgBygCACEGIAdBBGohByAAIAZBARADIQ0gDUUEQCAAIAZBABADIQ0gDUUNAQsgDSABOQNQIA0gATkDQCANIAU2AlgMAAsLAkADQCAHKAIAIQUgB0EEaiEHIAVFDQEgBy4BALchCCAHQQJqIQcgBy4BALchCSAHQQJqIQcgBy8BALghCiAHQQJqIQcgBy0AACEDIANBEXFFRSELIAdBA2ohByAHLQAARUUhDCAHQQFqIQcgByAHEA4iBxABIRAgA0ECcQRAIActAAAhESAHQQFqIQcgESAHLQAAQQh0ciERIAdBAWohByARIActAABBEHRyIREgB0EBaiEHCyADQQRxBEAgByAHEA4iBxABIQ8LIANBCHEEQCAHIAcQDiIHEAEhDgsgCkQAAAAAAAA0QGUhEiAAIAUgEhADIQ0CQCANBEAgDSsDUCABZA0BIAAgDSASEAULIAAgASAFIAggCSAKIAsgDCAQIBEgDyAOEAQaDAELIA0gASAVEAwhE0QAAAAAAADwPyAToSEUIA0gDSsDCCAUoiANKwMoIBOioDkDCCANIA0rAxAgFKIgDSsDMCAToqA5AxAgDSANKwMYIBSiIA0rAzggE6KgOQMYIA0gCjkDICANIAg5AyggDSAJOQMwIA0gCjkDOCANIAE5A0AgDSAQNgJkIANBAnEEQCANIBE2AgQLIANBBHEEQCANIA42AlwLIANBCHEEQCANIA82AmALDAALCyAHLwEAIQIgB0ECaiEHAkADQCACRQ0BIAJBAWshAiAHKAIAIQUgB0EEaiEHIAAgBUEBEAMhDSANRQRAIAAgBUEAEAMhDSANRQ0BCyANIAE5A1AgDSABOQNADAALCyAHCw==';
+			+ 'AGFzbQEAAAABUAxgAn9/AX9gA39/fwF/YAx/fH98fHx/f39/f38Bf2ADf39/AGABfwF/YAABf2AEf398fwF/YAJ/fABgAX8AYAJ8fQBgBH19fX0AYAJ/fAF/AjgDBG1haW4GbWVtb3J5AgAbBnN0cmluZw50b19yZWZfYXNfc2tpbgAABnN0cmluZwZ0b19yZWYAAAMbGgABAgMEBAUEBAMEBgUHBAQFCAgJCgUIBwcLBnoRfwBBgP4/C38AQYD/Pwt/AUEAC38BQQALfQFDAAAAAAt9AUMAAAAAC30BQwAAAAALfQFDAACAvwt8AUQAAAAAAAAAAAt9AUMAAIA/C38BQQELfwFBgAgLfwFBgCALfwFBgIAIC38BQYCABAt/AUGAgCALfwFBgIAsCwfpAxoNY2VsbC5hbGxvY2F0ZQACCmNlbGwuYnlfaWQAAwtjZWxsLmNyZWF0ZQAED2NlbGwuZGVhbGxvY2F0ZQAFE2NlbGwuZmlyc3RfY2VsbF9wdHIABhVjZWxsLmZpcnN0X3BlbGxldF9wdHIABxNjZWxsLmdyb3dfdGFiX3NwYWNlAAgOY2VsbC5udW1fY2VsbHMACRBjZWxsLm51bV9wZWxsZXRzAAoMbWlzYy5tZW1jcHk4AAsPbWlzYy51bnRpbF96ZXJvAAwPcmVuZGVyLmNlbGxfdWJvAA0TcmVuZGVyLmNlbGxfdWJvX3B0cgAOFnJlbmRlci50ZXh0X3Vib19iYXNpY3MADxRyZW5kZXIudGV4dF91Ym9fbmFtZQAQFHJlbmRlci50ZXh0X3Vib19tYXNzABETcmVuZGVyLnRleHRfdWJvX3B0cgASF3JlbmRlci51cGRhdGVfdmlydXNfcmVmABMPc2V0dGluZ3MudXBkYXRlABQSc2V0dGluZ3Muc2YudXBkYXRlABUSc2V0dGluZ3Muc20udXBkYXRlABYMdGFiLmFsbG9jYXRlABcJdGFiLmNsZWFyABgLdGFiLmNsZWFudXAAGQh0YWIuc29ydAAaEHdzLmhhbmRsZV91cGRhdGUAGwqcGRpVAQN/QYCAwAAjECAAbGohAiACIw1qIw9BAEEEIAEbamohAyADKAIAIQQgBCMMIwsgARtPBEBBAA8LIAJBACMPIAEbakGAASAEbGogAyAEQQFqNgIAC0MBAn9BgIDAACMQIABsQQAjDyACG2pqIQQDQCAEKAIAIQMgAyABRgRAIAQPCyADRQRAQQAPCyAEQYABaiEEDAALQQALuAEBAn8gBUQAAAAAAAA0QGUhDSAAIA0QAiEMIAxFBEAQCEUEQEEADwsgACANEAIhDAsgDCACNgIAIAwgCTYCBCAMIAM5AwggDCAEOQMQIAwgBTkDGCAMIAU5AyAgDCADOQMoIAwgBDkDMCAMIAU5AzggDCABOQNAIAwgATkDSCAMRAAAAAAAAPB/OQNQIAxBADYCWCAMIAs2AlwgDCAKNgJgIAwgCDYCZCAMIAY6AGggDCAHOgBpIAwLXwEEf0GAgMAAIxAgAGxqIQMgAyMNaiMPQQBBBCACG2pqIQUgBSgCAEEBayEGIANBACMPIAIbakGAASAGbGohBCABIARHBEAgBCABQYABEAsLIARBADYCACAFIAY2AgALEABBgIDAACMQIABsIw9qagsNAEGAgMAAIxAgAGxqC6cBAQR/Iw0jD2ojCmxBEHZAAEF/RgRAQQAPCyMKQX9qIQEDQEGAgMAAIxAgAWxqIQJBgIDAACMQQQJsIAFsaiEDIAIjDSMPamogAyMNIw9qQQJsakGAgAQQCyACIw9qIAMjD0ECbGojDRALIAIgAyMPEAsgAUF/aiIBQQBODQALIwtBAmwkCyMMQQJsJAwjDUECbCQNIw9BAmwkDyMNIw9qIw5qJBBBAQsZAEGAgMAAIxAgAGxqIw8jDWpBBGpqKAIACxYAQYCAwAAjECAAbGojDyMNamooAgALKwEBfyAAIAJqIQMDQCABIAApAwA3AwAgAUEIaiEBIABBCGoiACADSQ0ACwsVAANAIAAtAAAgAEEBaiEADQALIAALwwQGA3wBfwF8An8CfAF/IwAhByACIAErA0ihRAAAAAAAAFlAoyEEIAErA1BEAAAAAAAA8H9iBEAgBEQAAAAAAADwPyACIAErA1ChRAAAAAAAAFlAo6GkIQQLIAcgBLZDAAAAAJdDAACAP5Y4AlggAiABKwNAoSMIoyEIIAhEAAAAAAAAAAClRAAAAAAAAPA/pCEIIAEoAlghCiAKRQRAIAErAyghCyABKwMwIQwFIAAgCkEAEAMhCSAJKwMoIQsgCSsDMCEMCyABKwMIIQUgByAFIAsgBaEgCKKgtjgCCCABKwMQIQUgByAFIAwgBaEgCKKgtjgCDCABKwMYIQUgASsDOCEGIAUgBiAFoSAIoqAhBiMDBEAgByAGRClcj8L1KPA/orY4AgQgASsDICEFIAUgBiAFoUT6fmq8dJOIPyACIAErA0ChoqKgIQYgByAGRClcj8L1KPA/orY4AgAFIAcgBrY4AgAgByAGtjgCBAsgB0MAAAAAOAIsIAdDAAAAADgCPCAHQwAAAAA4AkwgAS0AaARAIAdDAAAAADgCECAHQwAAAAA4AhQgB0MAAAAAOAIYIAdDAAAAADgCHCAHQQE2AlQjAg8LIAcgAS0ABLNDAAB/Q5U4AhAgByABLQAFs0MAAH9DlTgCFCAHIAEtAAazQwAAf0OVOAIYIAdDAACAPzgCHCADRQRAIAdDAAAAADgCICAHQwAAAAA4AiQgB0MAAAAAOAIoIAdDzczMPTgCLCABKAJgIQ0LIAcgDTYCVCANDwsEACMAC9IBAQN8IAEgACsDQKEjCKNEAAAAAAAAAAClRAAAAAAAAPA/pCECIAArAwghAyAAKwMoIQQjASADIAQgA6EgAqKgtjgCCCAAKwMQIQMgACsDMCEEIwEgAyAEIAOhIAKioLY4AgwgACsDGCEDIAArAzghBCMBIAMgBCADoSACoqC2OAIAIwFDAACAPzgCICMBQwAAgD84AiQjAUMAAIA/OAIoIwFDAACAPzgCLCMBQwAAgD84AjAjAUMAAIA/OAI0IwFDAACAPzgCOCMBQwAAgD84AjwLMwAjAUMAAIA/OAIUIwFDAAAAADgCGCMBQQA2AhwjAUEANgJAIwFDAACAPzgCBCAAKAJcC6MBAQJ/IAArAzggACsDOKJEexSuR+F6hD+iqyECIAJBywBJBEBBAA8LQQIhASACQeQATwRAQQMhAQsgAkHoB08EQEEEIQELIAJBkM4ATwRAQQUhAQsgAkGgjQZPBEBBBiEBCyACQcCEPU8EQEG/hD0hAgsjASMBKgIEIwmUOAIEIwFDAAAAPzgCFCMBQwAAAD84AhgjASABNgIcIwFBADYCQCACCwQAIwELBgAgACQCCwYAIAAkAwsKACAAJAggASQJCxIAIAAkBCABJAUgAiQGIAMkBwsUACMQQRB2QABBf0YEQEEADwtBAQuOAQEBf0GAgMAAIxAgAGxqIQECQANAIAEoAgBFDQEgAUEANgIAIAFBgAFqIQEMAAsLQYCAwAAjECAAbCMPamohAQJAA0AgASgCAEUNASABQQA2AgAgAUGAAWohAQwACwtBgIDAACMQIABsIw8jDWpqakEANgIAQYCAwAAjECAAbCMPIw1qQQRqampBADYCAAuNAQEBf0GAgMAAIxAgAGxqIQICQANAIAIoAgBFDQEgAisDUEQAAAAAAMByQKAgAWMEQCAAIAJBARAFBSACQYABaiECCwwACwtBgIDAACMPaiMQIABsaiECAkADQCACKAIARQ0BIAIrA1BEAAAAAADAckCgIAFjBEAgACACQQAQBQUgAkGAAWohAgsMAAsLC8ACBAF8BH8EfAJ/QYCAwAAjECAAbCMPamohAyAAEAkhBEEBIQUCQANAIAUgBE8NASADIAVBgAFsakGA/z9BgAEQCyADIAVBgAFsaiELIAsrAxghCSALKwM4IQogASALKwNAoSMIo0QAAAAAAAAAAKVEAAAAAAAA8D+kIQIgCSAKIAmhIAKioCEHIAVBAWshBgJAA0AgBkEASA0BIAMgBkGAAWxqIQwgDCsDGCEJIAwrAzghCiABIAwrA0ChIwijRAAAAAAAAAAApUQAAAAAAADwP6QhAiAJIAogCaEgAqKgIQggCCAHYw0BIAggB2EgDCgCACALKAIASXENASADIAZBgAFsaiADIAZBAWpBgAFsakGAARALIAZBAWshBgwACwtBgP8/IAMgBkEBakGAAWxqQYABEAsgBUEBaiEFDAALCwuMBgQGfwN8CH8DfEEBIQcgBy8BACECIAdBAmohBwJAA0AgAkUNASACQQFrIQIgBygCACEFIAdBBGohByAHKAIAIQYgB0EEaiEHIAAgBkEBEAMhDSANRQRAIAAgBkEAEAMhDSANRQ0BCyANIAE5A1AgDSABOQNAIA0gBTYCWAwACwsCQANAIAcoAgAhBSAHQQRqIQcgBUUNASAHLgEAtyEIIAdBAmohByAHLgEAtyEJIAdBAmohByAHLwEAuCEKIAdBAmohByAHLQAAIQMgA0ERcUVFIQsgB0EDaiEHIActAABFRSEMIAdBAWohByAHIAcQDCIHEAEhECADQQJxBEAgBy0AACERIAdBAWohByARIActAABBCHRyIREgB0EBaiEHIBEgBy0AAEEQdHIhESAHQQFqIQcLIANBBHEEQCAHIAcQDCIHEAAhDwsgA0EIcQRAIAcgBxAMIgcQASEOCyAKRAAAAAAAADRAZSESIAAgBSASEAMhDQJAIA0EQCANKwNQIAFkDQEgACANIBIQBQsgACABIAUgCCAJIAogCyAMIBAgESAPIA4QBBoMAQsgASANKwNAoSMIoyETIBNEAAAAAAAAAAClRAAAAAAAAPA/pCETRAAAAAAAAPA/IBOhIRQgDSANKwMIIBSiIA0rAyggE6KgOQMIIA0gDSsDECAUoiANKwMwIBOioDkDECANIA0rAxggFKIgDSsDOCAToqA5AxhE+n5qvHSTiD8gASANKwNAoaIhE0QAAAAAAADwPyAToSEUIA0gDSsDICAUoiANKwMYIBOioDkDICANIAg5AyggDSAJOQMwIA0gCjkDOCANIAE5A0AgDSAQNgJkIANBAnEEQCANIBE2AgQLIANBBHEEQCANIA42AlwLIANBCHEEQCANIA82AmALDAALCyAHLwEAIQIgB0ECaiEHAkADQCACRQ0BIAJBAWshAiAHKAIAIQUgB0EEaiEHIAAgBUEBEAMhDSANRQRAIAAgBUEAEAMhDSANRQ0BCyANIAE5A1AgDSABOQNADAALCyAHCwClDgRuYW1lAfUDHAAVc3RyaW5nLnRvX3JlZl9hc19za2luAQ1zdHJpbmcudG9fcmVmAg1jZWxsLmFsbG9jYXRlAwpjZWxsLmJ5X2lkBAtjZWxsLmNyZWF0ZQUPY2VsbC5kZWFsbG9jYXRlBhNjZWxsLmZpcnN0X2NlbGxfcHRyBxVjZWxsLmZpcnN0X3BlbGxldF9wdHIIE2NlbGwuZ3Jvd190YWJfc3BhY2UJDmNlbGwubnVtX2NlbGxzChBjZWxsLm51bV9wZWxsZXRzCwxtaXNjLm1lbWNweTgMD21pc2MudW50aWxfemVybw0PcmVuZGVyLmNlbGxfdWJvDhNyZW5kZXIuY2VsbF91Ym9fcHRyDxZyZW5kZXIudGV4dF91Ym9fYmFzaWNzEBRyZW5kZXIudGV4dF91Ym9fbmFtZREUcmVuZGVyLnRleHRfdWJvX21hc3MSE3JlbmRlci50ZXh0X3Vib19wdHITF3JlbmRlci51cGRhdGVfdmlydXNfcmVmFA9zZXR0aW5ncy51cGRhdGUVEnNldHRpbmdzLnNmLnVwZGF0ZRYSc2V0dGluZ3Muc20udXBkYXRlFwx0YWIuYWxsb2NhdGUYCXRhYi5jbGVhchkLdGFiLmNsZWFudXAaCHRhYi5zb3J0GxB3cy5oYW5kbGVfdXBkYXRlArkHHAACAARmcm9tAQJ0bwECAARmcm9tAQJ0bwIFAAN0YWIBCWlzX3BlbGxldAIEYmFzZQMKbGVuZ3RoX3B0cgQGbGVuZ3RoAwUAA3RhYgECaWQCCWlzX3BlbGxldAMHY2VsbF9pZAQIY2VsbF9wdHIEDgADdGFiAQNub3cCAmlkAwF4BAF5BQFyBgZqYWdnZWQHA3N1YggIY2xhbl9wdHIJA3JnYgoIc2tpbl9wdHILCG5hbWVfcHRyDAhjZWxsX3B0cg0JaXNfcGVsbGV0BQcAA3RhYgEIY2VsbF9wdHICCWlzX3BlbGxldAMEYmFzZQQNbGFzdF9jZWxsX3B0cgUKbGVuZ3RoX3B0cgYKbmV3X2xlbmd0aAYBAAN0YWIHAQADdGFiCAQABXBhZ2VzAQFpAglmcm9tX2Jhc2UDB3RvX2Jhc2UJAQADdGFiCgEAA3RhYgsEAARmcm9tAQJ0bwIEc2l6ZQMIZnJvbV9lbmQMAQABbw0OAAN0YWIBCGNlbGxfcHRyAgNub3cDCWlzX3BlbGxldAQFYWxwaGEFA29sZAYDbmV3Bwd1Ym9fcHRyCAl4eXJfYWxwaGEJCWNlbGxfcHRyMgoHZGVhZF90bwsCbngMAm55DQhza2luX3JlZg4ADwUACGNlbGxfcHRyAQNub3cCBWFscGhhAwNvbGQEA25ldxABAAhjZWxsX3B0chEDAAhjZWxsX3B0cgEGZGlnaXRzAgRtYXNzEgATAQADcmVmFAEADWplbGx5X3BoeXNpY3MVAgAKZHJhd19kZWxheQEMbWFzc19vcGFjaXR5FgQADGNlbGxfY29sb3IucgEMY2VsbF9jb2xvci5nAgxjZWxsX2NvbG9yLmIDDGNlbGxfY29sb3IuYRcAGAIAA3RhYgEIY2VsbF9wdHIZAwADdGFiAQNub3cCCGNlbGxfcHRyGg0AA3RhYgEDbm93AgVhbHBoYQMJY2VsbF9iYXNlBAZsZW5ndGgFAWkGAWoHCGlfcmFkaXVzCAhqX3JhZGl1cwkDb2xkCgNuZXcLCmNlbGxfcHRyX2kMCmNlbGxfcHRyX2obFgADdGFiAQNub3cCBWNvdW50AwVmbGFncwQBaQUDaWQxBgNpZDIHAW8IAXgJAXkKAXILBmphZ2dlZAwDc3ViDQhjZWxsX3B0cg4IbmFtZV9yZWYPCHNraW5fcmVmEAhjbGFuX3JlZhEDcmdiEglpc19wZWxsZXQTBWFscGhhFAlpbnZfYWxwaGEVCmRyYXdfZGVsYXkH6QIRABhyZW5kZXIuY2VsbF91Ym9fcHRyX3JlYWwBGHJlbmRlci50ZXh0X3Vib19wdHJfcmVhbAIQcmVuZGVyLnZpcnVzX3JlZgMWc2V0dGluZ3MuamVsbHlfcGh5c2ljcwQYc2V0dGluZ3Muc20uY2VsbF9jb2xvci5yBRhzZXR0aW5ncy5zbS5jZWxsX2NvbG9yLmcGGHNldHRpbmdzLnNtLmNlbGxfY29sb3IuYgcYc2V0dGluZ3Muc20uY2VsbF9jb2xvci5hCBZzZXR0aW5ncy5zZi5kcmF3X2RlbGF5CRhzZXR0aW5ncy5zZi5tYXNzX29wYWNpdHkKCXRhYi5jb3VudAsNdGFiLm1heF9jZWxscwwPdGFiLm1heF9wZWxsZXRzDQ90YWIud2lkdGhfY2VsbHMODnRhYi53aWR0aF9taXNjDxF0YWIud2lkdGhfcGVsbGV0cxAPdGFiLndpZHRoX3NwYWNl';
 		const buffer = await fetch(src).then(res => res.arrayBuffer());
 
 		const memory = new WebAssembly.Memory({ initial: 27 });
@@ -950,28 +952,36 @@
 		strings.set(0, '');
 		strings.set('', 0);
 
+		const string = {
+			from_ref: ref => {
+				return strings.get(ref);
+			},
+			to_ref: (start, end) => {
+				const str = textDecoder.decode(new DataView(memory.buffer, start, end - start - 1));
+				return string.to_ref_string(str);
+			},
+			to_ref_as_skin: (start, end) => {
+				let skin = textDecoder.decode(new DataView(memory.buffer, start, end - start - 1));
+				if (!skin) return 0; // empty skin
+				skin = skin.replace('1%', '').replace('2%', '').replace('3%', '');
+				return string.to_ref_string(`/static/skins/${skin}.png`);
+			},
+			to_ref_string: str => {
+				const ref = strings.get(str);
+				if (ref !== undefined)
+					return ref;
+
+				strings.set(str, nextStringRef);
+				strings.set(nextStringRef, str);
+				return nextStringRef++;
+			},
+		};
+
 		const imports = {
 			main: {
 				memory,
 			},
-			settings: {
-				draw_delay: () => settings.drawDelay,
-			},
-			string: {
-				from_ref: ref => {
-					return strings.get(ref);
-				},
-				to_ref: (start, end) => {
-					const str = textDecoder.decode(new DataView(memory.buffer, start, end - start - 1));
-					const ref = strings.get(str);
-					if (ref !== undefined)
-						return ref;
-
-					strings.set(str, nextStringRef);
-					strings.set(nextStringRef, str);
-					return nextStringRef++;
-				},
-			},
+			string,
 		};
 
 		return WebAssembly.instantiate(buffer, imports).then(res => ({
@@ -1013,7 +1023,7 @@
 				},
 				strings: () => strings,
 			},
-			imports,
+			...imports,
 			module: res.module,
 		}));
 	})();
@@ -1023,7 +1033,7 @@
 	/////////////////////////
 	// Create Options Menu //
 	/////////////////////////
-	const { onSettingsSave, settings } = (() => {
+	const settings = (() => {
 		const settings = {
 			blockBrowserKeybinds: false,
 			blockNearbyRespawns: false,
@@ -1052,9 +1062,17 @@
 			unsplittableOpacity: 1,
 		};
 
+		const updateWasm = () => {
+			wasm['settings.sf.update'](
+				settings.drawDelay,
+				settings.massOpacity,
+			);
+		};
+
 		try {
 			Object.assign(settings, JSON.parse(localStorage.getItem('sigfix') ?? ''));
 		} catch (_) { }
+		updateWasm();
 
 		/** @type {Set<() => void>} */
 		const onSaves = new Set();
@@ -1077,6 +1095,7 @@
 		}
 
 		function save() {
+			updateWasm();
 			localStorage.setItem('sigfix', JSON.stringify(settings));
 			/** @type {any} */
 			const replicated = { ...settings };
@@ -1421,7 +1440,7 @@
 			});
 		}, 100);
 
-		return { onSettingsSave: cb => onSaves.add(cb), settings };
+		return settings;
 	})();
 
 
@@ -1982,14 +2001,7 @@
 			world.leaderboard = [];
 			ui.leaderboard.update();
 
-			// clear world
-			world.border = undefined;
-			world.cells.clear(); // make sure we won't see overlapping IDs from new cells from the new connection
-			world.pellets.clear();
-			world.clanmates.clear();
-			while (world.mine.length) world.mine.pop();
-			world.mineDead.clear();
-			sync.broadcast(performance.now());
+			wasm['tab.clear'](0);
 		}
 
 		let reconnectAttempts = 0;
@@ -2123,7 +2135,7 @@
 			switch (handshake.unshuffle.get(dat.getUint8(0))) {
 				case 0x10: { // world update
 					// TEMP TEST PROCESSING TODO
-					const wasmDat = new DataView(wasm.imports.main.memory.buffer);
+					const wasmDat = new DataView(wasm.main.memory.buffer);
 					for (let i = 0; i < dat.byteLength; ++i) {
 						wasmDat.setUint8(i, dat.getUint8(i));
 					}
@@ -2141,24 +2153,9 @@
 				}
 
 				case 0x12: // delete all cells
-					for (const cell of world.cells.values()) {
-						if (cell.deadAt === undefined) {
-							cell.deadAt = now;
-							cell.deadTo = -1;
-						}
-					}
-
-					for (const cell of world.pellets.values()) {
-						if (cell.deadAt === undefined) {
-							cell.deadAt = now;
-							cell.deadTo = -1;
-						}
-					}
-
-					world.clanmates.clear();
+					wasm['tab.clear'](0);
 				// passthrough
 				case 0x14: // delete my cells
-					while (world.mine.length) world.mine.pop();
 					break;
 
 				case 0x20: { // new owned cell
@@ -2859,27 +2856,6 @@
 			return s;
 		}
 
-		/**
-		 * @template {string} T
-		 * @param {string} programName
-		 * @param {WebGLProgram} program
-		 * @param {T[]} names
-		 * @returns {{ [x in T]: WebGLUniformLocation }}
-		 */
-		function getUniforms(programName, program, names) {
-			/** @type {{ [x in T]?: WebGLUniformLocation }} */
-			const uniforms = {};
-			names.forEach(name => {
-				const loc = /** @type {WebGLUniformLocation} */ (gl.getUniformLocation(program, name));
-				aux.require(
-					loc || !gl.isContextLost(), `Can\'t find WebGL2 uniform "${name}" in program "${programName}".`);
-
-				uniforms[name] = loc;
-			});
-
-			return /** @type {any} */ (uniforms);
-		}
-
 		let nextUboBinding = 0;
 		/**
 		 * @param {WebGLProgram} program
@@ -2947,7 +2923,8 @@
 				vec2 cell_xy; // @ 0x08
 				float text_aspect_ratio; // @ 0x10
 				float text_scale; // @ 0x14
-				vec2 text_offset; // @ 0x18
+				float text_offset; // @ 0x18
+				int text_digit_count; // @ 0x1c
 				vec4 text_color1; // @ 0x20
 				vec4 text_color2; // @ 0x30
 				int text_silhouette_enabled; // @ 0x40
@@ -3053,7 +3030,7 @@
 				out vec4 out_color;
 
 				void main() {
-					float blur = 0.5 * cell_radius * (540.0 * camera_scale);
+					float blur = 1.0 * cell_radius * (540.0 * camera_scale);
 					float d = length(v_pos.xy);
 
 					out_color = cell_color;
@@ -3155,10 +3132,16 @@
 				${cameraBlock}
 				${textBlock}
 				out vec2 v_pos;
+				out vec2 v_uv;
 
 				void main() {
 					v_pos = a_pos;
-					vec2 clip_space = v_pos * text_scale + text_offset;
+					v_uv = v_pos * 0.5 + 0.5;
+					if (text_digit_count > 0) {
+						v_uv.x *= float(text_digit_count);
+					}
+
+					vec2 clip_space = v_pos * text_scale + vec2(0, text_offset);
 					clip_space *= cell_radius * 0.45 * vec2(text_aspect_ratio, 1.0);
 					clip_space += -camera_pos + cell_xy;
 					clip_space *= camera_scale * vec2(1.0 / camera_aspect_ratio, -1.0);
@@ -3169,21 +3152,39 @@
 				precision highp float;
 				precision highp int;
 				in vec2 v_pos;
+				in vec2 v_uv;
 				${cameraBlock}
 				${textBlock}
 				uniform sampler2D text_colored;
 				uniform sampler2D text_silhouette;
+				uniform sampler2D text_digits[6];
 				out vec4 out_color;
 
 				void main() {
-					vec2 uv = v_pos * 0.5 + 0.5;
-
-					float c2_alpha = (uv.x + uv.y) / 2.0;
+					float c2_alpha = (v_uv.x + v_uv.y) / 2.0;
 					vec4 color = text_color1 * (1.0 - c2_alpha) + text_color2 * c2_alpha;
-					vec4 normal = texture(text_colored, uv);
+					vec4 normal;
+
+					if (text_digit_count == 0) {
+						normal = texture(text_colored, v_uv);
+					} else {
+						// ugh
+						int digit = int(v_uv.x);
+						// remap 0 <= v_uv <= 1 to 0.125 <= v_uv.x <= 0.875, otherwise too much kerning
+						vec2 local_uv = v_uv - vec2(float(digit), 0);
+						local_uv = vec2(local_uv.x * 0.75 + 0.125, local_uv.y);
+						if (digit < text_digit_count) { // 0 <= uv.x <= 1; uv.x has an inclusive range
+							if (digit == 0) normal = texture(text_digits[0], local_uv);
+							else if (digit == 1) normal = texture(text_digits[1], local_uv);
+							else if (digit == 2) normal = texture(text_digits[2], local_uv);
+							else if (digit == 3) normal = texture(text_digits[3], local_uv);
+							else if (digit == 4) normal = texture(text_digits[4], local_uv);
+							else normal = texture(text_digits[5], local_uv);
+						}
+					}
 
 					if (text_silhouette_enabled != 0) {
-						vec4 silhouette = texture(text_silhouette, uv);
+						vec4 silhouette = texture(text_silhouette, v_uv);
 
 						// #fff - #000 => color (text)
 						// #fff - #fff => #fff (respect emoji)
@@ -3244,6 +3245,11 @@
 				tracer: ubo(programs.tracer, 'Tracer'),
 			};
 
+			// update texture uniforms
+			gl.useProgram(programs.text);
+			gl.uniform1i(gl.getUniformLocation(programs.text, 'text_silhouette'), 1);
+			gl.uniform1iv(gl.getUniformLocation(programs.text, 'text_digits'), new Int32Array([ 2, 3, 4, 5, 6, 7 ]));
+
 			// create and bind objects
 			const square = gl.createBuffer();
 			gl.bindBuffer(gl.ARRAY_BUFFER, square);
@@ -3275,224 +3281,128 @@
 		const { gl } = ui.game;
 
 		render.debug = false;
+		let now = performance.now();
 
-		// #1 : define small misc objects
+		// #1 : define text texture manager
+		const textCanvas = document.createElement('canvas');
+		render.textCtx = textCanvas.getContext('2d', { willReadFrequently: true });
+		render.textCache = [];
+
+		const drawText = (text, silhouette, bold, size) => {
+			const lineWidth = Math.ceil(size / 10);
+
+			render.textCtx.font = `${bold ? 'bold' : ''} ${size}px Ubuntu`;
+
+			textCanvas.width = lineWidth * 2 + render.textCtx.measureText(text).width; // setting width and height clears the canvas
+			textCanvas.height = size * 3; // it also seems to reset the ctx state
+
+			render.textCtx.font = `${bold ? 'bold' : ''} ${size}px Ubuntu`;
+			render.textCtx.lineWidth = lineWidth;
+			render.textCtx.fillStyle = silhouette ? '#000' : '#fff';
+			render.textCtx.lineJoin = 'round';
+			render.textCtx.strokeStyle = '#000';
+			render.textCtx.textBaseline = 'middle';
+			
+			// add a space, to prevent sigmod detecting the name and adjusting colors
+			render.textCtx.strokeText(text + ' ', lineWidth, size * 1.5);
+			render.textCtx.fillText(text + ' ', lineWidth, size * 1.5);
+
+			const canvasExport = render.textCtx.getImageData(0, 0, textCanvas.width, textCanvas.height);
+			const texture = gl.createTexture();
+			gl.bindTexture(gl.TEXTURE_2D, texture);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvasExport);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST_MIPMAP_LINEAR); // sharp but not crispy
+			gl.generateMipmap(gl.TEXTURE_2D);
+			return texture;
+		};
+
+		const TEXT_TYPE_NAME = 0;
+		const TEXT_TYPE_MASS = 1;
+		const TEXT_TYPE_CLAN = 2;
+		const TEXT_TYPE_MINIMAP = 3;
+
+		render.text = (ref, silhouetted, type) => {
+			const cached = render.textCache[ref];
+			if (silhouetted ? cached?.silhouette : cached) {
+				cached.accessed = now;
+				return cached;
+			}
+
+			const text = wasm.string.from_ref(ref);
+			let bold, scale;
+			if (type === TEXT_TYPE_NAME) {
+				bold = settings.nameBold;
+				scale = Math.floor(96 * settings.nameScaleFactor);
+			} else if (type === TEXT_TYPE_MINIMAP) {
+				bold = false;
+				scale = Math.floor(200 / 15 * devicePixelRatio); // 200 is the minimap width and height
+			} else if (type === TEXT_TYPE_CLAN) {
+				bold = false;
+				scale = Math.floor(96 * 0.5); // no seting yet
+			} else { // type === TEXT_TYPE_MASS
+				bold = settings.massBold;
+				scale = Math.floor(96 * 0.5 * settings.massScaleFactor);
+			}
+
+			const colored = drawText(text, false, bold, scale);
+			const silhouette = silhouetted && drawText(text, true, bold, scale);
+			return render.textCache[ref] = { ratio: textCanvas.width / textCanvas.height, colored, silhouette, accessed: now };
+		};
+
+		let massDigits = [];
+		let massRatio = 1;
+		render.clearText = () => {
+			for (const entry of render.textCache) {
+				if (!entry) continue;
+				gl.deleteTexture(entry.colored);
+				if (entry.silhouette) gl.deleteTexture(entry.silhouette);
+			}
+			render.textCache = [];
+			massDigits = '0123456789'.split('')
+				.map(digit => render.text(wasm.string.to_ref_string(Number(digit)), false, TEXT_TYPE_MASS));
+			massRatio = textCanvas.width / textCanvas.height; // scary reliance on side effects?
+		}
+		render.clearText(); // pre-generate massDigits so we don't ever need to check if they exist
+		document.fonts.ready.then(() => render.clearText());
+
+		// #2 : define image texture manager
+		render.imageCache = [];
+		render.image = ref => {
+			const cached = render.imageCache[ref];
+			if (cached !== undefined) {
+				if (cached)
+					cached.accessed = now;
+				return cached;
+			}
+
+			const image = new Image();
+			image.crossOrigin = 'anonymous'; // allow images outside of sigmally.com
+			image.addEventListener('load', () => {
+				gl.bindTexture(gl.TEXTURE_2D, render.imageCache[ref] = gl.createTexture());
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST); // not sharp, not blurry
+				gl.generateMipmap(gl.TEXTURE_2D);
+			});
+			image.src = wasm.string.from_ref(ref);
+
+			return render.imageCache[ref] = false;
+		};
+
+		// #3 : define base textures
 		// no point in breaking this across multiple lines
 		// eslint-disable-next-line max-len
-		const gridSrc = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAAAAXNSR0IArs4c6QAAAKVJREFUaEPtkkEKwlAUxBzw/jeWL4J4gECkSrqftC/pzjnn9gfP3ofcf/mWbY8OuVLBilypxutbKlIRyUC/liQWYyuC1UnDikhiMbYiWJ00rIgkFmMrgtVJw4pIYjG2IlidNKyIJBZjK4LVScOKSGIxtiJYnTSsiCQWYyuC1UnDikhiMbYiWJ00rIgkFmMrgtVJw4pIYjG2IlidNPwU2TbpHV/DPgFxJfgvliP9RQAAAABJRU5ErkJggg==';
+		const gridRef = wasm.string.to_ref_string('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAAAAXNSR0IArs4c6QAAAKVJREFUaEPtkkEKwlAUxBzw/jeWL4J4gECkSrqftC/pzjnn9gfP3ofcf/mWbY8OuVLBilypxutbKlIRyUC/liQWYyuC1UnDikhiMbYiWJ00rIgkFmMrgtVJw4pIYjG2IlidNKyIJBZjK4LVScOKSGIxtiJYnTSsiCQWYyuC1UnDikhiMbYiWJ00rIgkFmMrgtVJw4pIYjG2IlidNPwU2TbpHV/DPgFxJfgvliP9RQAAAABJRU5ErkJggg==');
+		render.image(gridRef);
 
+		const virusRef = wasm.string.to_ref_string('/assets/images/viruses/2.png');
+		wasm['render.update_virus_ref'](virusRef);
+		render.image(virusRef);
 
-
-		// #2 : define helper functions
-		const { resetTextureCache, textureFromCache } = (() => {
-			/** @type {Map<string, WebGLTexture | null>} */
-			const cache = new Map();
-			render.textureCache = cache;
-
-			return {
-				resetTextureCache: () => cache.clear(),
-				/**
-				 * @param {string} src
-				 */
-				textureFromCache: src => {
-					const cached = cache.get(src);
-					if (cached !== undefined)
-						return cached ?? undefined;
-
-					cache.set(src, null);
-
-					const image = new Image();
-					image.crossOrigin = 'anonymous';
-					image.addEventListener('load', () => {
-						const texture = /** @type {WebGLTexture} */ (gl.createTexture());
-						if (!texture) return;
-
-						gl.bindTexture(gl.TEXTURE_2D, texture);
-						gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
-						gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
-						gl.generateMipmap(gl.TEXTURE_2D);
-						cache.set(src, texture);
-					});
-					image.src = src;
-
-					return undefined;
-				},
-			};
-		})();
-		render.resetTextureCache = resetTextureCache;
-
-		const { massTextFromCache, resetTextCache, textFromCache } = (() => {
-			/**
-			 * @template {boolean} T
-			 * @typedef {{
-			 * 	aspectRatio: number,
-			 * 	text: WebGLTexture | null | undefined,
-			 *	silhouette: WebGLTexture | null | undefined,
-			 * 	accessed: number
-			 * }} CacheEntry
-			 */
-			/** @type {Map<string, CacheEntry<boolean>>} */
-			const cache = new Map();
-			render.textCache = cache;
-
-			setInterval(() => {
-				// remove text after not being used for 1 minute
-				const now = performance.now();
-				cache.forEach((entry, text) => {
-					if (now - entry.accessed > 60_000) {
-						// immediately delete text instead of waiting for GC
-						if (entry.text !== undefined)
-							gl.deleteTexture(entry.text);
-						if (entry.silhouette !== undefined)
-							gl.deleteTexture(entry.silhouette);
-						cache.delete(text);
-					}
-				});
-			}, 60_000);
-
-			const canvas = document.createElement('canvas');
-			const ctx = aux.require(
-				canvas.getContext('2d', { willReadFrequently: true }),
-				'Unable to get 2D context for text drawing. This is probably your browser being weird, maybe reload ' +
-				'the page?',
-			);
-
-			const baseTextSize = 96;
-
-			/**
-			 * @param {string} text
-			 * @param {boolean} silhouette
-			 * @param {boolean} mass
-			 * @returns {WebGLTexture | null}
-			 */
-			const texture = (text, silhouette, mass) => {
-				const texture = gl.createTexture();
-				if (!texture) return texture;
-
-				const textSize = baseTextSize * (mass ? 0.5 * settings.massScaleFactor : settings.nameScaleFactor);
-				const lineWidth = Math.ceil(textSize / 10);
-
-				let font = '';
-				if (mass ? settings.massBold : settings.nameBold)
-					font = 'bold';
-				font += ' ' + textSize + 'px Ubuntu';
-
-				ctx.font = font;
-				canvas.width = ctx.measureText(text).width + lineWidth * 2;
-				canvas.height = textSize * 3;
-				ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-				// setting canvas.width resets the canvas state
-				ctx.font = font;
-				ctx.lineJoin = 'round';
-				ctx.lineWidth = lineWidth;
-				ctx.fillStyle = silhouette ? '#000' : '#fff';
-				ctx.strokeStyle = '#000';
-				ctx.textBaseline = 'middle';
-
-				// add a space, which is to prevent sigmod from detecting the name
-				ctx.strokeText(text + ' ', lineWidth, textSize * 1.5);
-				ctx.fillText(text + ' ', lineWidth, textSize * 1.5);
-
-				const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-				gl.bindTexture(gl.TEXTURE_2D, texture);
-				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, data);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST_MIPMAP_LINEAR);
-				gl.generateMipmap(gl.TEXTURE_2D);
-				return texture;
-			};
-
-			let drawnMassBold = false;
-			let drawnMassScaleFactor = -1;
-			let massAspectRatio = 1; // assumption: all mass digits are the same aspect ratio - true in the Ubuntu font
-			/** @type {(WebGLTexture | undefined)[]} */
-			const massTextCache = [];
-
-			/**
-			 * @param {string} digit
-			 * @returns {{ aspectRatio: number, texture: WebGLTexture | null }}
-			 */
-			const massTextFromCache = digit => {
-				if (settings.massScaleFactor !== drawnMassScaleFactor || settings.massBold !== drawnMassBold) {
-					while (massTextCache.pop());
-					drawnMassScaleFactor = settings.massScaleFactor;
-					drawnMassBold = settings.massBold;
-				}
-
-				let cached = massTextCache[digit];
-				if (!cached) {
-					cached = massTextCache[digit] = texture(digit, false, true);
-					massAspectRatio = canvas.width / canvas.height;
-				}
-
-				return { aspectRatio: massAspectRatio, texture: cached };
-			};
-
-			const resetTextCache = () => {
-				cache.clear();
-				while (massTextCache.pop());
-			};
-
-			let drawnNamesBold = false;
-			let drawnNamesScaleFactor = -1;
-			/**
-			 * @template {boolean} T
-			 * @param {string} text
-			 * @param {T} silhouette
-			 * @returns {CacheEntry<T>}
-			 */
-			const textFromCache = (text, silhouette) => {
-				if (drawnNamesScaleFactor !== settings.nameScaleFactor || drawnNamesBold !== settings.nameBold) {
-					cache.clear();
-					drawnNamesScaleFactor = settings.nameScaleFactor;
-					drawnNamesBold = settings.nameBold;
-				}
-
-				let entry = cache.get(text);
-				if (!entry) {
-					const shortened = aux.trim(text);
-					/** @type {CacheEntry<T>} */
-					const entry2 = entry = {
-						text: undefined,
-						aspectRatio: 1,
-						silhouette: undefined,
-						accessed: performance.now(),
-					};
-					cache.set(text, entry);
-					setTimeout(() => {
-						entry2.text = texture(shortened, false, false);
-						entry2.aspectRatio = canvas.width / canvas.height; // mind the execution order
-						if (silhouette)
-							entry2.silhouette = texture(shortened, true, false);
-					});
-				} else {
-					entry.accessed = performance.now();
-				}
-
-				if (silhouette && entry.silhouette === undefined) {
-					setTimeout(() => {
-						entry.silhouette = texture(aux.trim(text), true, false);
-					});
-				}
-
-				return entry;
-			};
-
-			// reload text once Ubuntu has loaded, prevents some serif fonts from being locked in
-			document.fonts.ready.then(() => resetTextCache());
-
-			return { massTextFromCache, resetTextCache, textFromCache };
-		})();
-		render.resetTextCache = resetTextCache;
-
-
-
-		// #3 : define the render function
+		// #4 : define the render function
 		let fps = 0;
 		let lastFrame = performance.now();
 		function renderGame() {
-			const now = performance.now();
+			now = performance.now();
 			const dt = Math.max(now - lastFrame, 0.1) / 1000; // there's a chance (now - lastFrame) can be 0
 			fps += (1 / dt - fps) / 10;
 			lastFrame = now;
@@ -3505,10 +3415,6 @@
 			// when tabbing in, draw *as fast as possible* to prevent flickering effects
 			// i'd imagine people using sigmally fixes won't have their fps naturally go below 20 anyway
 			const fastDraw = dt >= 0.05;
-
-			// get settings
-			/** @type {string} */
-			const virusSrc = aux.sigmodSettings?.virusImage ?? '/assets/images/viruses/2.png';
 
 			const darkTheme = aux.setting('input#darkTheme', true);
 			const showBorder = aux.setting('input#showBorder', true);
@@ -3561,7 +3467,7 @@
 				}
 				gl.clear(gl.COLOR_BUFFER_BIT);
 
-				const gridTexture = textureFromCache(gridSrc);
+				const gridTexture = render.image(gridRef);
 				if (!gridTexture) return;
 				gl.bindTexture(gl.TEXTURE_2D, gridTexture);
 
@@ -3621,460 +3527,68 @@
 					return nextCellIdx++ < 16;
 				});
 
-				const { cellColor, foodColor, outlineColor, skinReplacement } = aux.sigmodSettings ?? {};
-
-				/**
-				 * @param {Cell} cell
-				 * @returns {number}
-				 */
-				const calcAlpha = cell => {
-					let alpha = (now - cell.born) / 100;
-					if (cell.deadAt !== undefined) {
-						const alpha2 = 1 - (now - cell.deadAt) / 100;
-						if (alpha2 < alpha) alpha = alpha2;
-					}
-					alpha = alpha > 1 ? 1 : alpha < 0 ? 0 : alpha;
-					return alpha;
+				const updateUniforms = (glbuf, view) => {
+					gl.bindBuffer(gl.UNIFORM_BUFFER, glbuf);
+					gl.bufferSubData(gl.UNIFORM_BUFFER, 0, view);
+					gl.bindBuffer(gl.UNIFORM_BUFFER, null); // required, otherwise the uniform buffer blanks out when used again
 				};
 
-				const cellBuf = new ArrayBuffer(0x5c);
-				const dat = new DataView(cellBuf);
-				const textBuf = new ArrayBuffer(0x44);
-				const datText = new DataView(textBuf);
-
-				/**
-				 * @param {Cell} cell
-				 */
-				function draw(cell) {
-					// #1 : draw cell
-					gl.useProgram(programs.cell);
-
-					const alpha = calcAlpha(cell);
-					dat.setFloat32(0x58, alpha * settings.cellOpacity, true); // cell_alpha
-
-					const { x, y, r, jx, jy, jr } = world.xyr(cell, map, now);
-					// without jelly physics, the radius of cells is adjusted such that its subtle outline doesn't go
-					// past its original radius.
-					// jelly physics does not do this, so colliding cells need to look kinda 'joined' together,
-					// so we multiply the radius by 1.01 (approximately the size increase from the stroke thickness)
-					if (jellyPhysics) {
-						dat.setFloat32(0x08, jx, true); // cell_xy.x
-						dat.setFloat32(0x0c, jy, true); // cell_xy.y
-						dat.setFloat32(0x00, jr * 1.01, true); // cell_radius
-						dat.setFloat32(0x04, (settings.jellySkinLag ? r : jr) * 1.01, true); // cell_radius_skin
-					} else {
-						dat.setFloat32(0x08, x, true); // cell_xy.x
-						dat.setFloat32(0x0c, y, true); // cell_xy.y
-						dat.setFloat32(0x00, r, true); // cell_radius
-						dat.setFloat32(0x04, r, true); // cell_radius_skin
-					}
-
-					dat.setFloat32(0x2c, 0, true); // cell_outline_subtle_color.a
-					dat.setFloat32(0x3c, 0, true); // cell_outline_unsplittable_color.a
-					dat.setFloat32(0x4c, 0, true); // cell_outline_active_color.a
-					dat.setFloat32(0x50, settings.outlineMulti, true); // cell_outline_active_thickness
-					dat.setUint32(0x54, 0, true); // cell_skin_enabled
-
-					if (cell.jagged) {
-						const virusTexture = textureFromCache(virusSrc);
-						if (!virusTexture)
-							return;
-
-						// cell_color = transparent (must set rgb too!)
-						dat.setFloat32(0x10, 0, true);
-						dat.setFloat32(0x14, 0, true);
-						dat.setFloat32(0x18, 0, true);
-						dat.setFloat32(0x1c, 0, true);
-						dat.setUint32(0x54, 1, true); // cell_skin_enabled
-						gl.bindTexture(gl.TEXTURE_2D, virusTexture);
-
-						if (render.debug) console.log('cell is a virus');
-						gl.bindBuffer(gl.UNIFORM_BUFFER, uniforms.cell.cell);
-						gl.bufferSubData(gl.UNIFORM_BUFFER, 0, cellBuf);
-						gl.bindBuffer(gl.UNIFORM_BUFFER, null);
-						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-						return;
-					}
-
-					// TODO: redundant copy+paste
-					if (cell.nr <= 20) {
-						// cell_color
-						if (foodColor) {
-							dat.setFloat32(0x10, foodColor[0], true);
-							dat.setFloat32(0x14, foodColor[1], true);
-							dat.setFloat32(0x18, foodColor[2], true);
-							dat.setFloat32(0x1c, foodColor[3], true);
-						} else {
-							dat.setFloat32(0x10, cell.Rgb, true);
-							dat.setFloat32(0x14, cell.rGb, true);
-							dat.setFloat32(0x18, cell.rgB, true);
-							dat.setFloat32(0x1c, 1, true);
-						}
-					} else {
-						// cell_color
-						if (cellColor) {
-							dat.setFloat32(0x10, cellColor[0], true);
-							dat.setFloat32(0x14, cellColor[1], true);
-							dat.setFloat32(0x18, cellColor[2], true);
-							dat.setFloat32(0x1c, cellColor[3], true);
-						} else {
-							dat.setFloat32(0x10, cell.Rgb, true);
-							dat.setFloat32(0x14, cell.rGb, true);
-							dat.setFloat32(0x18, cell.rgB, true);
-							dat.setFloat32(0x1c, 1, true);
-						}
-					}
-
-					if (cell.nr > 20) {
-						if (settings.cellOutlines) {
-							// cell_outline_subtle_color
-							if (outlineColor) {
-								dat.setFloat32(0x20, outlineColor[0], true);
-								dat.setFloat32(0x24, outlineColor[1], true);
-								dat.setFloat32(0x28, outlineColor[2], true);
-								dat.setFloat32(0x2c, outlineColor[3], true);
-							} else {
-								dat.setFloat32(0x20, 0, true);
-								dat.setFloat32(0x24, 0, true);
-								dat.setFloat32(0x28, 0, true);
-								dat.setFloat32(0x2c, 0.1, true);
-							}
-						}
-
-						const myIndex = world.mine.indexOf(cell.id);
-						if (myIndex !== -1) {
-							// cell_outline_active_color
-							if (world.camera.merged) {
-								dat.setFloat32(0x40, settings.outlineMultiColor[0], true);
-								dat.setFloat32(0x44, settings.outlineMultiColor[1], true);
-								dat.setFloat32(0x48, settings.outlineMultiColor[2], true);
-								dat.setFloat32(0x4c, settings.outlineMultiColor[3], true);
-							}	
-
-							if (!canSplit[myIndex] && settings.unsplittableOpacity > 0) {
-								// cell_outline_unsplittable_color
-								if (darkTheme) {
-									dat.setFloat32(0x30, 1, true);
-									dat.setFloat32(0x34, 1, true);
-									dat.setFloat32(0x38, 1, true);
-									dat.setFloat32(0x3c, settings.unsplittableOpacity, true);
-								} else {
-									dat.setFloat32(0x30, 0, true);
-									dat.setFloat32(0x34, 0, true);
-									dat.setFloat32(0x38, 0, true);
-									dat.setFloat32(0x3c, settings.unsplittableOpacity, true);
-								}
-							}
-						}
-
-						let skin = '';
-						for (const [_, data] of sync.others) {
-							if (data.owned.has(cell.id)) {
-								// cell_outline_active_color
-								dat.setFloat32(0x40, settings.outlineMultiInactiveColor[0], true);
-								dat.setFloat32(0x44, settings.outlineMultiInactiveColor[1], true);
-								dat.setFloat32(0x48, settings.outlineMultiInactiveColor[2], true);
-								dat.setFloat32(0x4c, settings.outlineMultiInactiveColor[3], true);
-								if (settings.syncSkin)
-									skin = data.skin;
-								break;
-							}
-						}
-
-						if (settings.selfSkin && (world.mine.includes(cell.id) || world.mineDead.has(cell.id))) {
-							skin = settings.selfSkin;
-						} else {
-							if (!skin && showSkins && cell.skin) {
-								if (skinReplacement && cell.skin.includes(skinReplacement.original + '.png'))
-									skin = skinReplacement.replacement ?? skinReplacement.replaceImg ?? '';
-								else
-									skin = cell.skin;
-							}
-						}
-
-						if (skin) {
-							const texture = textureFromCache(skin);
-							if (texture) {
-								// cell_skin_enabled
-								dat.setUint32(0x54, 1, true);
-								gl.bindTexture(gl.TEXTURE_2D, texture);
-							}
-						}
-					}
-
-					gl.bindBuffer(gl.UNIFORM_BUFFER, uniforms.cell.cell);
-					gl.bufferSubData(gl.UNIFORM_BUFFER, 0, cellBuf);
-					// for whatever reason, a uniform buffer cannot be used twice in a row without being rebound
-					// this is quite possibly the stupidest thing i've ever seen as i never had to do this before
-					gl.bindBuffer(gl.UNIFORM_BUFFER, null);
-					gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-
-					// #2 : draw text
-					if (cell.nr <= 20) return; // quick return if a pellet
-					const name = cell.name || 'An unnamed cell';
-					const showThisName = showNames && cell.nr > 75;
-					const showThisMass = showMass && cell.nr > 75;
-					const clan = settings.clans ? (aux.clans.get(cell.clan) ?? cell.clan) : '';
-					if (!showThisName && !showThisMass && !clan) return;
-
-					gl.useProgram(programs.text);
-
-					// text_alpha
-					datText.setFloat32(0x04, alpha, true);
-					if (jellyPhysics) {
-						// cell_xy
-						datText.setFloat32(0x08, jx, true);
-						datText.setFloat32(0x0c, jy, true);
-					} else {
-						datText.setFloat32(0x08, x, true);
-						datText.setFloat32(0x0c, y, true);
-					}
-					// cell_radius
-					datText.setFloat32(0x00, r, true) // jelly physics never affects the text *size*
-
-					let useSilhouette = false;
-					if (cell.sub) {
-						// text_color1 = #eb9500
-						datText.setFloat32(0x20, 0xeb / 255, true);
-						datText.setFloat32(0x24, 0x95 / 255, true);
-						datText.setFloat32(0x28, 0x00 / 255, true);
-						datText.setFloat32(0x2c, 1, true);
-						
-						// text_color2 = #e4b110
-						datText.setFloat32(0x30, 0xe4 / 255, true);
-						datText.setFloat32(0x34, 0xb1 / 255, true);
-						datText.setFloat32(0x38, 0x10 / 255, true);
-						datText.setFloat32(0x3c, 1, true);
-						useSilhouette = true;
-					} else {
-						// text_color1 = #ffffff
-						datText.setFloat32(0x20, 1, true);
-						datText.setFloat32(0x24, 1, true);
-						datText.setFloat32(0x28, 1, true);
-						datText.setFloat32(0x2c, 1, true);
-
-						// text_color2 = #ffffff
-						datText.setFloat32(0x30, 1, true);
-						datText.setFloat32(0x34, 1, true);
-						datText.setFloat32(0x38, 1, true);
-						datText.setFloat32(0x3c, 1, true);
-					}
-
-					if (name === nick) {
-						if (aux.sigmodSettings?.nameColor1) {
-							// text_color1 = aux.sigmodSettings.nameColor1
-							datText.setFloat32(0x20, aux.sigmodSettings.nameColor1[0], true);
-							datText.setFloat32(0x24, aux.sigmodSettings.nameColor1[1], true);
-							datText.setFloat32(0x28, aux.sigmodSettings.nameColor1[2], true);
-							datText.setFloat32(0x2c, aux.sigmodSettings.nameColor1[3], true);
-							useSilhouette = true;
-						}
-
-						if (aux.sigmodSettings?.nameColor2) {
-							// text_color2 = aux.sigmodSettings.nameColor2
-							datText.setFloat32(0x30, aux.sigmodSettings.nameColor2[0], true);
-							datText.setFloat32(0x34, aux.sigmodSettings.nameColor2[1], true);
-							datText.setFloat32(0x38, aux.sigmodSettings.nameColor2[2], true);
-							datText.setFloat32(0x3c, aux.sigmodSettings.nameColor2[3], true);
-							useSilhouette = true;
-						}
-					}
-
-					if (clan) {
-						const { aspectRatio, text, silhouette } = textFromCache(clan, useSilhouette);
-						if (text) {
-							// text_aspect_ratio
-							datText.setFloat32(0x10, aspectRatio, true);
-							// text_silhouette_enabled
-							datText.setUint32(0x40, silhouette ? 1 : 0, true);
-							// text_scale
-							datText.setFloat32(0x14, showThisName ? 0.5 : 1, true);
-							// text_offset
-							datText.setFloat32(0x18, 0, true);
-							datText.setFloat32(0x1c, showThisName ? -settings.nameScaleFactor / 3 - 1 / 6 : 0, true);
-
-							gl.bindTexture(gl.TEXTURE_2D, text);
-							if (silhouette) {
-								gl.activeTexture(gl.TEXTURE1);
-								gl.bindTexture(gl.TEXTURE_2D, silhouette);
-								gl.activeTexture(gl.TEXTURE0);
-							}
-
-							gl.bindBuffer(gl.UNIFORM_BUFFER, uniforms.text.text);
-							gl.bufferSubData(gl.UNIFORM_BUFFER, 0, textBuf);
-							gl.bindBuffer(gl.UNIFORM_BUFFER, null);
-							gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-						}
-					}
-
-					if (showThisName) {
-						const { aspectRatio, text, silhouette } = textFromCache(name, useSilhouette);
-						if (text) {
-							// text_aspect_ratio
-							datText.setFloat32(0x10, aspectRatio, true);
-							// text_silhouette_enabled
-							datText.setUint32(0x40, silhouette ? 1 : 0, true);
-							// text_offset
-							datText.setFloat32(0x18, 0, true);
-							datText.setFloat32(0x1c, 0, true);
-							// text_scale
-							datText.setFloat32(0x14, settings.nameScaleFactor, true);
-
-							gl.bindTexture(gl.TEXTURE_2D, text);
-							if (silhouette) {
-								gl.activeTexture(gl.TEXTURE1);
-								gl.bindTexture(gl.TEXTURE_2D, silhouette);
-								gl.activeTexture(gl.TEXTURE0);
-							}
-
-							gl.bindBuffer(gl.UNIFORM_BUFFER, uniforms.text.text);
-							gl.bufferSubData(gl.UNIFORM_BUFFER, 0, textBuf);
-							gl.bindBuffer(gl.UNIFORM_BUFFER, null);
-							gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-						}
-					}
-
-					if (showThisMass) {
-						// text_alpha
-						datText.setFloat32(0x04, alpha * settings.massOpacity, true);
-						// text_silhouette_enabled
-						datText.setUint32(0x40, 0, true);
-						// text_scale
-						datText.setFloat32(0x14, 0.5 * settings.massScaleFactor, true);
-
-						if (showThisName) {
-							// text_offset.y
-							datText.setFloat32(0x1c, settings.nameScaleFactor / 3 + 0.5 * settings.massScaleFactor / 3, true);
-						} else if (clan) {
-							// text_offset.y
-							datText.setFloat32(0x1c, 1/3 + 0.5 * settings.massScaleFactor/3, true);
-						} else {
-							// text_offset.y
-							datText.setFloat32(0x1c, 0, true);
-						}
-
-						// draw each digit separately, as Ubuntu makes them all the same width.
-						// significantly reduces the size of the text cache
-						const mass = Math.floor(cell.nr * cell.nr / 100).toString();
-						for (let i = 0; i < mass.length; ++i) {
-							const { aspectRatio, texture } = massTextFromCache(mass[i]);
-							// text_aspect_ratio
-							datText.setFloat32(0x10, aspectRatio, true);
-							// text_offset.x
-							datText.setFloat32(0x18, (i - (mass.length - 1)/2) * 0.75 * settings.massScaleFactor, true);
-
-							gl.bindTexture(gl.TEXTURE_2D, texture);
-
-							gl.bindBuffer(gl.UNIFORM_BUFFER, uniforms.text.text);
-							gl.bufferSubData(gl.UNIFORM_BUFFER, 0, textBuf);
-							gl.bindBuffer(gl.UNIFORM_BUFFER, null);
-							gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-						}
-					}
-				}
+				const { cellColor, foodColor, outlineColor, skinReplacement } = aux.sigmodSettings ?? {};
 
 				gl.useProgram(programs.cell);
+				gl.bindTexture(gl.TEXTURE_2D, null);
 
 				wasm['tab.sort'](0, now);
 				let cellPtr = wasm['cell.first_pellet_ptr'](0);
 				let numCells = wasm['cell.num_pellets'](0);
-				let dv;
+				const cellView = new DataView(wasm.main.memory.buffer, wasm['render.cell_ubo_ptr'](), 0x5c);
+				const textView = new DataView(wasm.main.memory.buffer, wasm['render.text_ubo_ptr'](), 0x44);
 				for (let i = 0; i < numCells; ++i, cellPtr += 128) {
-					const uboPtr = wasm['render.cell_ubo'](cellPtr, true, now, settings.drawDelay);
-					if (render.debug) console.log(uboPtr);
-					dv ??= new DataView(wasm.imports.main.memory.buffer, uboPtr, 0x5c);
-					gl.bindBuffer(gl.UNIFORM_BUFFER, uniforms.cell.cell);
-					gl.bufferSubData(gl.UNIFORM_BUFFER, 0, dv);
-					gl.bindBuffer(gl.UNIFORM_BUFFER, null);
+					wasm['render.cell_ubo'](0, cellPtr, now, true);
+					updateUniforms(uniforms.cell.cell, cellView);
 					gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 				}
 
 				cellPtr = wasm['cell.first_cell_ptr'](0);
 				numCells = wasm['cell.num_cells'](0);
 				for (let i = 0; i < numCells; ++i, cellPtr += 128) {
-					const uboPtr = wasm['render.cell_ubo'](cellPtr, false, now, settings.drawDelay);
-					dv ??= new DataView(wasm.imports.main.memory.buffer, uboPtr, 0x5c);
-					gl.bindBuffer(gl.UNIFORM_BUFFER, uniforms.cell.cell);
-					gl.bufferSubData(gl.UNIFORM_BUFFER, 0, dv);
-					gl.bindBuffer(gl.UNIFORM_BUFFER, null);
+					// cell
+					gl.useProgram(programs.cell);
+					const skinRef = wasm['render.cell_ubo'](0, cellPtr, now, false);
+					let texture = skinRef && render.image(skinRef);
+					gl.bindTexture(gl.TEXTURE_2D, texture || null);
+					updateUniforms(uniforms.cell.cell, cellView);
 					gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-				}
 
-				//if (!aux.sigmodSettings?.hidePellets)
-				//	for (const cell of map.pellets.values())
-				//		draw(cell);
+					// text
+					gl.useProgram(programs.text);
+					wasm['render.text_ubo_basics'](cellPtr, now);
 
-				/** @type {[Cell, number][]} */
-				//const sorted = [];
-				//for (const cell of map.cells.values()) {
-				//	const computedR = cell.or + (cell.nr - cell.or) * (now - cell.updated) / settings.drawDelay;
-				//	sorted.push([cell, computedR]);
-				//}
-				// sort by smallest to biggest
-				//sorted.sort(([_a, ar], [_b, br]) => ar - br);
-				//for (const [cell] of sorted)
-				//	draw(cell);
+					const nameRef = wasm['render.text_ubo_name'](cellPtr);
+					if (nameRef) {
+						const textureData = render.text(nameRef, false, TEXT_TYPE_NAME);
+						textView.setFloat32(0x10, textureData.ratio, true);
+						gl.bindTexture(gl.TEXTURE_2D, textureData.colored);
+						updateUniforms(uniforms.text.text, textView);
+						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+					}
 
-				// redraw if using rtx
-				if (settings.rtx) {
-					gl.blendFunc(gl.SRC_ALPHA, gl.ONE); // additive blending
-					gl.useProgram(programs.cellGlow);
-
-					/** @param {Cell} cell */
-					const drawRtx = cell => {
-						if (cell.jagged) return;
-
-						gl.uniform1f(uniforms.cellGlow.u_alpha, calcAlpha(cell) * settings.cellOpacity);
-
-						if (cell.nr <= 20 && foodColor)
-							gl.uniform4f(uniforms.cellGlow.u_color, ...foodColor);
-						else if (cellColor)
-							gl.uniform4f(uniforms.cellGlow.u_color, ...cellColor);
-						else
-							gl.uniform4f(uniforms.cellGlow.u_color, cell.Rgb, cell.rGb, cell.rgB, 1);
-
-						const { x, y, r, jx, jy, jr } = world.xyr(cell, map, now);
-						if (jellyPhysics) {
-							gl.uniform2f(uniforms.cellGlow.u_pos, jx, jy);
-							gl.uniform1f(uniforms.cellGlow.u_radius, jr);
-						} else {
-							gl.uniform2f(uniforms.cellGlow.u_pos, x, y);
-							gl.uniform1f(uniforms.cellGlow.u_radius, r);
+					const mass = wasm['render.text_ubo_mass'](cellPtr);
+					if (mass > 0) {
+						const stringified = mass.toString();
+						for (let i = 0; i < stringified.length; ++i) {
+							gl.activeTexture(gl.TEXTURE2 + i);
+							gl.bindTexture(gl.TEXTURE_2D, massDigits[stringified[i]].colored);
 						}
-
+						gl.activeTexture(gl.TEXTURE0);
+						// text is squished horizontally by a factor of 0.75
+						textView.setFloat32(0x10, massRatio * stringified.length * 0.75, true);
+						updateUniforms(uniforms.text.text, textView);
 						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-					};
-
-					if (!aux.sigmodSettings?.hidePellets)
-						for (const cell of map.pellets.values())
-							drawRtx(cell);
-
-					for (const [cell] of sorted)
-						drawRtx(cell);
-
-					gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+					}
 				}
 
-				// draw tracers
-				if (settings.tracer) {
-					gl.useProgram(programs.tracer);
-
-					const [x, y] = input.mouse();
-					gl.uniform2f(uniforms.tracer.u_pos2, x, y);
-
-					world.mine.forEach(id => {
-						const cell = map.cells.get(id);
-						if (!cell) return;
-
-						let { x, y, jx, jy } = world.xyr(cell, map, now);
-						if (jellyPhysics)
-							gl.uniform2f(uniforms.tracer.u_pos1, jx, jy);
-						else
-							gl.uniform2f(uniforms.tracer.u_pos1, x, y);
-
-						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-					});
-				}
+				gl.bindTexture(gl.TEXTURE_2D, null);
 			})();
 
 			(function updateStats() {

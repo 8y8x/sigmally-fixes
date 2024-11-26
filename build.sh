@@ -7,4 +7,5 @@ wat2wasm sigmally-fixes.wat \
 	--disable-multi-value \
 	--disable-bulk-memory \
 	--disable-reference-types \
+	--debug-names \
 	--output=- | base64 > b64-wasm.txt
