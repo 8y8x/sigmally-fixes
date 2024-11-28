@@ -2855,7 +2855,12 @@
 					} else {
 						// remap 0 <= v_uv <= 1 to 0.125 <= v_uv.x <= 0.875, otherwise too much kerning
 						vec2 local_uv = vec2(mod(v_uv.x, 1.0) * 0.75 + 0.125, v_uv.y);
-						normal = texture(text_digits[0], local_uv);
+						if (v_uv.x <= 1.0) normal = texture(text_digits[0], local_uv);
+						else if (v_uv.x <= 2.0) normal = texture(text_digits[1], local_uv);
+						else if (v_uv.x <= 3.0) normal = texture(text_digits[2], local_uv);
+						else if (v_uv.x <= 4.0) normal = texture(text_digits[3], local_uv);
+						else if (v_uv.x <= 5.0) normal = texture(text_digits[4], local_uv);
+						else normal = texture(text_digits[5], local_uv);
 					}
 
 					if (text_silhouette_enabled != 0) {
