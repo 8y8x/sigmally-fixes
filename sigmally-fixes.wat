@@ -20,31 +20,306 @@
 	;; - the next $tab.width_cells bytes are reserved for cells, each 128 bytes
 	;; - the next u32 is the number of pellets stored
 	;; - the next u32 is the number of cells stored
+	;; - the next u32 is the number of owned cells (anything the camera should consider)
+	;; - the next u32s are owned cell ids
 
 	(func $string.to_ref_as_skin (import "string" "to_ref_as_skin") (param $from i32) (param $to i32) (result i32))
 	(func $string.to_ref (import "string" "to_ref") (param $from i32) (param $to i32) (result i32))
 
-	(global $render.cell_ubo_ptr_real i32 (i32.const 0xf_ff00))
-	(global $render.text_ubo_ptr_real i32 (i32.const 0xf_ff80))
+	(global $camera.x (mut f64) (f64.const 0))
+	(global $camera.y (mut f64) (f64.const 0))
+	(global $camera.scale (mut f64) (f64.const 0.9))
+	(global $camera.tx (mut f64) (f64.const 0))
+	(global $camera.ty (mut f64) (f64.const 0))
+	(global $camera.tscale (mut f64) (f64.const 1))
+	(global $camera.updated (mut f64) (f64.const 0))
+
+	(global $input.zoom (mut f64) (f64.const 1))
+
+	(global $render.camera.ubo_ptr_real i32 (i32.const 0xfe80))
+	(global $render.cell_ubo_ptr_real i32 (i32.const 0xff00))
+	(global $render.text_ubo_ptr_real i32 (i32.const 0xff80))
 	(global $render.virus_ref (mut i32) (i32.const 0))
 
+	(global $settings.dark_theme (mut i32) (i32.const 1))
 	(global $settings.jelly_physics (mut i32) (i32.const 0))
+	(global $settings.show_mass (mut i32) (i32.const 1))
+	(global $settings.show_skins (mut i32) (i32.const 1))
 
 	(global $settings.sm.cell_color.r (mut f32) (f32.const 0))
 	(global $settings.sm.cell_color.g (mut f32) (f32.const 0))
 	(global $settings.sm.cell_color.b (mut f32) (f32.const 0))
 	(global $settings.sm.cell_color.a (mut f32) (f32.const -1))
+	(global $settings.sm.show_names (mut i32) (i32.const 1))
 
-	(global $settings.sf.draw_delay (mut f64) (f64.const 0))
+	(global $settings.sf.camera_merge (mut i32) (i32.const 0))
+	(global $settings.sf.camera_merge_weight (mut i32) (i32.const 2))
+	(global $settings.sf.draw_delay (mut f64) (f64.const 1))
 	(global $settings.sf.mass_opacity (mut f32) (f32.const 1))
 
 	(global $tab.count (mut i32) (i32.const 1))
 	(global $tab.max_cells (mut i32) (i32.const 1024))
 	(global $tab.max_pellets (mut i32) (i32.const 4096))
+	(global $tab.offset_owned (mut i32) (i32.const 0xa_000c))
 	(global $tab.width_cells (mut i32) (i32.const 0x2_0000))
 	(global $tab.width_misc (mut i32) (i32.const 0x1_0000))
 	(global $tab.width_pellets (mut i32) (i32.const 0x8_0000))
-	(global $tab.width_space (mut i32) (i32.const 0x0b_0000)) ;; sum of the three widths, must be a multiple of 0x1_0000
+	(global $tab.width_space (mut i32) (i32.const 0xb_0000)) ;; sum of the three widths, must be a multiple of 0x1_0000
+
+
+
+	(func $camera.get_x (export "camera.get_x") (result f64)
+		global.get $camera.x
+	)
+
+	(func $camera.get_y (export "camera.get_y") (result f64)
+		global.get $camera.y
+	)
+
+	(func $camera.get_scale (export "camera.get_scale") (result f64)
+		global.get $camera.scale
+	)
+
+
+
+	;; updates where the camera should be (sent when spectating or when connection closes)
+	(func $camera.target (export "camera.target") (param $tx f64) (param $ty f64) (param $tscale f64) (param $force i32)
+		(global.set $camera.tx (local.get $tx))
+		(global.set $camera.ty (local.get $ty))
+		(global.set $camera.tscale
+			(f64.mul (local.get $tscale) (global.get $input.zoom)))
+
+		;; if $force
+		local.get $force
+		if
+			(global.set $camera.x (local.get $tx))
+			(global.set $camera.y (local.get $ty))
+			(global.set $camera.tscale
+				(f64.mul (local.get $tscale) (global.get $input.zoom)))
+		end
+	)
+
+
+
+	;; updates the camera tx, ty, tscale if any pieces are alive
+	(func $camera.update (export "camera.update") (param $tab i32) (param $now f64)
+		(local $cell_ptr i32) (local $owned_base i32) (local $length i32) (local $i i32)
+		(local $weight f64) (local $sum_x f64) (local $sum_y f64) (local $total_weight f64) (local $total_r f64) (local $zoomout f64)
+		(local $alpha f64) (local $old f64) (local $new f64)
+
+		;; iterate through all owned pieces
+		;; $owned_base = (0x10_000c + ($tab.width_space * $tab)) + ($tab.width_pellets + $tab.width_cells)
+		(local.set $owned_base
+			(i32.add
+				(i32.add
+					(i32.const 0x10_000c)
+					(i32.mul (global.get $tab.width_space) (local.get $tab)))
+				(i32.add (global.get $tab.width_pellets) (global.get $tab.width_cells))))
+		;; $length = load($owned_base - 4)
+		(local.set $length
+			(i32.load (i32.sub (local.get $owned_base) (i32.const 4))))
+		;; $i = 0
+		(local.set $i (i32.const 0))
+		block $block1 loop $loop1
+			;; if $i >= $length: break
+			(i32.ge_u (local.get $i) (local.get $length))
+			br_if $block1
+
+			;; $cell_ptr = $cell.by_id($tab, load($owned_base + ($i * 4)), not a pellet)
+			(local.set $cell_ptr
+				(call $cell.by_id
+					(local.get $tab)
+					(i32.load
+						(i32.add
+							(local.get $owned_base)
+							(i32.mul (local.get $i) (i32.const 4))))
+					(i32.const 0)))
+
+			;; $i += 1
+			(local.set $i (i32.add (local.get $i) (i32.const 1)))
+
+			;; if $cell_ptr == 0: continue
+			(i32.eqz (local.get $cell_ptr))
+			br_if $loop1
+
+			;; if cell.dead_at != inf: continue (don't focus camera on dead, jerking cells)
+			;;(f64.ne
+			;;	(f64.load offset=0x50 (local.get $cell_ptr))
+			;;	(f64.const inf))
+			;;br_if $loop1
+			
+			;; $alpha = min(max(($now - cell.updated) / $settings.sf.draw_delay, 0), 1)
+			(local.set $alpha
+				(f64.min
+					(f64.max
+						(f64.div
+							(f64.sub
+								(local.get $now)
+								(f64.load offset=0x40 (local.get $cell_ptr)))
+							(global.get $settings.sf.draw_delay))
+						(f64.const 0))
+					(f64.const 1)))
+
+			;; $old = cell.or
+			(local.set $old (f64.load offset=0x18 (local.get $cell_ptr)))
+			;; $new = cell.nr
+			(local.set $new (f64.load offset=0x38 (local.get $cell_ptr)))
+			;; $weight = $old + ($new - $old) * $alpha
+			(local.set $weight
+				(f64.add
+					(local.get $old)
+					(f64.mul
+						(f64.sub (local.get $new) (local.get $old))
+						(local.get $alpha))))
+			
+			;; if $settings.sf.camera_merge == 0 or $settings.sf.camera_merge_weight == 0:
+			(i32.or
+				(i32.eqz (global.get $settings.sf.camera_merge))
+				(i32.eqz (global.get $settings.sf.camera_merge_weight)))
+			if
+				(local.set $weight (f64.const 1)) ;; womp womp
+			else
+				;; if $settings.sf.camera_merge_weight == 2
+				(i32.eq (global.get $settings.sf.camera_merge_weight) (i32.const 2))
+				if
+					;; $weight *= $weight
+					(local.set $weight (f64.mul (local.get $weight) (local.get $weight)))
+				end
+				;; if $settings.sf.camera_merge_weight == 1, then no assignments necessary
+			end
+
+			;; $old = cell.ox
+			(local.set $old (f64.load offset=0x08 (local.get $cell_ptr)))
+			;; $new = cell.nx
+			(local.set $new (f64.load offset=0x28 (local.get $cell_ptr)))
+			;; $new = $old + ($new - $old) * $alpha
+			(local.set $new
+				(f64.add
+					(local.get $old)
+					(f64.mul
+						(f64.sub (local.get $new) (local.get $old))
+						(local.get $alpha))))
+			;; $sum_x += $new * $weight
+			(local.set $sum_x
+				(f64.add
+					(local.get $sum_x)
+					(f64.mul (local.get $new) (local.get $weight))))
+
+			;; $old = cell.oy
+			(local.set $old (f64.load offset=0x10 (local.get $cell_ptr)))
+			;; $new = cell.ny
+			(local.set $new (f64.load offset=0x30 (local.get $cell_ptr)))
+			;; $new = $old + ($new - $old) * $alpha
+			(local.set $new
+				(f64.add
+					(local.get $old)
+					(f64.mul
+						(f64.sub (local.get $new) (local.get $old))
+						(local.get $alpha))))
+			;; $sum_y += $new * $weight
+			(local.set $sum_y
+				(f64.add
+					(local.get $sum_y)
+					(f64.mul (local.get $new) (local.get $weight))))
+
+			;; $total_weight += $weight
+			(local.set $total_weight
+				(f64.add (local.get $total_weight) (local.get $weight)))
+
+			;; continue
+			br $loop1
+		end end
+
+		;; if $weight > 0:
+		(f64.gt (local.get $total_weight) (f64.const 0))
+		if
+			;; $camera.tx = $sum_x / $weight
+			(global.set $camera.tx
+				(f64.div (local.get $sum_x) (local.get $total_weight)))
+			;; $camera.ty = $sum_y / $weight
+			(global.set $camera.ty
+				(f64.div (local.get $sum_y) (local.get $total_weight)))
+			;; if $settings.sf.camera_merge == 0:
+			global.get $settings.sf.camera_merge
+			if
+				;; $camera.tscale = min(64 / $total_r, 1)
+				(global.set $camera.tscale
+					(f64.min
+						(f64.div (f64.const 64) (local.get $total_r))
+						(f64.const 1)))
+				;; equivalent to $camera.tscale **= 0.4:
+				;; $camera.tscale = 1 / (($camera.tscale * $camera.tscale) * sqrt($camera.tscale))
+				(global.set $camera.tscale
+					(f64.div
+						(f64.const 1)
+						(f64.mul
+							(f64.mul (global.get $camera.tscale) (global.get $camera.tscale))
+							(f64.sqrt (global.get $camera.tscale)))))
+				;; $camera.tscale *= $input.zoom
+				(global.set $camera.tscale
+					(f64.mul (global.get $camera.tscale) (global.get $input.zoom)))
+			else
+				;; $camera.tscale = 0.25 * input.zoom
+				(global.set $camera.tscale
+					(f64.mul (f64.const 0.25) (global.get $input.zoom)))
+			end
+
+			;; $camera.xy = aux.exponentialEase($camera.xy, $camera.txy, 2, dt)
+			;; or alternatively, using the approximation y = 30dt instead of y = 1 - 0.5^(60dt)
+			;; $alpha = min(30 * ($now - $camera.updated) / 1000, 1)
+			(local.set $alpha
+				(f64.min
+					(f64.mul
+						(f64.const 0.03)
+						(f64.sub (local.get $now) (global.get $camera.updated)))
+					(f64.const 1)))
+		else
+			;; $camera.xy = aux.exponentialEase($camera.xy, $camera.txy, 20, dt)
+			;; or alternatively, y = 3dt instead of y = 1 - (19/20)^(60dt)
+			;; $alpha = min(3 * ($now - $camera.updated) / 1000, 1)
+			(local.set $alpha
+				(f64.min
+					(f64.mul
+						(f64.const 0.003)
+						(f64.sub (local.get $now) (global.get $camera.updated)))
+					(f64.const 1)))
+		end
+		;; $camera.x += ($camera.tx - $camera.x) * $alpha
+		(global.set $camera.x
+			(f64.add
+				(global.get $camera.x)
+				(f64.mul
+					(f64.sub (global.get $camera.tx) (global.get $camera.x))
+					(local.get $alpha))))
+		;; $camera.y += ($camera.ty - $camera.y) * $alpha
+		(global.set $camera.y
+			(f64.add
+				(global.get $camera.y)
+				(f64.mul
+					(f64.sub (global.get $camera.ty) (global.get $camera.y))
+					(local.get $alpha))))
+		;; $alpha = aux.exponentialEase($camera.scale, $camera.tscale, 9, dt)
+		;; or alternatively, y = 6.666666dt instead of y = 1 - (8/9)^(60dt)
+		;; $alpha = min(6.66666666 * ($now - $camera.updated) / 1000, 1)
+		(local.set $alpha
+			(f64.min
+				(f64.mul
+					(f64.const 0.006666666666)
+					(f64.sub (local.get $now) (global.get $camera.updated)))
+				(f64.const 1)))
+		;; $camera.scale += ($camera.tscale - $camera.scale) * $alpha
+		(global.set $camera.scale
+			(f64.add
+				(global.get $camera.scale)
+				(f64.mul
+					(f64.sub (global.get $camera.tscale) (global.get $camera.scale))
+					(local.get $alpha))))
+
+		;; note: you can't zoomout if you aren't getting any camera update packets
+
+		;; $camera.updated = now
+		(global.set $camera.updated (local.get $now))
+	)
 
 
 
@@ -159,8 +434,8 @@
 		(i32.eqz (local.get $cell_ptr))
 		if
 			;; couldn't allocate; grow the tab space
-			;; if $cell.grow_tab_space() == 0:
-			(i32.eqz (call $cell.grow_tab_space))
+			;; if $tab.grow_space() == 0:
+			(i32.eqz (call $tab.grow_space))
 			if
 				;; can't allocate more memory.
 				(return (i32.const 0))
@@ -271,122 +546,6 @@
 
 
 
-	;; if a tab runs out of cell or pellet slots, all tab spaces should be expanded.
-	;; ~doubles the size of all tab spaces and copies data appropriately, or returns 0
-	;; if unsuccessful.
-	(func $cell.grow_tab_space (export "cell.grow_tab_space") (result i32)
-		(local $pages i32) (local $i i32)
-		(local $from_base i32) (local $to_base i32)
-
-		;; #1 : ~double the size (grow by the current # of cell and pellet pages)
-		;; push as ok: memory.grow(($tab.width_cells + $tab.width_pellets) * $tab.count) >> 16)
-		(memory.grow
-			(i32.shr_u
-				(i32.mul
-					(i32.add (global.get $tab.width_cells) (global.get $tab.width_pellets))
-					(global.get $tab.count))
-				(i32.const 16)))
-
-		;; if ok == -1:
-		(i32.eq (i32.const -1))
-		if
-			;; couldn't allocate more memory, unfortunately
-			(return (i32.const 0))
-		end
-
-		;; #2 : copy all tab data
-		;; $i = $tab.count - 1
-		(local.set $i
-			(i32.add (global.get $tab.count) (i32.const -1)))
-		loop $loop ;; no precondition necessary; tab count is always greater than 0
-			;; $from_base = 0x10_0000 + ($tab.width_space * $i)
-			(local.set $from_base
-				(i32.add
-					(i32.const 0x10_0000)
-					(i32.mul (global.get $tab.width_space) (local.get $i))))
-
-			;; $to_base = 0x10_0000 + (($tab.width_space * 2) * $i)
-			(local.set $to_base
-				(i32.add
-					(i32.const 0x10_0000)
-					(i32.mul
-						(i32.mul (global.get $tab.width_space) (i32.const 2))
-						(local.get $i))))
-
-			;; copy misc data first
-			;; $misc.memcpy8(
-			;;     $from_base + ($tab.width_cells + $tab.width_pellets),
-			;;     $to_base + ($tab.width_cells + $tab.width_pellets) * 2,
-			;;     0x1_0000
-			;; )
-			(call $misc.memcpy8
-				(i32.add
-					(local.get $from_base)
-					(i32.add
-						(global.get $tab.width_cells)
-						(global.get $tab.width_pellets)))
-				(i32.add
-					(local.get $to_base)
-					(i32.mul
-						(i32.add
-							(global.get $tab.width_cells)
-							(global.get $tab.width_pellets))
-						(i32.const 2)))
-				(i32.const 0x1_0000))
-
-			;; copy cell data next
-			;; $misc.memcpy8($from_base + $tab.width_pellets, $to_base + $tab.width_pellets * 2, $tab.width_cells)
-			(call $misc.memcpy8
-				(i32.add
-					(local.get $from_base)
-					(global.get $tab.width_pellets))
-				(i32.add
-					(local.get $to_base)
-					(i32.mul
-						(global.get $tab.width_pellets)
-						(i32.const 2)))
-				(global.get $tab.width_cells))
-
-			;; copy pellet data last
-			;; $misc.memcpy8($from_base, $to_base, $tab.width_pellets)
-			(call $misc.memcpy8
-				(local.get $from_base)
-				(local.get $to_base)
-				(global.get $tab.width_pellets))
-
-			;; tee $i -= 1
-			(local.tee $i
-				(i32.add (local.get $i) (i32.const -1)))
-			;; if i >= 0: continue
-			(i32.ge_s (i32.const 0))
-			br_if $loop
-		end
-
-		;; #3 : double and adjust space constants
-		;; $tab.max_cells *= 2
-		(global.set $tab.max_cells
-			(i32.mul (global.get $tab.max_cells) (i32.const 2)))
-		;; $tab.max_pellets *= 2
-		(global.set $tab.max_pellets
-			(i32.mul (global.get $tab.max_pellets) (i32.const 2)))
-		;; $tab.width_cells *= 2
-		(global.set $tab.width_cells
-			(i32.mul (global.get $tab.width_cells) (i32.const 2)))
-		;; $tab.width_pellets *= 2
-		(global.set $tab.width_pellets
-			(i32.mul (global.get $tab.width_pellets) (i32.const 2)))
-		;; $tab.width_space = ($tab.width_cells + $tab.width_pellets) + $tab.width_misc
-		(global.set $tab.width_space
-			(i32.add
-				(i32.add (global.get $tab.width_cells) (global.get $tab.width_pellets))
-				(global.get $tab.width_misc)))
-
-		;; return 1 when successful
-		i32.const 1
-	)
-
-
-
 	(func $cell.num_cells (export "cell.num_cells") (param $tab i32) (result i32)
 		;; return load((0x10_0000 + ($tab.width_space * $tab)) + (($tab.width_pellets + $tab.width_cells) + 4))
 		(i32.load
@@ -409,6 +568,12 @@
 					(i32.const 0x10_0000)
 					(i32.mul (global.get $tab.width_space) (local.get $tab)))
 				(i32.add (global.get $tab.width_pellets) (global.get $tab.width_cells))))
+	)
+
+
+
+	(func $input.zoom_update (export "input.zoom_update") (param $zoom f64)
+		(global.set $input.zoom (local.get $zoom))
 	)
 
 
@@ -507,12 +672,10 @@
 				(f64.max (local.get $xyr_alpha) (f64.const 0))
 				(f64.const 1)))
 
-		;; TODO: nx and ny should be from deadTo
 		;; $dead_to = cell.dead_to
 		(local.set $dead_to
 			(i32.load offset=0x58 (local.get $cell_ptr)))
 
-		;; push ny, nx onto stack
 		;; if $dead_to == 0:
 		(i32.eqz (local.get $dead_to))
 		if
@@ -586,17 +749,19 @@
 			;; the real way to do this is $new = aux.exponentialEase($old, $new, 5, 60 * dt).
 			;; however, the graph y = 1 - 0.8^(60dt) is extremely similar to y = 12dt above 50fps
 			;; and WebAssembly does not support exponentiation. therefore, we just use that approximation.
-			;; $new = $old + (($new - $old) * (0.012 * ($now - $cell.updated)))
+			;; $new = $old + (($new - $old) * min(0.012 * ($now - $cell.updated), 1))
 			(local.set $new
 				(f64.add
 					(local.get $old)
 					(f64.mul
 						(f64.sub (local.get $new) (local.get $old))
-						(f64.mul
-							(f64.const 0.012)
-							(f64.sub
-								(local.get $now)
-								(f64.load offset=0x40 (local.get $cell_ptr)))))))
+						(f64.min
+							(f64.mul
+								(f64.const 0.012)
+								(f64.sub
+									(local.get $now)
+									(f64.load offset=0x40 (local.get $cell_ptr))))
+							(f64.const 1)))))
 			;; ubo.cell_radius = ($new * 1.01) as f32
 			(f32.store offset=0x00 (local.get $ubo_ptr)
 				(f32.demote_f64
@@ -665,14 +830,18 @@
 		(i32.eqz (local.get $is_pellet))
 		if
 			;; subtle outlines
-			;; ubo.cell_outline_subtle.r = 0
-			(f32.store offset=0x20 (local.get $ubo_ptr) (f32.const 0))
-			;; ubo.cell_outline_subtle.g = 0
-			(f32.store offset=0x24 (local.get $ubo_ptr) (f32.const 0))
-			;; ubo.cell_outline_subtle.b = 0
-			(f32.store offset=0x28 (local.get $ubo_ptr) (f32.const 0))
-			;; ubo.cell_outline_subtle.a = 0.1
-			(f32.store offset=0x2c (local.get $ubo_ptr) (f32.const 0.1))
+			;; we need to multiply the cell color, rather than (0, 0, 0, 0.1), because of skins
+			;; ubo.cell_outline_subtle.r = ubo.cell_color.r * 0.9
+			(f32.store offset=0x20 (local.get $ubo_ptr)
+				(f32.mul (f32.load offset=0x10 (local.get $ubo_ptr)) (f32.const 0.9)))
+			;; ubo.cell_outline_subtle.g = ubo.cell_color.g * 0.9
+			(f32.store offset=0x24 (local.get $ubo_ptr)
+				(f32.mul (f32.load offset=0x14 (local.get $ubo_ptr)) (f32.const 0.9)))
+			;; ubo.cell_outline_subtle.b = ubo.cell_color.b * 0.9
+			(f32.store offset=0x28 (local.get $ubo_ptr)
+				(f32.mul (f32.load offset=0x18 (local.get $ubo_ptr)) (f32.const 0.9)))
+			;; ubo.cell_outline_subtle.a = 1
+			(f32.store offset=0x2c (local.get $ubo_ptr) (f32.const 1))
 
 			;; TODO: no unsplittable outlines
 
@@ -775,7 +944,9 @@
 
 
 	;; sets up the text ubo for drawing the player's name; returns cell.name_ref
-	(func $render.text_ubo_name (export "render.text_ubo_name") (param $cell_ptr i32) (result i32)
+	(func $render.text_ubo_name (export "render.text_ubo_name") (param $cell_ptr i32) (param $now f64) (result i32)
+		(local $alpha f64)
+
 		;; TODO: check showNames, cell.name_ref = $settings.name_ref
 		;; text_ubo.text_scale = 1
 		(f32.store offset=0x14 (global.get $render.text_ubo_ptr_real) (f32.const 1))
@@ -787,8 +958,38 @@
 		;; text_ubo.text_silhouette_enabled = 0
 		(i32.store offset=0x40 (global.get $render.text_ubo_ptr_real) (i32.const 0))
 
-		;; TODO: text alpha when cell is fading in/out
-		(f32.store offset=0x04 (global.get $render.text_ubo_ptr_real) (f32.const 1))
+		;; $alpha = (now - cell.born) / 100
+		(local.set $alpha
+			(f64.div
+				(f64.sub
+					(local.get $now)
+					(f64.load offset=0x48 (local.get $cell_ptr)))
+				(f64.const 100)))
+
+		;; if cell.dead_at != inf
+		(f64.ne
+			(f64.load offset=0x50 (local.get $cell_ptr))
+			(f64.const inf))
+		if
+			;; $alpha = min($alpha, 1 - (($now - cell.dead_at) / 100))
+			(local.set $alpha
+				(f64.min
+					(local.get $alpha)
+					(f64.sub
+						(f64.const 1)
+						(f64.div
+							(f64.sub
+								(local.get $now)
+								(f64.load offset=0x50 (local.get $cell_ptr)))
+							(f64.const 100)))))
+		end
+
+		;; ubo.cell_alpha = min(max($alpha as f32, 0), 1)
+		(f32.store offset=0x04 (global.get $render.text_ubo_ptr_real)
+			(f32.min
+				(f32.max
+					(f32.demote_f64 (local.get $alpha)) (f32.const 0))
+				(f32.const 1)))
 
 		;; return cell.name_ref
 		(i32.load offset=0x5c (local.get $cell_ptr))
@@ -1068,6 +1269,278 @@
 
 
 
+	;; if a tab runs out of cell or pellet slots, all tab spaces should be expanded.
+	;; ~doubles the size of all tab spaces and copies data appropriately, or returns 0
+	;; if unsuccessful.
+	(func $tab.grow_space (export "tab.grow_space") (result i32)
+		(local $pages i32) (local $i i32)
+		(local $from_base i32) (local $to_base i32)
+
+		;; #1 : ~double the size (grow by the current # of cell and pellet pages)
+		;; push as ok: memory.grow(($tab.width_cells + $tab.width_pellets) * $tab.count) >> 16)
+		(memory.grow
+			(i32.shr_u
+				(i32.mul
+					(i32.add (global.get $tab.width_cells) (global.get $tab.width_pellets))
+					(global.get $tab.count))
+				(i32.const 16)))
+
+		;; if ok == -1:
+		(i32.eq (i32.const -1))
+		if
+			;; couldn't allocate more memory, unfortunately
+			(return (i32.const 0))
+		end
+
+		;; #2 : copy all tab data
+		;; $i = $tab.count - 1
+		(local.set $i
+			(i32.add (global.get $tab.count) (i32.const -1)))
+		loop $loop ;; no precondition necessary; tab count is always greater than 0
+			;; $from_base = 0x10_0000 + ($tab.width_space * $i)
+			(local.set $from_base
+				(i32.add
+					(i32.const 0x10_0000)
+					(i32.mul (global.get $tab.width_space) (local.get $i))))
+
+			;; $to_base = 0x10_0000 + (($tab.width_space * 2) * $i)
+			(local.set $to_base
+				(i32.add
+					(i32.const 0x10_0000)
+					(i32.mul
+						(i32.mul (global.get $tab.width_space) (i32.const 2))
+						(local.get $i))))
+
+			;; copy misc data first
+			;; $misc.memcpy8(
+			;;     $from_base + ($tab.width_cells + $tab.width_pellets),
+			;;     $to_base + ($tab.width_cells + $tab.width_pellets) * 2,
+			;;     0x1_0000
+			;; )
+			(call $misc.memcpy8
+				(i32.add
+					(local.get $from_base)
+					(i32.add
+						(global.get $tab.width_cells)
+						(global.get $tab.width_pellets)))
+				(i32.add
+					(local.get $to_base)
+					(i32.mul
+						(i32.add
+							(global.get $tab.width_cells)
+							(global.get $tab.width_pellets))
+						(i32.const 2)))
+				(i32.const 0x1_0000))
+
+			;; copy cell data next
+			;; $misc.memcpy8($from_base + $tab.width_pellets, $to_base + $tab.width_pellets * 2, $tab.width_cells)
+			(call $misc.memcpy8
+				(i32.add
+					(local.get $from_base)
+					(global.get $tab.width_pellets))
+				(i32.add
+					(local.get $to_base)
+					(i32.mul
+						(global.get $tab.width_pellets)
+						(i32.const 2)))
+				(global.get $tab.width_cells))
+
+			;; copy pellet data last
+			;; $misc.memcpy8($from_base, $to_base, $tab.width_pellets)
+			(call $misc.memcpy8
+				(local.get $from_base)
+				(local.get $to_base)
+				(global.get $tab.width_pellets))
+
+			;; tee $i -= 1
+			(local.tee $i
+				(i32.add (local.get $i) (i32.const -1)))
+			;; if i >= 0: continue
+			(i32.ge_s (i32.const 0))
+			br_if $loop
+		end
+
+		;; #3 : double and adjust space constants
+		;; $tab.max_cells *= 2
+		(global.set $tab.max_cells
+			(i32.mul (global.get $tab.max_cells) (i32.const 2)))
+		;; $tab.max_pellets *= 2
+		(global.set $tab.max_pellets
+			(i32.mul (global.get $tab.max_pellets) (i32.const 2)))
+		;; $tab.width_cells *= 2
+		(global.set $tab.width_cells
+			(i32.mul (global.get $tab.width_cells) (i32.const 2)))
+		;; $tab.width_pellets *= 2
+		(global.set $tab.width_pellets
+			(i32.mul (global.get $tab.width_pellets) (i32.const 2)))
+		;; $tab.width_space = ($tab.width_cells + $tab.width_pellets) + $tab.width_misc
+		(global.set $tab.width_space
+			(i32.add
+				(i32.add (global.get $tab.width_cells) (global.get $tab.width_pellets))
+				(global.get $tab.width_misc)))
+		;; $tab.offset_owned = ($tab.width_pellets + $tab.width_cells) + 0x0c
+		(global.set $tab.offset_owned
+			(i32.add
+				(i32.add (global.get $tab.width_pellets) (global.get $tab.width_cells))
+				(i32.const 0x0c)))
+
+		;; return 1 when successful
+		i32.const 1
+	)
+
+
+
+	;; registers a cell id as owned by a tab. does not check for duplicates
+	(func $tab.owned.add (export "tab.owned.add") (param $tab i32) (param $id i32)
+		(local $length i32) (local $misc_base i32)
+
+		;; $misc_base = (0x10_0000 + ($tab.width_space * $tab)) + ($tab.width_pellets + $tab.width_cells)
+		(local.set $misc_base
+			(i32.add
+				(i32.add
+					(i32.const 0x10_0000)
+					(i32.mul (global.get $tab.width_space) (local.get $tab)))
+				(i32.add (global.get $tab.width_pellets) (global.get $tab.width_cells))))
+		;; $length = load($misc_base + 0x08)
+		(local.set $length
+			(i32.load offset=0x08 (local.get $misc_base)))
+		;; store($misc_base + 0x0c + $length * 4, $id)
+		(i32.store offset=0x0c
+			(i32.add (local.get $misc_base)
+				(i32.mul (local.get $length) (i32.const 4)))
+			(local.get $id))
+		;; store($misc_base + 0x08, $length + 1)
+		(i32.store offset=0x08 (local.get $misc_base)
+			(i32.add (local.get $length) (i32.const 1)))
+	)
+
+
+
+	(func $tab.owned.num (export "tab.owned.num") (param $tab i32) (result i32)
+		;; return load(0x10_0008 + ($tab.width_space * $tab) + ($tab.width_pellets + $tab.width_cells))
+		(i32.load offset=0x08
+			(i32.add
+				(i32.add
+					(i32.const 0x10_0000)
+					(i32.mul (global.get $tab.width_space) (local.get $tab)))
+				(i32.add (global.get $tab.width_pellets) (global.get $tab.width_cells))))
+	)
+
+
+
+	;; removes a cell id from the owned list, *only* if it exists
+	(func $tab.owned.remove (export "tab.owned.remove") (param $tab i32) (param $id i32)
+		(local $length i32) (local $misc_base i32) (local $i i32) (local $ptr i32)
+
+		;; $misc_base = (0x10_0000 + ($tab.width_space * $tab)) + ($tab.width_pellets + $tab.width_cells)
+		(local.set $misc_base
+			(i32.add
+				(i32.add
+					(i32.const 0x10_0000)
+					(i32.mul (global.get $tab.width_space) (local.get $tab)))
+				(i32.add (global.get $tab.width_pellets) (global.get $tab.width_cells))))
+		;; $length = load($misc_base + 0x08)
+		(local.set $length
+			(i32.load offset=0x08 (local.get $misc_base)))
+		;; $i = 0
+		(local.set $i (i32.const 0))
+		block $block1 loop $loop1
+			;; if $i >= $length: break
+			(i32.ge_u (local.get $i) (local.get $length))
+			br_if $block1
+
+			;; $ptr = ($misc_base + 0x0c) + ($i * 4)
+			(local.set $ptr
+				(i32.add
+					(i32.add (local.get $misc_base) (i32.const 0x0c))
+					(i32.mul (local.get $i) (i32.const 4))))
+
+			;; if load($ptr) == $id:
+			(i32.eq (i32.load (local.get $ptr)) (local.get $id))
+			if
+				;; $misc.memcpy8($ptr + 4, $ptr, 4 * ($length - $i - 1))
+				;; note that we aren't copying multiples of 8, but there is no data after the array so it's fine
+				(call $misc.memcpy8
+					(i32.add (local.get $ptr) (i32.const 4))
+					(local.get $ptr)
+					(i32.mul
+						(i32.const 4)
+						(i32.sub (local.get $length) (local.get $i))))
+				;; store($misc_base + 0x08, $length - 1)
+				(i32.store offset=0x08 (local.get $misc_base)
+					(i32.sub (local.get $length) (i32.const 1)))
+				;; break
+				br $block1
+			end
+
+			;; $i += 1
+			(local.set $i (i32.add (local.get $i) (i32.const 1)))
+			;; continue
+			br $loop1
+		end end
+	)
+
+
+
+	;; returns the sum of all owned cells' mass
+	(func $tab.score (export "tab.score") (param $tab i32) (result f64)
+		(local $cell_ptr i32) (local $i i32) (local $length i32) (local $owned_base i32) (local $score f64)
+
+		;; $owned_base = (0x10_000c + ($tab.width_space * $tab)) + ($tab.width_pellets + $tab.width_cells)
+		(local.set $owned_base
+			(i32.add
+				(i32.add
+					(i32.const 0x10_000c)
+					(i32.mul (global.get $tab.width_space) (local.get $tab)))
+				(i32.add (global.get $tab.width_pellets) (global.get $tab.width_cells))))
+
+		;; $length = load($owned_base - 4)
+		(local.set $length
+			(i32.load
+				(i32.sub (local.get $owned_base) (i32.const 4))))
+
+		;; $i = 0
+		(local.set $i (i32.const 0))
+
+		block $block1 loop $loop1
+			;; if $i >= $length: break
+			(i32.ge_u (local.get $i) (local.get $length))
+			br_if $block1
+
+			;; $cell_ptr = $cell.by_id($tab, load($owned_base + ($i * 4)), not a pellet)
+			(local.set $cell_ptr
+				(call $cell.by_id
+					(local.get $tab)
+					(i32.load
+						(i32.add
+							(local.get $owned_base)
+							(i32.mul (local.get $i) (i32.const 4))))
+					(i32.const 0)))
+			;; $i += 1
+			(local.set $i (i32.add (local.get $i) (i32.const 1)))
+			;; if $cell_ptr == 0: continue
+			(i32.eqz (local.get $cell_ptr))
+			br_if $loop1
+
+			;; the floor() here is very important, because we want this to be a sum of all *displayed* masses
+			;; $score += floor(cell.nr * cell.nr / 100)
+			(local.set $score
+				(f64.add
+					(local.get $score)
+					(f64.floor
+						(f64.mul
+							(f64.mul
+								(f64.load offset=0x38 (local.get $cell_ptr))
+								(f64.load offset=0x38 (local.get $cell_ptr)))
+							(f64.const 0.01)))))
+		end end
+
+		;; return $score
+		local.get $score
+	)
+
+
+
 	;; sorts all cells (not pellets) in-place in a tab according to their current radius, from smallest to biggest
 	;; we use insertion sort here, as the tab is almost always sorted (or very close to being sorted), so it
 	;; usually performs at O(n)
@@ -1275,6 +1748,9 @@
 				;; if $cell_ptr == 0: continue
 				(i32.eqz (local.get $cell_ptr))
 				br_if $loop1
+
+				;; not a pellet, try deleting from 'mine' list
+				(call $tab.owned.remove (local.get $tab) (local.get $id2))
 			end
 
 			;; cell.dead_at = now
@@ -1485,13 +1961,15 @@
 						(f64.load offset=0x38 (local.get $cell_ptr))
 						(local.get $alpha))))
 
-			;; $alpha = 0.012 * ($now - cell.updated) (see derivation in $render.cell_ubo)
+			;; $alpha = min(0.012 * ($now - cell.updated), 1) (see derivation in $render.cell_ubo)
 			(local.set $alpha
-				(f64.mul
-					(f64.const 0.012)
-					(f64.sub
-						(local.get $now)
-						(f64.load offset=0x40 (local.get $cell_ptr)))))
+				(f64.min
+					(f64.mul
+						(f64.const 0.012)
+						(f64.sub
+							(local.get $now)
+							(f64.load offset=0x40 (local.get $cell_ptr))))
+					(f64.const 1)))
 			;; $inv_alpha = 1 - $inv_alpha
 			(local.set $inv_alpha
 				(f64.sub (f64.const 1) (local.get $alpha)))
@@ -1528,15 +2006,15 @@
 			;; if flags & 0x04:
 			(i32.and (local.get $flags) (i32.const 0x04))
 			if
-				;; cell.name_ref = name_ref
-				(i32.store offset=0x5c (local.get $cell_ptr) (local.get $name_ref))
+				;; cell.skin_ref = skin_ref
+				(i32.store offset=0x60 (local.get $cell_ptr) (local.get $skin_ref))
 			end
 
 			;; if flags & 0x08:
 			(i32.and (local.get $flags) (i32.const 0x08))
 			if
-				;; cell.skin_ref = skin_ref
-				(i32.store offset=0x60 (local.get $cell_ptr) (local.get $skin_ref))
+				;; cell.name_ref = name_ref
+				(i32.store offset=0x5c (local.get $cell_ptr) (local.get $name_ref))
 			end
 
 			;; TODO: jagged, sub, all the other properties if they change
@@ -1577,6 +2055,9 @@
 				;; if $cell_ptr == 0: continue
 				(i32.eqz (local.get $cell_ptr))
 				br_if $loop3
+
+				;; is not a pellet, try deleting from owned cells
+				(call $tab.owned.remove (local.get $tab) (local.get $id1))
 			end
 
 			;; cell.dead_at = $now

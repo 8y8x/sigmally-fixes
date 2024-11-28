@@ -144,16 +144,6 @@
 			].join('');
 		};
 
-		/** @param {string} name */
-		aux.parseName = name => name.match(/^\{.*?\}(.*)$/)?.[1] ?? name;
-
-		/** @param {string} skin */
-		aux.parseSkin = skin => {
-			if (!skin) return skin;
-			skin = skin.replace('1%', '').replace('2%', '').replace('3%', '');
-			return '/static/skins/' + skin + '.png';
-		};
-
 		/** @type {{
 		 * 	cellColor?: [number, number, number, number],
 		 * 	foodColor?: [number, number, number, number],
@@ -425,10 +415,7 @@
 		};
 
 		// #3 : prevent keys from being registered by the game
-		setInterval(() => {
-			onkeydown = null;
-			onkeyup = null;
-		}, 50);
+		setInterval(() => void (onkeydown = onkeyup = null), 500);
 
 		return { realWebSocket, safeWebSockets };
 	})();
@@ -787,8 +774,9 @@
 			canvas.width = canvas.height = 200;
 			document.body.appendChild(canvas);
 
+			// specify willReadFrequently: false due to the 2 getImageData calls on startup
 			const ctx = aux.require(
-				canvas.getContext('2d'),
+				canvas.getContext('2d', { willReadFrequently: false }),
 				'Unable to get 2D context for the minimap. This is probably your browser being dumb, maybe reload ' +
 				'the page?',
 			);
@@ -972,7 +960,7 @@
 	/////////////////////////////
 	const wasm = await (async () => {
 		const src = 'data:application/octet-stream;base64,'
-			+ 'AGFzbQEAAAABUAxgAn9/AX9gA39/fwF/YAx/fH98fHx/f39/f38Bf2ADf39/AGABfwF/YAABf2AEf398fwF/YAJ/fABgAX8AYAJ8fQBgBH19fX0AYAJ/fAF/AjgDBG1haW4GbWVtb3J5AgAbBnN0cmluZw50b19yZWZfYXNfc2tpbgAABnN0cmluZwZ0b19yZWYAAAMbGgABAgMEBAUEBAMEBgUHBAQFCAgJCgUIBwcLBnoRfwBBgP4/C38AQYD/Pwt/AUEAC38BQQALfQFDAAAAAAt9AUMAAAAAC30BQwAAAAALfQFDAACAvwt8AUQAAAAAAAAAAAt9AUMAAIA/C38BQQELfwFBgAgLfwFBgCALfwFBgIAIC38BQYCABAt/AUGAgCALfwFBgIAsCwfpAxoNY2VsbC5hbGxvY2F0ZQACCmNlbGwuYnlfaWQAAwtjZWxsLmNyZWF0ZQAED2NlbGwuZGVhbGxvY2F0ZQAFE2NlbGwuZmlyc3RfY2VsbF9wdHIABhVjZWxsLmZpcnN0X3BlbGxldF9wdHIABxNjZWxsLmdyb3dfdGFiX3NwYWNlAAgOY2VsbC5udW1fY2VsbHMACRBjZWxsLm51bV9wZWxsZXRzAAoMbWlzYy5tZW1jcHk4AAsPbWlzYy51bnRpbF96ZXJvAAwPcmVuZGVyLmNlbGxfdWJvAA0TcmVuZGVyLmNlbGxfdWJvX3B0cgAOFnJlbmRlci50ZXh0X3Vib19iYXNpY3MADxRyZW5kZXIudGV4dF91Ym9fbmFtZQAQFHJlbmRlci50ZXh0X3Vib19tYXNzABETcmVuZGVyLnRleHRfdWJvX3B0cgASF3JlbmRlci51cGRhdGVfdmlydXNfcmVmABMPc2V0dGluZ3MudXBkYXRlABQSc2V0dGluZ3Muc2YudXBkYXRlABUSc2V0dGluZ3Muc20udXBkYXRlABYMdGFiLmFsbG9jYXRlABcJdGFiLmNsZWFyABgLdGFiLmNsZWFudXAAGQh0YWIuc29ydAAaEHdzLmhhbmRsZV91cGRhdGUAGwqcGRpVAQN/QYCAwAAjECAAbGohAiACIw1qIw9BAEEEIAEbamohAyADKAIAIQQgBCMMIwsgARtPBEBBAA8LIAJBACMPIAEbakGAASAEbGogAyAEQQFqNgIAC0MBAn9BgIDAACMQIABsQQAj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A0AgASgCAEUNASABQQA2AgAgAUGAAWohAQwACwtBgIDAACMQIABsIw8jDWpqakEANgIAQYCAwAAjECAAbCMPIw1qQQRqampBADYCAAuNAQEBf0GAgMAAIxAgAGxqIQICQANAIAIoAgBFDQEgAisDUEQAAAAAAMByQKAgAWMEQCAAIAJBARAFBSACQYABaiECCwwACwtBgIDAACMPaiMQIABsaiECAkADQCACKAIARQ0BIAIrA1BEAAAAAADAckCgIAFjBEAgACACQQAQBQUgAkGAAWohAgsMAAsLC8ACBAF8BH8EfAJ/QYCAwAAjECAAbCMPamohAyAAEAkhBEEBIQUCQANAIAUgBE8NASADIAVBgAFsakGA/z9BgAEQCyADIAVBgAFsaiELIAsrAxghCSALKwM4IQogASALKwNAoSMIo0QAAAAAAAAAAKVEAAAAAAAA8D+kIQIgCSAKIAmhIAKioCEHIAVBAWshBgJAA0AgBkEASA0BIAMgBkGAAWxqIQwgDCsDGCEJIAwrAzghCiABIAwrA0ChIwijRAAAAAAAAAAApUQAAAAAAADwP6QhAiAJIAogCaEgAqKgIQggCCAHYw0BIAggB2EgDCgCACALKAIASXENASADIAZBgAFsaiADIAZBAWpBgAFsakGAARALIAZBAWshBgwACwtBgP8/IAMgBkEBakGAAWxqQYABEAsgBUEBaiEFDAALCwuMBgQGfwN8CH8DfEEBIQcgBy8BACECIAdBAmohBwJAA0AgAkUNASACQQFrIQIgBygCACEFIAdBBGohByAHKAIAIQYgB0EEaiEHIAAgBkEBEAMhDSANRQRAIAAgBkEAEAMhDSANRQ0BCyANIAE5A1AgDSABOQNAIA0gBTYCWAwACwsCQANAIAcoAgAhBSAHQQRqIQcgBUUNASAHLgEAtyEIIAdBAmohByAHLgEAtyEJIAdBAmohByAHLwEAuCEKIAdBAmohByAHLQAAIQMgA0ERcUVFIQsgB0EDaiEHIActAABFRSEMIAdBAWohByAHIAcQDCIHEAEhECADQQJxBEAgBy0AACERIAdBAWohByARIActAABBCHRyIREgB0EBaiEHIBEgBy0AAEEQdHIhESAHQQFqIQcLIANBBHEEQCAHIAcQDCIHEAAhDwsgA0EIcQRAIAcgBxAMIgcQASEOCyAKRAAAAAAAADRAZSESIAAgBSASEAMhDQJAIA0EQCANKwNQIAFkDQEgACANIBIQBQsgACABIAUgCCAJIAogCyAMIBAgESAPIA4QBBoMAQsgASANKwNAoSMIoyETIBNEAAAAAAAAAAClRAAAAAAAAPA/pCETRAAAAAAAAPA/IBOhIRQgDSANKwMIIBSiIA0rAyggE6KgOQMIIA0gDSsDECAUoiANKwMwIBOioDkDECANIA0rAxggFKIgDSsDOCAToqA5AxhE+n5qvHSTiD8gASANKwNAoaIhE0QAAAAAAADwPyAToSEUIA0gDSsDICAUoiANKwMYIBOioDkDICANIAg5AyggDSAJOQMwIA0gCjkDOCANIAE5A0AgDSAQNgJkIANBAnEEQCANIBE2AgQLIANBBHEEQCANIA42AlwLIANBCHEEQCANIA82AmALDAALCyAHLwEAIQIgB0ECaiEHAkADQCACRQ0BIAJBAWshAiAHKAIAIQUgB0EEaiEHIAAgBUEBEAMhDSANRQRAIAAgBUEAEAMhDSANRQ0BCyANIAE5A1AgDSABOQNADAALCyAHCwClDgRuYW1lAfUDHAAVc3RyaW5nLnRvX3JlZl9hc19za2luAQ1zdHJpbmcudG9fcmVmAg1jZWxsLmFsbG9jYXRlAwpjZWxsLmJ5X2lkBAtjZWxsLmNyZWF0ZQUPY2VsbC5kZWFsbG9jYXRlBhNjZWxsLmZpcnN0X2NlbGxfcHRyBxVjZWxsLmZpcnN0X3BlbGxldF9wdHIIE2NlbGwuZ3Jvd190YWJfc3BhY2UJDmNlbGwubnVtX2NlbGxzChBjZWxsLm51bV9wZWxsZXRzCwxtaXNjLm1lbWNweTgMD21pc2MudW50aWxfemVybw0PcmVuZGVyLmNlbGxfdWJvDhNyZW5kZXIuY2VsbF91Ym9fcHRyDxZyZW5kZXIudGV4dF91Ym9fYmFzaWNzEBRyZW5kZXIudGV4dF91Ym9fbmFtZREUcmVuZGVyLnRleHRfdWJvX21hc3MSE3JlbmRlci50ZXh0X3Vib19wdHITF3JlbmRlci51cGRhdGVfdmlydXNfcmVmFA9zZXR0aW5ncy51cGRhdGUVEnNldHRpbmdzLnNmLnVwZGF0ZRYSc2V0dGluZ3Muc20udXBkYXRlFwx0YWIuYWxsb2NhdGUYCXRhYi5jbGVhchkLdGFiLmNsZWFudXAaCHRhYi5zb3J0GxB3cy5oYW5kbGVfdXBkYXRlArkHHAACAARmcm9tAQJ0bwECAARmcm9tAQJ0bwIFAAN0YWIBCWlzX3BlbGxldAIEYmFzZQMKbGVuZ3RoX3B0cgQGbGVuZ3RoAwUAA3RhYgECaWQCCWlzX3BlbGxldAMHY2VsbF9pZAQIY2VsbF9wdHIEDgADdGFiAQNub3cCAmlkAwF4BAF5BQFyBgZqYWdnZWQHA3N1YggIY2xhbl9wdHIJA3JnYgoIc2tpbl9wdHILCG5hbWVfcHRyDAhjZWxsX3B0cg0JaXNfcGVsbGV0BQcAA3RhYgEIY2VsbF9wdHICCWlzX3BlbGxldAMEYmFzZQQNbGFzdF9jZWxsX3B0cgUKbGVuZ3RoX3B0cgYKbmV3X2xlbmd0aAYBAAN0YWIHAQADdGFiCAQABXBhZ2VzAQFpAglmcm9tX2Jhc2UDB3RvX2Jhc2UJAQADdGFiCgEAA3RhYgsEAARmcm9tAQJ0bwIEc2l6ZQMIZnJvbV9lbmQMAQABbw0OAAN0YWIBCGNlbGxfcHRyAgNub3cDCWlzX3BlbGxldAQFYWxwaGEFA29sZAYDbmV3Bwd1Ym9fcHRyCAl4eXJfYWxwaGEJCWNlbGxfcHRyMgoHZGVhZF90bwsCbngMAm55DQhza2luX3JlZg4ADwUACGNlbGxfcHRyAQNub3cCBWFscGhhAwNvbGQEA25ldxABAAhjZWxsX3B0chEDAAhjZWxsX3B0cgEGZGlnaXRzAgRtYXNzEgATAQADcmVmFAEADWplbGx5X3BoeXNpY3MVAgAKZHJhd19kZWxheQEMbWFzc19vcGFjaXR5FgQADGNlbGxfY29sb3IucgEMY2VsbF9jb2xvci5nAgxjZWxsX2NvbG9yLmIDDGNlbGxfY29sb3IuYRcAGAIAA3RhYgEIY2VsbF9wdHIZAwADdGFiAQNub3cCCGNlbGxfcHRyGg0AA3RhYgEDbm93AgVhbHBoYQMJY2VsbF9iYXNlBAZsZW5ndGgFAWkGAWoHCGlfcmFkaXVzCAhqX3JhZGl1cwkDb2xkCgNuZXcLCmNlbGxfcHRyX2kMCmNlbGxfcHRyX2obFgADdGFiAQNub3cCBWNvdW50AwVmbGFncwQBaQUDaWQxBgNpZDIHAW8IAXgJAXkKAXILBmphZ2dlZAwDc3ViDQhjZWxsX3B0cg4IbmFtZV9yZWYPCHNraW5fcmVmEAhjbGFuX3JlZhEDcmdiEglpc19wZWxsZXQTBWFscGhhFAlpbnZfYWxwaGEVCmRyYXdfZGVsYXkH6QIRABhyZW5kZXIuY2VsbF91Ym9fcHRyX3JlYWwBGHJlbmRlci50ZXh0X3Vib19wdHJfcmVhbAIQcmVuZGVyLnZpcnVzX3JlZgMWc2V0dGluZ3MuamVsbHlfcGh5c2ljcwQYc2V0dGluZ3Muc20uY2VsbF9jb2xvci5yBRhzZXR0aW5ncy5zbS5jZWxsX2NvbG9yLmcGGHNldHRpbmdzLnNtLmNlbGxfY29sb3IuYgcYc2V0dGluZ3Muc20uY2VsbF9jb2xvci5hCBZzZXR0aW5ncy5zZi5kcmF3X2RlbGF5CRhzZXR0aW5ncy5zZi5tYXNzX29wYWNpdHkKCXRhYi5jb3VudAsNdGFiLm1heF9jZWxscwwPdGFiLm1heF9wZWxsZXRzDQ90YWIud2lkdGhfY2VsbHMODnRhYi53aWR0aF9taXNjDxF0YWIud2lkdGhfcGVsbGV0cxAPdGFiLndpZHRoX3NwYWNl';
+			+ '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X3JlZgIMY2FtZXJhLmdldF94AwxjYW1lcmEuZ2V0X3kEEGNhbWVyYS5nZXRfc2NhbGUFDWNhbWVyYS50YXJnZXQGDWNhbWVyYS51cGRhdGUHDWNlbGwuYWxsb2NhdGUICmNlbGwuYnlfaWQJC2NlbGwuY3JlYXRlCg9jZWxsLmRlYWxsb2NhdGULE2NlbGwuZmlyc3RfY2VsbF9wdHIMFWNlbGwuZmlyc3RfcGVsbGV0X3B0cg0OY2VsbC5udW1fY2VsbHMOEGNlbGwubnVtX3BlbGxldHMPEWlucHV0Lnpvb21fdXBkYXRlEAxtaXNjLm1lbWNweTgRD21pc2MudW50aWxfemVybxIPcmVuZGVyLmNlbGxfdWJvExNyZW5kZXIuY2VsbF91Ym9fcHRyFBZyZW5kZXIudGV4dF91Ym9fYmFzaWNzFRRyZW5kZXIudGV4dF91Ym9fbmFtZRYUcmVuZGVyLnRleHRfdWJvX21hc3MXE3JlbmRlci50ZXh0X3Vib19wdHIYF3JlbmRlci51cGRhdGVfdmlydXNfcmVmGQ9zZXR0aW5ncy51cGRhdGUaEnNldHRpbmdzLnNmLnVwZGF0ZRsSc2V0dGluZ3Muc20udXBkYXRlHAx0YWIuYWxsb2NhdGUdCXRhYi5jbGVhch4LdGFiLmNsZWFudXAfDnRhYi5ncm93X3NwYWNlIA10YWIub3duZWQuYWRkIQ10YWIub3duZWQubnVtIhB0YWIub3duZWQucmVtb3ZlIwl0YWIuc2NvcmUkCHRhYi5zb3J0JRB3cy5oYW5kbGVfdXBkYXRlAtoJJgACAARmcm9tAQJ0bwECAARmcm9tAQJ0bwIAAwAEAAUEAAJ0eAECdHkCBnRzY2FsZQMFZm9yY2UGDwADdGFiAQNub3cCCGNlbGxfcHRyAwpvd25lZF9iYXNlBAZsZW5ndGgFAWkGBndlaWdodAcFc3VtX3gIBXN1bV95CQx0b3RhbF93ZWlnaHQKB3RvdGFsX3ILB3pvb21vdXQMBWFscGhhDQNvbGQOA25ldwcFAAN0YWIBCWlzX3BlbGxldAIEYmFzZQMKbGVuZ3RoX3B0cgQGbGVuZ3RoCAUAA3RhYgECaWQCCWlzX3BlbGxldAMHY2VsbF9pZAQIY2VsbF9wdHIJDgADdGFiAQNub3cCAmlkAwF4BAF5BQFyBgZqYWdnZWQHA3N1YggIY2xhbl9wdHIJA3JnYgoIc2tpbl9wdHILCG5hbWVfcHRyDAhjZWxsX3B0cg0JaXNfcGVsbGV0CgcAA3RhYgEIY2VsbF9wdHICCWlzX3BlbGxldAMEYmFzZQQNbGFzdF9jZWxsX3B0cgUKbGVuZ3RoX3B0cgYKbmV3X2xlbmd0aAsBAAN0YWIMAQADdGFiDQEAA3RhYg4BAAN0YWIPAQAEem9vbRAEAARmcm9tAQJ0bwIEc2l6ZQMIZnJvbV9lbmQRAQABbxIOAAN0YWIBCGNlbGxfcHRyAgNub3cDCWlzX3BlbGxldAQFYWxwaGEFA29sZAYDbmV3Bwd1Ym9fcHRyCAl4eXJfYWxwaGEJCWNlbGxfcHRyMgoHZGVhZF90bwsCbngMAm55DQhza2luX3JlZhMAFAUACGNlbGxfcHRyAQNub3cCBWFscGhhAwNvbGQEA25ldxUDAAhjZWxsX3B0cgEDbm93AgVhbHBoYRYDAAhjZWxsX3B0cgEGZGlnaXRzAgRtYXNzFwAYAQADcmVmGQEADWplbGx5X3BoeXNpY3MaAgAKZHJhd19kZWxheQEMbWFzc19vcGFjaXR5GwQADGNlbGxfY29sb3IucgEMY2VsbF9jb2xvci5nAgxjZWxsX2NvbG9yLmIDDGNlbGxfY29sb3IuYRwAHQIAA3RhYgEIY2VsbF9wdHIeAwADdGFiAQNub3cCCGNlbGxfcHRyHwQABXBhZ2VzAQFpAglmcm9tX2Jhc2UDB3RvX2Jhc2UgBAADdGFiAQJpZAIGbGVuZ3RoAwltaXNjX2Jhc2UhAQADdGFiIgYAA3RhYgECaWQCBmxlbmd0aAMJbWlzY19iYXNlBAFpBQNwdHIjBgADdGFiAQhjZWxsX3B0cgIBaQMGbGVuZ3RoBApvd25lZF9iYXNlBQVzY29yZSQNAAN0YWIBA25vdwIFYWxwaGEDCWNlbGxfYmFzZQQGbGVuZ3RoBQFpBgFqBwhpX3JhZGl1cwgIal9yYWRpdXMJA29sZAoDbmV3CwpjZWxsX3B0cl9pDApjZWxsX3B0cl9qJRYAA3RhYgEDbm93AgVjb3VudAMFZmxhZ3MEAWkFA2lkMQYDaWQyBwFvCAF4CQF5CgFyCwZqYWdnZWQMA3N1Yg0IY2VsbF9wdHIOCG5hbWVfcmVmDwhza2luX3JlZhAIY2xhbl9yZWYRA3JnYhIJaXNfcGVsbGV0EwVhbHBoYRQJaW52X2FscGhhFQpkcmF3X2RlbGF5B4sFIQAIY2FtZXJhLngBCGNhbWVyYS55AgxjYW1lcmEuc2NhbGUDCWNhbWVyYS50eAQJY2FtZXJhLnR5BQ1jYW1lcmEudHNjYWxlBg5jYW1lcmEudXBkYXRlZAcKaW5wdXQuem9vbQgacmVuZGVyLmNhbWVyYS51Ym9fcHRyX3JlYWwJGHJlbmRlci5jZWxsX3Vib19wdHJfcmVhbAoYcmVuZGVyLnRleHRfdWJvX3B0cl9yZWFsCxByZW5kZXIudmlydXNfcmVmDBNzZXR0aW5ncy5kYXJrX3RoZW1lDRZzZXR0aW5ncy5qZWxseV9waHlzaWNzDhJzZXR0aW5ncy5zaG93X21hc3MPE3NldHRpbmdzLnNob3dfc2tpbnMQGHNldHRpbmdzLnNtLmNlbGxfY29sb3IuchEYc2V0dGluZ3Muc20uY2VsbF9jb2xvci5nEhhzZXR0aW5ncy5zbS5jZWxsX2NvbG9yLmITGHNldHRpbmdzLnNtLmNlbGxfY29sb3IuYRQWc2V0dGluZ3Muc20uc2hvd19uYW1lcxUYc2V0dGluZ3Muc2YuY2FtZXJhX21lcmdlFh9zZXR0aW5ncy5zZi5jYW1lcmFfbWVyZ2Vfd2VpZ2h0FxZzZXR0aW5ncy5zZi5kcmF3X2RlbGF5GBhzZXR0aW5ncy5zZi5tYXNzX29wYWNpdHkZCXRhYi5jb3VudBoNdGFiLm1heF9jZWxscxsPdGFiLm1heF9wZWxsZXRzHBB0YWIub2Zmc2V0X293bmVkHQ90YWIud2lkdGhfY2VsbHMeDnRhYi53aWR0aF9taXNjHxF0YWIud2lkdGhfcGVsbGV0cyAPdGFiLndpZHRoX3NwYWNl';
 		const buffer = await fetch(src).then(res => res.arrayBuffer());
 
 		const memory = new WebAssembly.Memory({ initial: 27 });
@@ -1492,55 +1480,10 @@
 	 */
 	const sync = (() => {
 		const sync = {};
-		/** @type {{ cells: Map<number, Cell>, pellets: Map<number, Cell> } | undefined} */
-		sync.merge = undefined;
-		/** @type {Map<string, SyncData>} */
-		sync.others = new Map();
 
 		const frame = new BroadcastChannel('sigfix-frame');
-		const worldsync = new BroadcastChannel('sigfix-worldsync');
 		const zoom = new BroadcastChannel('sigfix-zoom');
-		const self = Date.now() + '-' + Math.random();
-
-		/**
-		 * @param {SyncData} data
-		 * @param {number} foreignNow
-		 */
-		const localized = (data, foreignNow) => data.updated.timeOrigin - performance.timeOrigin + foreignNow;
-		// foreignNow + data.updated.timeOrigin - performance.timeOrigin; different order so maybe better precision?
-
-		/** @param {number} now */
-		sync.broadcast = now => {
-			/** @type {SyncData['owned']} */
-			const owned = new Map();
-			for (const id of world.mine) {
-				const cell = world.cells.get(id);
-				if (!cell) continue;
-
-				owned.set(id, world.xyr(cell, world, now));
-			}
-			for (const id of world.mineDead)
-				owned.set(id, false);
-
-			// it is stupidly expensive to replicate pellets, so make sure we can disable it
-			const hidePellets = aux.sigmodSettings?.hidePellets;
-
-			/** @type {SyncData} */
-			const syncData = {
-				self,
-				camera: { tx: world.camera.tx, ty: world.camera.ty },
-				cells: settings.mergeViewArea
-					? { cells: world.cells, pellets: hidePellets ? new Map() : world.pellets } : undefined,
-				owned,
-				skin: settings.selfSkin,
-				updated: { now, timeOrigin: performance.timeOrigin },
-			};
-			worldsync.postMessage(syncData);
-		};
-
-		sync.frame = () => {
-			frame.postMessage(undefined);
-		};
+		const self = `${Date.now()}-{Math.random()}`;
 
 		sync.zoom = () => zoom.postMessage(input.zoom);
 
@@ -1548,197 +1491,15 @@
 			// only update the world if we aren't rendering ourselves (example case: games open on two monitors)
 			if (document.visibilityState === 'hidden') {
 				input.move();
-				world.update();
 			}
 
 			// might be preferable over document.visibilityState
+			// TODO: wtf is document.hasFocus()'s behavior?
 			if (!document.hasFocus())
 				input.antiAfk();
 		});
 
-		worldsync.addEventListener('message', e => {
-			/** @type {SyncData} */
-			const data = e.data;
-			sync.others.set(data.self, /** @type {any} */(data));
-			sync.buildMerge(localized(/** @type {any} */(data), data.updated.now));
-		});
-
 		zoom.addEventListener('message', e => void (input.zoom = e.data));
-
-		// clear dead tabs
-		setInterval(() => {
-			const now = performance.now();
-			sync.others.forEach((data, key) => {
-				if (now - localized(data, data.updated.now) > 250) {
-					sync.others.delete(key);
-				}
-			});
-		}, 250);
-
-		// [timeOffset, cell]
-		/** @type {Map<number, [number, Cell]>} */
-		const all = new Map();
-
-		/** @param {number} now */
-		sync.buildMerge = now => {
-			// for camera merging to look extremely smooth, we need to merge packets and apply them *ONLY* when all
-			// tabs are synchronized.
-			// if you simply fall back to what the other tabs see, you will get lots of flickering and warping (what
-			// delta suffers from).
-			// threfore, we make sure that all tabs that share visible cells see them in the same spots, to make sure
-			// they are all on the same tick
-			// it's also not sufficient to simply count how many update (0x10) packets we get, as /leaveworld (part of
-			// respawn functionality) stops those packets from coming in
-			// if the view areas are disjoint, then there's nothing we can do but this should never happen when
-			// splitrunning
-			if (!settings.mergeViewArea) {
-				sync.merge = undefined;
-				return;
-			}
-			/** @type {Map<number, Cell>} */
-			let cells = new Map();
-			/** @type {Map<number, Cell>} */
-			let pellets = new Map();
-			if (sync.merge) {
-				({ cells, pellets } = sync.merge);
-			} else {
-				sync.merge = { cells, pellets };
-			}
-
-			// #1 : collect local changes
-			all.clear();
-			for (const [id, cell] of world.cells)
-				all.set(id, [0, cell]);
-
-			// #2 : check if all the important cells are synced
-			/** @type {number} */
-			let otherOffset;
-			/**
-			 * @param {Cell} cell
-			 * @returns {boolean}
-			 */
-			const check = cell => {
-				const currentSet = all.get(cell.id);
-				if (!currentSet) {
-					all.set(cell.id, [otherOffset, cell]);
-					return true;
-				}
-
-				const [currentOffset, current] = currentSet;
-				const currentDisappearedAt = (current.deadAt !== undefined && current.deadTo === -1)
-					? currentOffset + current.deadAt : undefined;
-				const cellDisappearedAt
-					= (cell.deadAt !== undefined && cell.deadTo === -1) ? otherOffset + cell.deadAt : undefined;
-
-				if (currentDisappearedAt === undefined && cellDisappearedAt === undefined) {
-					// if *neither* cell has disappeared, check for desync
-					if (current.nx !== cell.nx || current.ny !== cell.ny || current.nr !== cell.nr)
-						return false;
-				} else if (currentDisappearedAt === undefined && cellDisappearedAt !== undefined) {
-					// other disappeared; prefer the current one
-				} else if (currentDisappearedAt !== undefined && cellDisappearedAt === undefined) {
-					// current disappeared; prefer the other one
-					all.set(cell.id, [currentOffset, cell]);
-				} else {
-					// both have disappeared, prefer the one that disappeared later
-					if (/** @type {number} */(currentDisappearedAt) < /** @type {number} */(cellDisappearedAt))
-						all.set(cell.id, [otherOffset, cell]);
-				}
-
-				return true;
-			};
-
-			/**
-			 * @param {'cells' | 'pellets'} key
-			 * @returns {boolean}
-			 */
-			const iterate = key => {
-				for (const data of sync.others.values()) {
-					otherOffset = data.updated.timeOrigin - performance.timeOrigin;
-					const otherNow = otherOffset + data.updated.now;
-					if (now - otherNow > 250) continue; // tab has not updated in 250ms, disregard it
-					if (!data.cells) continue;
-					for (const cell of data.cells[key].values()) {
-						if (!check(cell)) return false;
-					}
-				}
-
-				return true;
-			};
-
-			if (!iterate('cells'))
-				return;
-
-			// #3 : then, check if all the pellets are synced
-			for (const [id, cell] of world.pellets)
-				all.set(id, [0, cell]);
-			if (!iterate('pellets'))
-				return;
-
-			// #4 : all tabs are synced, we can update the cells
-			for (const [offset, cell] of all.values()) {
-				const old = pellets.get(cell.id) ?? cells.get(cell.id);
-				if (old) {
-					const { x, y, r, jx, jy, jr } = world.xyr(old, sync.merge, now);
-					old.ox = x; old.oy = y; old.or = r;
-					old.jx = jx; old.jy = jy; old.jr = jr;
-					old.nx = cell.nx; old.ny = cell.ny; old.nr = cell.nr;
-
-					if (cell.deadAt !== undefined) {
-						if (old.deadAt === undefined) {
-							old.deadAt = now;
-							old.deadTo = cell.deadTo;
-						}
-					} else if (old.deadAt !== undefined) {
-						old.ox = old.jx = old.nx;
-						old.oy = old.jy = old.ny;
-						old.or = old.jr = old.nr;
-						old.deadTo = -1;
-						old.deadAt = undefined;
-					}
-					old.updated = now;
-				} else {
-					/** @type {Cell} */
-					const ncell = {
-						id: cell.id,
-						ox: cell.ox, nx: cell.nx, jx: cell.jx,
-						oy: cell.oy, ny: cell.ny, jy: cell.jy,
-						or: cell.or, nr: cell.nr, jr: cell.jr,
-						Rgb: cell.Rgb, rGb: cell.rGb, rgB: cell.rgB,
-						jagged: cell.jagged,
-						name: cell.name, skin: cell.skin, sub: cell.sub, clan: cell.clan,
-						born: offset + cell.born, updated: now,
-						deadTo: cell.deadTo,
-						deadAt: cell.deadAt !== undefined ? now : undefined,
-					};
-
-					if (cell.nr <= 20)
-						pellets.set(cell.id, ncell);
-					else
-						cells.set(cell.id, ncell);
-				}
-			}
-
-			// #5 : kill cells that aren't seen anymore
-			/**
-			 * @param {Map<number, Cell>} map
-			 * @param {number} id
-			 * @param {Cell} cell
-			 */
-			const clean = (map, id, cell) => {
-				if (all.has(id)) return;
-				if (cell.deadAt !== undefined) {
-					if (now - cell.deadAt > 1000) map.delete(id);
-				} else {
-					cell.deadAt = now;
-					cell.deadTo = -1;
-					cell.updated = now;
-				}
-			};
-
-			for (const [id, cell] of cells) clean(cells, id, cell);
-			for (const [id, cell] of pellets) clean(pellets, id, cell);
-		};
 
 		return sync;
 	})();
@@ -1804,132 +1565,6 @@
 				jy: aux.exponentialEase(cell.jy, y, 2, dt),
 				jr: aux.exponentialEase(cell.jr, r, 5, dt),
 			};
-		};
-
-		let last = performance.now();
-		world.update = function () {
-			const now = performance.now();
-			const dt = (now - last) / 1000;
-			last = now;
-
-			const jellyPhysics = aux.setting('input#jellyPhysics', false);
-			const map = (settings.mergeViewArea && sync.merge) ? sync.merge : world;
-			const weight = settings.mergeCamera ? settings.mergeCameraWeight : 0;
-
-			/**
-			 * @param {Iterable<number>} owned
-			 * @param {Map<number, {
-			 * 	x: number, y: number, r: number, jx: number, jy: number, jr: number
-			 * } | false> | undefined} fallback
-			 * @returns {{
-			 * 	weightedX: number, weightedY: number, totalWeight: number,
-			 * 	scale: number, width: number, height: number
-			 * }}
-			 */
-			const cameraDesc = (owned, fallback) => {
-				let weightedX = 0;
-				let weightedY = 0;
-				let totalWeight = 0;
-				let totalR = 0;
-
-				for (const id of owned) {
-					/** @type {{ x: number, y: number, r: number, jx: number, jy: number, jr: number }} */
-					let xyr;
-
-					const cell = map.cells.get(id);
-					if (!cell) {
-						const partial = fallback?.get(id);
-						if (!partial) continue;
-						xyr = partial;
-					} else if (cell.deadAt !== undefined) continue;
-					else xyr = world.xyr(cell, map, now);
-
-					if (jellyPhysics) {
-						const weighted = xyr.jr ** weight;
-						weightedX += xyr.jx * weighted;
-						weightedY += xyr.jy * weighted;
-						totalWeight += weighted;
-						totalR += xyr.jr;
-					} else {
-						const weighted = xyr.r ** weight;
-						weightedX += xyr.x * weighted;
-						weightedY += xyr.y * weighted;
-						totalWeight += weighted;
-						totalR += xyr.r;
-					}
-				}
-
-				const scale = Math.min(64 / totalR, 1) ** 0.4;
-				const width = 1920 / 2 / scale;
-				const height = 1080 / 2 / scale;
-
-				return { weightedX, weightedY, totalWeight, scale, width, height };
-			};
-
-			const localDesc = cameraDesc(world.mine, undefined);
-			let { weightedX, weightedY, totalWeight } = localDesc;
-			const localX = weightedX / totalWeight;
-			const localY = weightedY / totalWeight;
-			/** @type {number} */
-			let zoomout;
-
-			world.camera.merged = false;
-			if (settings.mergeCamera) {
-				zoomout = 0.25;
-				if (localDesc.totalWeight > 0) {
-					for (const data of sync.others.values()) {
-						const thisDesc = cameraDesc(data.owned.keys(), data.owned);
-						if (thisDesc.totalWeight <= 0) continue;
-						const thisX = thisDesc.weightedX / thisDesc.totalWeight;
-						const thisY = thisDesc.weightedY / thisDesc.totalWeight;
-
-						if (Math.abs(thisX - localX) < localDesc.width + thisDesc.width + 1000
-							&& Math.abs(thisY - localY) < localDesc.height + thisDesc.height + 1000) {
-							weightedX += thisDesc.weightedX;
-							weightedY += thisDesc.weightedY;
-							totalWeight += thisDesc.totalWeight;
-							world.camera.merged = true;
-						}
-					}
-				}
-			} else {
-				zoomout = localDesc.scale;
-			}
-
-			let xyEaseFactor;
-			if (totalWeight > 0) {
-				world.camera.tx = weightedX / totalWeight;
-				world.camera.ty = weightedY / totalWeight;
-				world.camera.tscale = zoomout * input.zoom;
-
-				xyEaseFactor = 2;
-			} else {
-				xyEaseFactor = 20;
-			}
-
-			world.camera.x = aux.exponentialEase(world.camera.x, world.camera.tx, xyEaseFactor, dt);
-			world.camera.y = aux.exponentialEase(world.camera.y, world.camera.ty, xyEaseFactor, dt);
-			world.camera.scale = aux.exponentialEase(world.camera.scale, world.camera.tscale, 9, dt);
-		};
-
-		// clean up dead cells
-		world.clean = () => {
-			const now = performance.now();
-			for (const [id, cell] of world.cells) {
-				if (cell.deadAt === undefined) continue;
-				if (now - cell.deadAt >= settings.drawDelay) {
-					world.cells.delete(id);
-					world.mineDead.delete(id);
-				}
-			}
-
-			for (const [id, cell] of world.pellets) {
-				if (cell.deadAt === undefined) continue;
-				if (now - cell.deadAt >= settings.drawDelay)
-					world.pellets.delete(id);
-			}
-
-			wasm['tab.cleanup'](0, now);
 		};
 
 
@@ -2074,9 +1709,7 @@
 			ui.chat.barrier();
 
 			// reset camera location to the middle; this is implied but never sent by the server
-			world.camera.x = world.camera.tx = 0;
-			world.camera.y = world.camera.ty = 0;
-			world.camera.scale = world.camera.tscale = 1;
+			wasm['camera.target'](0, 0, 1, true);
 
 			ws.send(aux.textEncoder.encode('SIG 0.0.1\x00'));
 		}
@@ -2142,7 +1775,7 @@
 			const now = performance.now();
 			if (now - lastStatsUpdate < 400) return;
 			lastStatsUpdate = now;
-			ui.stats.update(0, render.fps, net.latency);
+			ui.stats.update(wasm['tab.score'](0), render.fps, net.latency);
 		}, 500);
 
 
@@ -2182,16 +1815,21 @@
 					}
 					void wasm['ws.handle_update'](0, performance.now());
 
-					world.clean();
+					wasm['tab.cleanup'](0, now);
 					lastStatsUpdate = now;
-					ui.stats.update(0, render.fps, net.latency);
+					ui.stats.update(wasm['tab.score'](0), render.fps, net.latency);
+
+					if (wasm['tab.owned.num'](0) === 0 && world.stats.spawnedAt !== undefined)
+						ui.deathScreen.show(world.stats);
 					break;
 				}
 
 				case 0x11: { // update camera pos
-					world.camera.tx = dat.getFloat32(off, true);
-					world.camera.ty = dat.getFloat32(off + 4, true);
-					world.camera.tscale = dat.getFloat32(off + 8, true) * input.zoom;
+					wasm['camera.target'](
+						dat.getFloat32(off, true),
+						dat.getFloat32(off + 4, true),
+						dat.getFloat32(off + 8, true)
+					);
 					break;
 				}
 
@@ -2199,11 +1837,12 @@
 					wasm['tab.clear'](0);
 				// passthrough
 				case 0x14: // delete my cells
+					wasm['tab.owned.clear'](0);
 					break;
 
 				case 0x20: { // new owned cell
-					world.mine.push(dat.getUint32(off, true));
-					if (world.mine.length === 1)
+					wasm['tab.owned.add'](0, dat.getUint32(off, true));
+					if (world.stats.spawnedAt === undefined)
 						world.stats.spawnedAt = now;
 					break;
 				}
@@ -2221,7 +1860,6 @@
 
 						let name;
 						[name, off] = readZTString(dat, off);
-						name = aux.parseName(name);
 
 						// why this is copied into every leaderboard entry is beyond my understanding
 						myPosition = dat.getUint32(off, true);
@@ -2237,7 +1875,7 @@
 							const inputName = document.querySelector('input#nick');
 							lb.push({
 								me: true,
-								name: aux.parseName(inputName?.value ?? ''),
+								name: inputName?.value ?? '',
 								place: myPosition,
 								sub: false,
 							});
@@ -2418,8 +2056,8 @@
 		/** @returns [number, number] */
 		input.mouse = () => {
 			return [
-				world.camera.x + mouseX * (innerWidth / innerHeight) * 540 / world.camera.scale,
-				world.camera.y + mouseY * 540 / world.camera.scale,
+				wasm['camera.get_x']() + mouseX * (innerWidth / innerHeight) * 540 / wasm['camera.get_scale'](),
+				wasm['camera.get_y']() + mouseY * 540 / wasm['camera.get_scale'](),
 			];
 		};
 
@@ -2461,8 +2099,9 @@
 			lastCheck = now;
 
 			let anyAlive = false;
-			sync.others.forEach(data => anyAlive ||= data.owned.size > 0);
-			if (anyAlive) net.qup(); // send literally any packet at all
+			// sync.others.forEach(data => anyAlive ||= data.owned.size > 0);
+			// TODO: CHECK IF OTHER TABS ARE ALIVE
+			net.qup(); // send literally any packet at all
 		};
 
 		// sigmod freezes the player by overlaying an invisible div, so we just listen for canvas movements instead
@@ -2480,6 +2119,7 @@
 			if (unfocused()) return;
 			input.zoom *= 0.8 ** (e.deltaY / 100 * settings.scrollFactor);
 			input.zoom = Math.min(Math.max(input.zoom, 0.8 ** 10), 0.8 ** -11);
+			wasm['input.zoom_update'](input.zoom);
 			sync.zoom();
 		});
 
@@ -3069,6 +2709,7 @@
 				in vec2 v_uv;
 				${cameraBlock}
 				${cellBlock}
+				uniform float time;
 				uniform sampler2D cell_skin;
 				out vec4 out_color;
 
@@ -3118,6 +2759,7 @@
 			uniforms.cell = {
 				camera: ubo(programs.cell, 'Camera'),
 				cell: ubo(programs.cell, 'Cell'),
+				time: gl.getUniformLocation(programs.cell, 'time'),
 			};
 
 
@@ -3206,24 +2848,14 @@
 				void main() {
 					float c2_alpha = (v_uv.x + v_uv.y) / 2.0;
 					vec4 color = text_color1 * (1.0 - c2_alpha) + text_color2 * c2_alpha;
-					vec4 normal;
+					vec4 normal = vec4(0, 0, 0, 0);
 
 					if (text_digit_count == 0) {
 						normal = texture(text_colored, v_uv);
 					} else {
-						// ugh
-						int digit = int(v_uv.x);
 						// remap 0 <= v_uv <= 1 to 0.125 <= v_uv.x <= 0.875, otherwise too much kerning
-						vec2 local_uv = v_uv - vec2(float(digit), 0);
-						local_uv = vec2(local_uv.x * 0.75 + 0.125, local_uv.y);
-						if (digit < text_digit_count) { // 0 <= uv.x <= 1; uv.x has an inclusive range
-							if (digit == 0) normal = texture(text_digits[0], local_uv);
-							else if (digit == 1) normal = texture(text_digits[1], local_uv);
-							else if (digit == 2) normal = texture(text_digits[2], local_uv);
-							else if (digit == 3) normal = texture(text_digits[3], local_uv);
-							else if (digit == 4) normal = texture(text_digits[4], local_uv);
-							else normal = texture(text_digits[5], local_uv);
-						}
+						vec2 local_uv = vec2(mod(v_uv.x, 1.0) * 0.75 + 0.125, v_uv.y);
+						normal = texture(text_digits[0], local_uv);
 					}
 
 					if (text_silhouette_enabled != 0) {
@@ -3319,6 +2951,7 @@
 	///////////////////////////////
 	// Define Rendering Routines //
 	///////////////////////////////
+	const started = performance.now();
 	const render = (() => {
 		const render = {};
 		const { gl } = ui.game;
@@ -3345,7 +2978,7 @@
 			render.textCtx.lineJoin = 'round';
 			render.textCtx.strokeStyle = '#000';
 			render.textCtx.textBaseline = 'middle';
-			
+
 			// add a space, to prevent sigmod detecting the name and adjusting colors
 			render.textCtx.strokeText(text + ' ', lineWidth, size * 1.5);
 			render.textCtx.fillText(text + ' ', lineWidth, size * 1.5);
@@ -3519,18 +3152,15 @@
 			// note: most routines are named, for benchmarking purposes
 			(function updateCells() {
 				input.move();
-				world.update();
-				sync.frame();
 			})();
 
 			(function setGlobalUniforms() {
 				const aspectRatio = ui.game.canvas.width / ui.game.canvas.height;
-				const cameraPosX = world.camera.x;
-				const cameraPosY = world.camera.y;
-				const cameraScale = world.camera.scale / 540; // (height of 1920x1080 / 2 = 540)
 
+				wasm['camera.update'](0, now);
 				const cameraData = new Float32Array([
-					aspectRatio, cameraScale, cameraPosX, cameraPosY,
+					aspectRatio, wasm['camera.get_scale']() / 540, // (height of 1920x1080 / 2 = 540)
+					wasm['camera.get_x'](), wasm['camera.get_y'](),
 				]);
 
 				[uniforms.bg.camera, uniforms.cell.camera, uniforms.cellGlow.camera,
@@ -3542,6 +3172,10 @@
 				// textures are usually initialized to TEXTURE0, but we need TEXTURE1
 				gl.useProgram(programs.text);
 				gl.uniform1i(uniforms.text.text_silhouette, 1);
+
+				// experiment
+				gl.useProgram(programs.cell);
+				gl.uniform1f(uniforms.cell.time, (now - started) / 1000 % (2*3*5*7*11*13*17));
 			})();
 
 			(function background() {
@@ -3597,23 +3231,6 @@
 			})();
 
 			(function cells() {
-				const map = (settings.mergeViewArea && sync.merge) ? sync.merge : world;
-
-				// for white cell outlines
-				let nextCellIdx = world.mine.length;
-				const canSplit = world.mine.map(id => {
-					const cell = map.cells.get(id);
-					if (!cell) {
-						--nextCellIdx;
-						return false;
-					}
-
-					if (cell.nr < 128)
-						return false;
-
-					return nextCellIdx++ < 16;
-				});
-
 				const updateUniforms = (glbuf, view) => {
 					gl.bindBuffer(gl.UNIFORM_BUFFER, glbuf);
 					gl.bufferSubData(gl.UNIFORM_BUFFER, 0, view);
@@ -3641,9 +3258,12 @@
 				for (let i = 0; i < numCells; ++i, cellPtr += 128) {
 					// cell
 					gl.useProgram(programs.cell);
+
 					const skinRef = wasm['render.cell_ubo'](0, cellPtr, now, false);
 					let texture = skinRef && render.image(skinRef);
 					gl.bindTexture(gl.TEXTURE_2D, texture || null);
+					if (!texture && skinRef) cellView.setUint32(0x54, 0, true); // if skin hasn't loaded yet, turn it off
+
 					updateUniforms(uniforms.cell.cell, cellView);
 					gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
@@ -3651,7 +3271,7 @@
 					gl.useProgram(programs.text);
 					wasm['render.text_ubo_basics'](cellPtr, now);
 
-					const nameRef = wasm['render.text_ubo_name'](cellPtr);
+					const nameRef = wasm['render.text_ubo_name'](cellPtr, now);
 					if (nameRef) {
 						const textureData = render.text(nameRef, false, TEXT_TYPE_NAME);
 						textView.setFloat32(0x10, textureData.ratio, true);
@@ -3660,7 +3280,7 @@
 						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 					}
 
-					const mass = wasm['render.text_ubo_mass'](cellPtr);
+					const mass = wasm['render.text_ubo_mass'](cellPtr, now);
 					if (mass > 0) {
 						const stringified = mass.toString();
 						for (let i = 0; i < stringified.length; ++i) {
@@ -3700,8 +3320,8 @@
 				ctx.fillStyle = '#ff0';
 				ctx.globalAlpha = 0.3;
 
-				const sectionX = Math.floor((world.camera.x - border.l) / gameWidth * 5);
-				const sectionY = Math.floor((world.camera.y - border.t) / gameHeight * 5);
+				const sectionX = Math.floor((wasm['camera.get_x']() - border.l) / gameWidth * 5);
+				const sectionY = Math.floor((wasm['camera.get_y']() - border.t) / gameHeight * 5);
 				const sectorSize = canvas.width / 5;
 				ctx.fillRect(sectionX * sectorSize, sectionY * sectorSize, sectorSize, sectorSize);
 
@@ -3777,8 +3397,8 @@
 
 				if (ownN <= 0) {
 					// if no cells were drawn, draw our spectate pos instead
-					const x = (world.camera.x - border.l) / gameWidth * canvas.width;
-					const y = (world.camera.y - border.t) / gameHeight * canvas.height;
+					const x = (wasm['camera.get_x']() - border.l) / gameWidth * canvas.width;
+					const y = (wasm['camera.get_y']() - border.t) / gameHeight * canvas.height;
 
 					ctx.fillStyle = '#faa';
 					ctx.beginPath();
@@ -3802,7 +3422,7 @@
 			requestAnimationFrame(renderGame);
 		}
 
-		renderGame();
+		requestAnimationFrame(renderGame);
 		return render;
 	})();
 
