@@ -540,8 +540,53 @@
 				line-height: 1.1; opacity: 0.5;';
 			container.appendChild(misc);
 
+			let statsLastUpdated = performance.now();
+			const update = () => {
+				statsLastUpdated = performance.now();
+				if (aux.setting('input#showNames', true) && world.leaderboard.length > 0)
+					ui.leaderboard.container.style.display = '';
+				else {
+					ui.leaderboard.container.style.display = 'none';
+					return;
+				}
+
+				ui.stats.matchTheme();
+
+				let score = 0;
+				for (const id of world.mine) {
+					const cell = world.cells.get(id);
+					if (cell) {
+						// we use nr because this is what the server sees; interpolated mass is irrelevant
+						// we also floor every cell individually, so the score matches what you could count yourself
+						score += Math.floor(cell.nr * cell.nr / 100);
+					}
+				}
+				if (typeof aux.userData?.boost === 'number' && aux.userData.boost > Date.now())
+					score *= 2;
+				if (score > world.stats.highestScore) {
+					world.stats.highestScore = score;
+				}
+
+				ui.stats.score.textContent = score > 0 ? ('Score: ' + Math.floor(score)) : '';
+
+				let measures = `${Math.floor(render.fps)} FPS`;
+				if (net.latency !== undefined) {
+					if (net.latency === -1)
+						measures += ' ????ms ping';
+					else
+						measures += ` ${Math.floor(net.latency)}ms ping`;
+				}
+
+				ui.stats.measures.textContent = measures;
+			};
+			// if the player starts lagging, we still need to update the stats
+			setInterval(() => {
+				if (performance.now() - statsLastUpdated > 250)
+					update();
+			}, 250);
+
 			/** @param {object} statData */
-			function update(statData) {
+			function updateMisc(statData) {
 				let uptime;
 				if (statData.uptime < 60) {
 					uptime = '<1min';
@@ -571,7 +616,7 @@
 
 			matchTheme();
 
-			return { container, score, measures, misc, update, matchTheme };
+			return { container, score, measures, misc, update, updateMisc, matchTheme };
 		})();
 
 		ui.leaderboard = (() => {
@@ -1414,7 +1459,6 @@
 			/** @type {SyncData} */
 			const data = e.data;
 			sync.others.set(data.self, /** @type {any} */(data));
-			sync.buildMerge(localized(/** @type {any} */(data), data.updated.now));
 		});
 
 		zoom.addEventListener('message', e => void (input.zoom = e.data));
@@ -2001,7 +2045,7 @@
 
 					world.clean();
 					sync.broadcast(now);
-					sync.buildMerge(now);
+					ui.stats.update();
 
 					break;
 				}
@@ -2126,7 +2170,7 @@
 					[statString, off] = readZTString(dat, off);
 
 					const statData = JSON.parse(statString);
-					ui.stats.update(statData);
+					ui.stats.updateMisc(statData);
 
 					if (pendingPingFrom) {
 						net.latency = now - pendingPingFrom;
@@ -3333,24 +3377,26 @@
 		render.resetTextCache = resetTextCache;
 
 
+		// #3: define minimap stuff
+		let lastMinimapDraw = performance.now();
+		/** @type {{ bg: ImageData, darkTheme: boolean } | undefined} */
+		let minimapCache;
 
-		// #3 : define the render function
-		let fps = 0;
+
+
+		// #4 : define the render function
+		render.fps = 0;
 		let lastFrame = performance.now();
 		function renderGame() {
 			const now = performance.now();
 			const dt = Math.max(now - lastFrame, 0.1) / 1000; // there's a chance (now - lastFrame) can be 0
-			fps += (1 / dt - fps) / 10;
+			render.fps += (1 / dt - render.fps) / 10;
 			lastFrame = now;
 
 			if (gl.isContextLost()) {
 				requestAnimationFrame(renderGame);
 				return;
 			}
-
-			// when tabbing in, draw *as fast as possible* to prevent flickering effects
-			// i'd imagine people using sigmally fixes won't have their fps naturally go below 20 anyway
-			const fastDraw = dt >= 0.05;
 
 			// get settings
 			/** @type {string} */
@@ -3763,47 +3809,10 @@
 				}
 			})();
 
-			(function updateStats() {
-				if (fastDraw) return;
-				ui.stats.matchTheme(); // not sure how to listen to when the checkbox changes when the game loads
-				if (showNames && world.leaderboard.length > 0)
-					ui.leaderboard.container.style.display = '';
-				else
-					ui.leaderboard.container.style.display = 'none';
-
-				let score = 0;
-				world.mine.forEach(id => {
-					const cell = world.cells.get(id);
-					if (!cell || cell.deadAt !== undefined) return;
-
-					score += cell.nr * cell.nr / 100;
-				});
-
-				if (typeof aux.userData?.boost === 'number' && aux.userData.boost > Date.now())
-					score *= 2;
-
-				if (score > 0)
-					ui.stats.score.textContent = 'Score: ' + Math.floor(score);
-				else
-					ui.stats.score.textContent = '';
-
-				let measures = `${Math.floor(fps)} FPS`;
-				if (net.latency !== undefined) {
-					if (net.latency === -1)
-						measures += ' ????ms ping';
-					else
-						measures += ` ${Math.floor(net.latency)}ms ping`;
-				}
-
-				ui.stats.measures.textContent = measures;
-
-				if (score > world.stats.highestScore) {
-					world.stats.highestScore = score;
-				}
-			})();
-
 			(function minimap() {
-				if (fastDraw) return;
+				if (now - lastMinimapDraw < 40) return;
+				lastMinimapDraw = now;
+
 				if (!showMinimap) {
 					ui.minimap.canvas.style.display = 'none';
 					return;
@@ -3811,12 +3820,34 @@
 					ui.minimap.canvas.style.display = '';
 				}
 
+				const { canvas, ctx } = ui.minimap;
+				const canvasLength = canvas.width = canvas.height = 200 * devicePixelRatio; // clears the canvas
+				const sectorSize = canvas.width / 5;
+
+				// cache the background if necessary (25 texts = bad)
+				if (minimapCache && minimapCache.bg.width === canvasLength && minimapCache.darkTheme === darkTheme) {
+					ctx.putImageData(minimapCache.bg, 0, 0);
+				} else {
+					// draw section names
+					ctx.font = `${Math.floor(sectorSize / 3)}px Ubuntu`;
+					ctx.fillStyle = darkTheme ? '#fff' : '#000';
+					ctx.globalAlpha = 0.3;
+					ctx.textAlign = 'center';
+					ctx.textBaseline = 'middle';
+
+					const cols = ['1', '2', '3', '4', '5'];
+					const rows = ['A', 'B', 'C', 'D', 'E'];
+					cols.forEach((col, y) => {
+						rows.forEach((row, x) => {
+							ctx.fillText(row + col, (x + 0.5) * sectorSize, (y + 0.5) * sectorSize);
+						});
+					});
+
+					minimapCache = { bg: ctx.getImageData(0, 0, canvas.width, canvas.height), darkTheme };
+				}
+
 				const { border } = world;
 				if (!border) return;
-
-				// text needs to be small and sharp, i don't trust webgl with that, so we use a 2d context
-				const { canvas, ctx } = ui.minimap;
-				canvas.width = canvas.height = 200 * devicePixelRatio;
 
 				// sigmod overlay resizes itself differently, so we correct it whenever we need to
 				/** @type {HTMLCanvasElement | null} */
@@ -3830,8 +3861,6 @@
 						sigmodMinimap.width = sigmodMinimap.height = 200 * devicePixelRatio;
 				}
 
-				ctx.clearRect(0, 0, canvas.width, canvas.height);
-
 				const gameWidth = (border.r - border.l);
 				const gameHeight = (border.b - border.t);
 
@@ -3841,27 +3870,15 @@
 
 				const sectionX = Math.floor((world.camera.x - border.l) / gameWidth * 5);
 				const sectionY = Math.floor((world.camera.y - border.t) / gameHeight * 5);
-				const sectorSize = canvas.width / 5;
 				ctx.fillRect(sectionX * sectorSize, sectionY * sectorSize, sectorSize, sectorSize);
 
 				// draw section names
 				ctx.font = `${Math.floor(sectorSize / 3)}px Ubuntu`;
 				ctx.fillStyle = darkTheme ? '#fff' : '#000';
-				ctx.globalAlpha = 0.3;
 				ctx.textAlign = 'center';
 				ctx.textBaseline = 'middle';
 
-				const cols = ['1', '2', '3', '4', '5'];
-				const rows = ['A', 'B', 'C', 'D', 'E'];
-				cols.forEach((col, y) => {
-					rows.forEach((row, x) => {
-						ctx.fillText(row + col, (x + 0.5) * sectorSize, (y + 0.5) * sectorSize);
-					});
-				});
-
 				ctx.globalAlpha = 1;
-
-
 
 				// draw cells
 				/** @param {Cell} cell */
