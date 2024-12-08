@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.3.19
+// @version      2.4.0
 // @description  Easily 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -24,7 +24,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.3.19';
+	const sfVersion = '2.4.0';
 	// yes, this actually makes a significant difference
 	const undefined = window.undefined;
 
@@ -1344,8 +1344,7 @@
 	/** @typedef {{
 	 * 	self: string,
 	 * 	camera: { tx: number, ty: number },
-	 * 	cells: { cells: Map<number, Cell>, pellets: Map<number, Cell> } | undefined,
-	 * 	owned: Map<number, { x: number, y: number, r: number, jx: number, jy: number, jr: number } | false>,
+	 * 	owned: Map<number, { x: number, y: number, r: number, jr: number } | false>,
 	 * 	skin: string,
 	 * 	updated: { now: number, timeOrigin: number },
 	 * }} SyncData
@@ -1366,7 +1365,7 @@
 		 * @param {SyncData} data
 		 * @param {number} foreignNow
 		 */
-		const localized = (data, foreignNow) => data.updated.timeOrigin - performance.timeOrigin + foreignNow;
+		const localized = (data, foreignNow) => (data.updated.timeOrigin - performance.timeOrigin) + foreignNow;
 		// foreignNow + data.updated.timeOrigin - performance.timeOrigin; different order so maybe better precision?
 
 		/** @param {number} now */
@@ -1382,15 +1381,10 @@
 			for (const id of world.mineDead)
 				owned.set(id, false);
 
-			// it is stupidly expensive to replicate pellets, so make sure we can disable it
-			const hidePellets = aux.sigmodSettings?.hidePellets;
-
 			/** @type {SyncData} */
 			const syncData = {
 				self,
 				camera: { tx: world.camera.tx, ty: world.camera.ty },
-				cells: settings.mergeViewArea
-					? { cells: world.cells, pellets: hidePellets ? new Map() : world.pellets } : undefined,
 				owned,
 				skin: settings.selfSkin,
 				updated: { now, timeOrigin: performance.timeOrigin },
@@ -1435,171 +1429,6 @@
 			});
 		}, 250);
 
-		// [timeOffset, cell]
-		/** @type {Map<number, [number, Cell]>} */
-		const all = new Map();
-
-		/** @param {number} now */
-		sync.buildMerge = now => {
-			// for camera merging to look extremely smooth, we need to merge packets and apply them *ONLY* when all
-			// tabs are synchronized.
-			// if you simply fall back to what the other tabs see, you will get lots of flickering and warping (what
-			// delta suffers from).
-			// threfore, we make sure that all tabs that share visible cells see them in the same spots, to make sure
-			// they are all on the same tick
-			// it's also not sufficient to simply count how many update (0x10) packets we get, as /leaveworld (part of
-			// respawn functionality) stops those packets from coming in
-			// if the view areas are disjoint, then there's nothing we can do but this should never happen when
-			// splitrunning
-			if (!settings.mergeViewArea) {
-				sync.merge = undefined;
-				return;
-			}
-			/** @type {Map<number, Cell>} */
-			let cells = new Map();
-			/** @type {Map<number, Cell>} */
-			let pellets = new Map();
-			if (sync.merge) {
-				({ cells, pellets } = sync.merge);
-			} else {
-				sync.merge = { cells, pellets };
-			}
-
-			// #1 : collect local changes
-			all.clear();
-			for (const [id, cell] of world.cells)
-				all.set(id, [0, cell]);
-
-			// #2 : check if all the important cells are synced
-			/** @type {number} */
-			let otherOffset;
-			/**
-			 * @param {Cell} cell
-			 * @returns {boolean}
-			 */
-			const check = cell => {
-				const currentSet = all.get(cell.id);
-				if (!currentSet) {
-					all.set(cell.id, [otherOffset, cell]);
-					return true;
-				}
-
-				const [currentOffset, current] = currentSet;
-				const currentDisappearedAt = (current.deadAt !== undefined && current.deadTo === -1)
-					? currentOffset + current.deadAt : undefined;
-				const cellDisappearedAt
-					= (cell.deadAt !== undefined && cell.deadTo === -1) ? otherOffset + cell.deadAt : undefined;
-
-				if (currentDisappearedAt === undefined && cellDisappearedAt === undefined) {
-					// if *neither* cell has disappeared, check for desync
-					if (current.nx !== cell.nx || current.ny !== cell.ny || current.nr !== cell.nr)
-						return false;
-				} else if (currentDisappearedAt === undefined && cellDisappearedAt !== undefined) {
-					// other disappeared; prefer the current one
-				} else if (currentDisappearedAt !== undefined && cellDisappearedAt === undefined) {
-					// current disappeared; prefer the other one
-					all.set(cell.id, [currentOffset, cell]);
-				} else {
-					// both have disappeared, prefer the one that disappeared later
-					if (/** @type {number} */(currentDisappearedAt) < /** @type {number} */(cellDisappearedAt))
-						all.set(cell.id, [otherOffset, cell]);
-				}
-
-				return true;
-			};
-
-			/**
-			 * @param {'cells' | 'pellets'} key
-			 * @returns {boolean}
-			 */
-			const iterate = key => {
-				for (const data of sync.others.values()) {
-					otherOffset = data.updated.timeOrigin - performance.timeOrigin;
-					const otherNow = otherOffset + data.updated.now;
-					if (now - otherNow > 250) continue; // tab has not updated in 250ms, disregard it
-					if (!data.cells) continue;
-					for (const cell of data.cells[key].values()) {
-						if (!check(cell)) return false;
-					}
-				}
-
-				return true;
-			};
-
-			if (!iterate('cells'))
-				return;
-
-			// #3 : then, check if all the pellets are synced
-			for (const [id, cell] of world.pellets)
-				all.set(id, [0, cell]);
-			if (!iterate('pellets'))
-				return;
-
-			// #4 : all tabs are synced, we can update the cells
-			for (const [offset, cell] of all.values()) {
-				const old = pellets.get(cell.id) ?? cells.get(cell.id);
-				if (old) {
-					const { x, y, r, jx, jy, jr } = world.xyr(old, sync.merge, now);
-					old.ox = x; old.oy = y; old.or = r;
-					old.jx = jx; old.jy = jy; old.jr = jr;
-					old.nx = cell.nx; old.ny = cell.ny; old.nr = cell.nr;
-
-					if (cell.deadAt !== undefined) {
-						if (old.deadAt === undefined) {
-							old.deadAt = now;
-							old.deadTo = cell.deadTo;
-						}
-					} else if (old.deadAt !== undefined) {
-						old.ox = old.jx = old.nx;
-						old.oy = old.jy = old.ny;
-						old.or = old.jr = old.nr;
-						old.deadTo = -1;
-						old.deadAt = undefined;
-					}
-					old.updated = now;
-				} else {
-					/** @type {Cell} */
-					const ncell = {
-						id: cell.id,
-						ox: cell.ox, nx: cell.nx, jx: cell.jx,
-						oy: cell.oy, ny: cell.ny, jy: cell.jy,
-						or: cell.or, nr: cell.nr, jr: cell.jr,
-						Rgb: cell.Rgb, rGb: cell.rGb, rgB: cell.rgB,
-						jagged: cell.jagged,
-						name: cell.name, skin: cell.skin, sub: cell.sub, clan: cell.clan,
-						born: offset + cell.born, updated: now,
-						deadTo: cell.deadTo,
-						deadAt: cell.deadAt !== undefined ? now : undefined,
-					};
-
-					if (cell.nr <= 20)
-						pellets.set(cell.id, ncell);
-					else
-						cells.set(cell.id, ncell);
-				}
-			}
-
-			// #5 : kill cells that aren't seen anymore
-			/**
-			 * @param {Map<number, Cell>} map
-			 * @param {number} id
-			 * @param {Cell} cell
-			 */
-			const clean = (map, id, cell) => {
-				if (all.has(id)) return;
-				if (cell.deadAt !== undefined) {
-					if (now - cell.deadAt > 1000) map.delete(id);
-				} else {
-					cell.deadAt = now;
-					cell.deadTo = -1;
-					cell.updated = now;
-				}
-			};
-
-			for (const [id, cell] of cells) clean(cells, id, cell);
-			for (const [id, cell] of pellets) clean(pellets, id, cell);
-		};
-
 		return sync;
 	})();
 
@@ -1610,8 +1439,8 @@
 	///////////////////////////
 	/** @typedef {{
 	 * id: number,
-	 * ox: number, nx: number, jx: number,
-	 * oy: number, ny: number, jy: number,
+	 * ox: number, nx: number,
+	 * oy: number, ny: number,
 	 * or: number, nr: number, jr: number,
 	 * Rgb: number, rGb: number, rgB: number,
 	 * updated: number, born: number, deadTo: number, deadAt: number | undefined,
@@ -1637,7 +1466,7 @@
 		 * @param {Cell} cell
 		 * @param {{ cells: Map<number, Cell>, pellets: Map<number, Cell> }} map
 		 * @param {number} now
-		 * @returns {{ x: number, y: number, r: number, jx: number, jy: number, jr: number }}
+		 * @returns {{ x: number, y: number, r: number, jr: number }}
 		 */
 		world.xyr = (cell, map, now) => {
 			let a = (now - cell.updated) / settings.drawDelay;
@@ -1660,9 +1489,7 @@
 			const dt = (now - cell.updated) / 1000;
 			return {
 				x, y, r,
-				jx: aux.exponentialEase(cell.jx, x, 2, dt),
-				jy: aux.exponentialEase(cell.jy, y, 2, dt),
-				jr: aux.exponentialEase(cell.jr, r, 5, dt),
+				jr: aux.exponentialEase(cell.jr, r, 10, dt),
 			};
 		};
 
@@ -1678,9 +1505,7 @@
 
 			/**
 			 * @param {Iterable<number>} owned
-			 * @param {Map<number, {
-			 * 	x: number, y: number, r: number, jx: number, jy: number, jr: number
-			 * } | false> | undefined} fallback
+			 * @param {Map<number, { x: number, y: number, r: number, jr: number } | false> | undefined} fallback
 			 * @returns {{
 			 * 	weightedX: number, weightedY: number, totalWeight: number,
 			 * 	scale: number, width: number, height: number
@@ -1693,7 +1518,7 @@
 				let totalR = 0;
 
 				for (const id of owned) {
-					/** @type {{ x: number, y: number, r: number, jx: number, jy: number, jr: number }} */
+					/** @type {{ x: number, y: number, r: number, jr: number }} */
 					let xyr;
 
 					const cell = map.cells.get(id);
@@ -1704,19 +1529,11 @@
 					} else if (cell.deadAt !== undefined) continue;
 					else xyr = world.xyr(cell, map, now);
 
-					if (jellyPhysics) {
-						const weighted = xyr.jr ** weight;
-						weightedX += xyr.jx * weighted;
-						weightedY += xyr.jy * weighted;
-						totalWeight += weighted;
-						totalR += xyr.jr;
-					} else {
-						const weighted = xyr.r ** weight;
-						weightedX += xyr.x * weighted;
-						weightedY += xyr.y * weighted;
-						totalWeight += weighted;
-						totalR += xyr.r;
-					}
+					const weighted = xyr.r ** weight;
+					weightedX += xyr.x * weighted;
+					weightedY += xyr.y * weighted;
+					totalWeight += weighted;
+					totalR += xyr.r;
 				}
 
 				const scale = Math.min(64 / totalR, 1) ** 0.4;
@@ -1794,9 +1611,8 @@
 
 		// #2 : define others, like camera and borders
 		world.camera = {
-			x: 0, tx: 0,
-			y: 0, ty: 0,
-			scale: 1, tscale: 1,
+			x: 0, y: 0, scale: 1,
+			tx: 0, ty: 0, tscale: 1,
 			merged: false,
 		};
 
@@ -2103,9 +1919,9 @@
 
 						const cell = world.pellets.get(id) ?? world.cells.get(id);
 						if (cell && cell.deadAt === undefined) {
-							const { x: ix, y: iy, r: ir, jx, jy, jr } = world.xyr(cell, world, now);
+							const { x: ix, y: iy, r: ir, jr } = world.xyr(cell, world, now);
 							cell.ox = ix; cell.oy = iy; cell.or = ir;
-							cell.jx = jx; cell.jy = jy; cell.jr = jr;
+							cell.jr = jr;
 							cell.nx = x; cell.ny = y; cell.nr = r;
 							cell.jagged = jagged;
 							cell.updated = now;
@@ -2135,8 +1951,8 @@
 							/** @type {Cell} */
 							const ncell = {
 								id,
-								ox: x, nx: x, jx: x,
-								oy: y, ny: y, jy: y,
+								ox: x, nx: x,
+								oy: y, ny: y,
 								or: r, nr: r, jr: r,
 								Rgb: Rgb ?? 1, rGb: rGb ?? 1, rgB: rgB ?? 1,
 								jagged,
@@ -3673,17 +3489,16 @@
 					const alpha = calcAlpha(cell);
 					gl.uniform1f(uniforms.cell.u_alpha, alpha * settings.cellOpacity);
 
-					const { x, y, r, jx, jy, jr } = world.xyr(cell, map, now);
+					const { x, y, r, jr } = world.xyr(cell, map, now);
 					// without jelly physics, the radius of cells is adjusted such that its subtle outline doesn't go
 					// past its original radius.
 					// jelly physics does not do this, so colliding cells need to look kinda 'joined' together,
 					// so we multiply the radius by 1.01 (approximately the size increase from the stroke thickness)
+					gl.uniform2f(uniforms.cell.u_pos, x, y);
 					if (jellyPhysics) {
-						gl.uniform2f(uniforms.cell.u_pos, jx, jy);
 						gl.uniform1f(uniforms.cell.u_radius, jr * 1.01);
 						gl.uniform1f(uniforms.cell.u_radius_skin, (settings.jellySkinLag ? r : jr) * 1.01);
 					} else {
-						gl.uniform2f(uniforms.cell.u_pos, x, y);
 						gl.uniform1f(uniforms.cell.u_radius, r);
 						gl.uniform1f(uniforms.cell.u_radius_skin, r);
 					}
@@ -3786,7 +3601,7 @@
 
 					gl.uniform1f(uniforms.text.u_alpha, alpha);
 					if (jellyPhysics)
-						gl.uniform2f(uniforms.text.u_pos, jx, jy);
+						gl.uniform2f(uniforms.text.u_pos, x, y);
 					else
 						gl.uniform2f(uniforms.text.u_pos, x, y);
 					gl.uniform1f(uniforms.text.u_radius, r); // jelly physics never affects the text *size*
@@ -3912,14 +3727,9 @@
 						else
 							gl.uniform4f(uniforms.cellGlow.u_color, cell.Rgb, cell.rGb, cell.rgB, 1);
 
-						const { x, y, r, jx, jy, jr } = world.xyr(cell, map, now);
-						if (jellyPhysics) {
-							gl.uniform2f(uniforms.cellGlow.u_pos, jx, jy);
-							gl.uniform1f(uniforms.cellGlow.u_radius, jr);
-						} else {
-							gl.uniform2f(uniforms.cellGlow.u_pos, x, y);
-							gl.uniform1f(uniforms.cellGlow.u_radius, r);
-						}
+						const { x, y, r, jr } = world.xyr(cell, map, now);
+						gl.uniform2f(uniforms.cellGlow.u_pos, x, y);
+						gl.uniform1f(uniforms.cellGlow.u_radius, jellyPhysics ? jr : r);
 
 						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 					};
@@ -3945,11 +3755,8 @@
 						const cell = map.cells.get(id);
 						if (!cell) return;
 
-						let { x, y, jx, jy } = world.xyr(cell, map, now);
-						if (jellyPhysics)
-							gl.uniform2f(uniforms.tracer.u_pos1, jx, jy);
-						else
-							gl.uniform2f(uniforms.tracer.u_pos1, x, y);
+						let { x, y } = world.xyr(cell, map, now);
+						gl.uniform2f(uniforms.tracer.u_pos1, x, y);
 
 						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 					});
