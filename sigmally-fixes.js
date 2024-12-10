@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.4.0
+// @version      2.4.0-BETA
 // @description  Easily 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -24,7 +24,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.4.0';
+	const sfVersion = '2.4.0-BETA';
 	// yes, this actually makes a significant difference
 	const undefined = window.undefined;
 
