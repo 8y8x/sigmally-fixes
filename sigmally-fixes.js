@@ -164,6 +164,7 @@
 		 * 	hidePellets?: boolean,
 		 * 	rapidFeedKey?: string,
 		 * 	removeOutlines?: boolean,
+		 * 	showNames?: boolean,
 		 * 	skinReplacement?: { original: string | null, replacement?: string | null, replaceImg?: string | null },
 		 * 	virusImage?: string,
 		 * } | undefined} */
@@ -506,7 +507,7 @@
 				render.resetTextCache();
 				render.resetTextureCache();
 			});
-			newCanvas.addEventListener('webglcontextrestored', () => initWebGL());
+			newCanvas.addEventListener('webglcontextrestored', () => glconf.init());
 
 			function resize() {
 				newCanvas.width = Math.floor(innerWidth * devicePixelRatio);
@@ -543,7 +544,7 @@
 			let statsLastUpdated = performance.now();
 			const update = () => {
 				statsLastUpdated = performance.now();
-				if (aux.setting('input#showNames', true) && world.leaderboard.length > 0)
+				if ((aux.sigmodSettings?.showNames ?? true) && world.leaderboard.length > 0)
 					ui.leaderboard.container.style.display = '';
 				else {
 					ui.leaderboard.container.style.display = 'none';
@@ -912,8 +913,9 @@
 			 * @param {string} authorName
 			 * @param {[number, number, number, number]} rgb
 			 * @param {string} text
+			 * @param {boolean} server
 			 */
-			chat.add = (authorName, rgb, text) => {
+			chat.add = (authorName, rgb, text, server) => {
 				lastWasBarrier = false;
 
 				const container = document.createElement('div');
@@ -923,6 +925,7 @@
 				container.appendChild(author);
 
 				const msg = document.createElement('span');
+				if (server) msg.style.cssText = `color: ${aux.rgba2hex(...rgb)}`;
 				msg.textContent = aux.trim(text);
 				container.appendChild(msg);
 
@@ -1825,7 +1828,7 @@
 				if (dat.getUint8(off) === 0) break;
 			}
 
-			return [aux.textDecoder.decode(dat.buffer.slice(startOff, off)), off + 1];
+			return [aux.textDecoder.decode(new DataView(dat.buffer, startOff, off - startOff)), off + 1];
 		}
 
 		/**
@@ -1835,15 +1838,14 @@
 		function sendJson(opcode, data) {
 			if (!handshake) return;
 			const dataBuf = aux.textEncoder.encode(JSON.stringify(data));
-			const buf = new ArrayBuffer(dataBuf.byteLength + 2);
-			const dat = new DataView(buf);
+			const dat = new DataView(new ArrayBuffer(dataBuf.byteLength + 2));
 
 			dat.setUint8(0, Number(handshake.shuffle.get(opcode)));
 			for (let i = 0; i < dataBuf.byteLength; ++i) {
 				dat.setUint8(1 + i, dataBuf[i]);
 			}
 
-			ws.send(buf);
+			ws.send(dat);
 		}
 
 		function createPingLoop() {
@@ -2150,7 +2152,7 @@
 					let msg;
 					[msg, off] = readZTString(dat, off);
 
-					ui.chat.add(name, rgb, msg);
+					ui.chat.add(name, rgb, msg, !!(flags & 0x80));
 					break;
 				}
 
@@ -2190,14 +2192,13 @@
 		 */
 		net.move = function (x, y) {
 			if (!handshake) return;
-			const buf = new ArrayBuffer(13);
-			const dat = new DataView(buf);
+			const dat = new DataView(new ArrayBuffer(13));
 
 			dat.setUint8(0, Number(handshake.shuffle.get(0x10)));
 			dat.setInt32(1, x, true);
 			dat.setInt32(5, y, true);
 
-			ws.send(buf);
+			ws.send(dat);
 		};
 
 		net.w = function () {
@@ -2226,16 +2227,14 @@
 		net.chat = function (msg) {
 			if (!handshake) return;
 			const msgBuf = aux.textEncoder.encode(msg);
-
-			const buf = new ArrayBuffer(msgBuf.byteLength + 3);
-			const dat = new DataView(buf);
+			const dat = new DataView(new ArrayBuffer(msgBuf.byteLength + 3));
 
 			dat.setUint8(0, Number(handshake.shuffle.get(0x63)));
-			// skip byte #1, seems to require authentication + not implemented anyway
+			// skip flags, not implemented anyway
 			for (let i = 0; i < msgBuf.byteLength; ++i)
 				dat.setUint8(2 + i, msgBuf[i]);
 
-			ws.send(buf);
+			ws.send(dat);
 		};
 
 		/**
@@ -2725,36 +2724,15 @@
 	//////////////////////////
 	// Configure WebGL Data //
 	//////////////////////////
-	const { init: initWebGL, programs, uniforms } = (() => {
+	const glconf = (() => {
 		// note: WebGL functions only really return null if the context is lost - in which case, data will be replaced
 		// anyway after it's restored. so, we cast everything to a non-null type.
 		const programs = {};
 		const uniforms = {};
 
 		const gl = ui.game.gl;
-
-		// define helper functions
-		/**
-		 * @param {string} name
-		 * @param {WebGLShader} vShader
-		 * @param {WebGLShader} fShader
-		 */
-		function program(name, vShader, fShader) {
-			const p = /** @type {WebGLProgram} */ (gl.createProgram());
-
-			gl.attachShader(p, vShader);
-			gl.attachShader(p, fShader);
-			gl.linkProgram(p);
-
-			// note: linking errors should not happen in production
-			aux.require(
-				gl.getProgramParameter(p, gl.LINK_STATUS) || gl.isContextLost(),
-				`Can\'t link WebGL2 program "${name}". You might be on a weird browser.\n\nFull error log:\n` +
-				gl.getProgramInfoLog(p),
-			);
-
-			return p;
-		}
+		/** @type {Map<string, number>} */
+		const uboBindings = new Map();
 
 		/**
 		 * @param {string} name
@@ -2777,71 +2755,128 @@
 		}
 
 		/**
-		 * @template {string} T
-		 * @param {string} programName
-		 * @param {WebGLProgram} program
-		 * @param {T[]} names
-		 * @returns {{ [x in T]: WebGLUniformLocation }}
+		 * @param {string} name
+		 * @param {string} vSource
+		 * @param {string} fSource
+		 * @param {string[]} ubos
+		 * @param {string[]} textures
 		 */
-		function getUniforms(programName, program, names) {
-			/** @type {{ [x in T]?: WebGLUniformLocation }} */
-			const uniforms = {};
-			names.forEach(name => {
-				const loc = /** @type {WebGLUniformLocation} */ (gl.getUniformLocation(program, name));
-				aux.require(
-					loc || !gl.isContextLost(), `Can\'t find WebGL2 uniform "${name}" in program "${programName}".`);
+		function program(name, vSource, fSource, ubos, textures) {
+			const vShader = shader(`${name}.vShader`, gl.VERTEX_SHADER, vSource.trim());
+			const fShader = shader(`${name}.fShader`, gl.FRAGMENT_SHADER, fSource.trim());
+			const p = /** @type {WebGLProgram} */ (gl.createProgram());
 
-				uniforms[name] = loc;
-			});
+			gl.attachShader(p, vShader);
+			gl.attachShader(p, fShader);
+			gl.linkProgram(p);
 
-			return /** @type {any} */ (uniforms);
+			// note: linking errors should not happen in production
+			aux.require(
+				gl.getProgramParameter(p, gl.LINK_STATUS) || gl.isContextLost(),
+				`Can\'t link WebGL2 program "${name}". You might be on a weird browser.\n\nFull error log:\n` +
+				gl.getProgramInfoLog(p),
+			);
+
+			for (const tag of ubos) {
+				const index = gl.getUniformBlockIndex(p, tag); // returns 4294967295 if invalid... just don't make typos
+				let binding = uboBindings.get(tag);
+				if (binding === undefined)
+					uboBindings.set(tag, binding = uboBindings.size);
+				gl.uniformBlockBinding(p, index, binding);
+				
+				const size = gl.getActiveUniformBlockParameter(p, index, gl.UNIFORM_BLOCK_DATA_SIZE);
+				const ubo = uniforms[tag] = gl.createBuffer();
+				gl.bindBuffer(gl.UNIFORM_BUFFER, ubo);
+				gl.bufferData(gl.UNIFORM_BUFFER, size, gl.DYNAMIC_DRAW);
+				gl.bindBufferBase(gl.UNIFORM_BUFFER, binding, ubo);
+			}
+
+			// bind texture uniforms to TEXTURE0, TEXTURE1, etc.
+			gl.useProgram(p);
+			for (let i = 0; i < textures.length; ++i) {
+				const loc = gl.getUniformLocation(p, textures[i]);
+				gl.uniform1i(loc, i);
+			}
+			gl.useProgram(null);
+
+			return p;
 		}
+
+		const parts = {
+			boilerplate: `#version 300 es\nprecision highp float; precision highp int;`,
+			borderUbo: `layout(std140) uniform Border { // size = 0x24
+				vec4 u_border_color; // @ 0x00, i = 0
+				vec4 u_border_xyzw_lrtb; // @ 0x10, i = 4
+				int u_border_flags; // @ 0x20, i = 8
+			};`,
+			cameraUbo: `layout(std140) uniform Camera { // size = 0x10
+				float u_camera_ratio; // @ 0x00
+				float u_camera_scale; // @ 0x04
+				vec2 u_camera_pos; // @ 0x08
+			};`,
+			cellUbo: `layout(std140) uniform Cell { // size = 0x28
+				float u_cell_radius; // @ 0x00, i = 0
+				float u_cell_radius_skin; // @ 0x04, i = 1
+				vec2 u_cell_pos; // @ 0x08, i = 2
+				vec4 u_cell_color; // @ 0x10, i = 4
+				float u_cell_alpha; // @ 0x20, i = 8
+				int u_cell_flags; // @ 0x24, i = 9
+			};`,
+			cellSettingsUbo: `layout(std140) uniform CellSettings { // size = 0x40
+				vec4 u_cell_active_outline; // @ 0x00
+				vec4 u_cell_inactive_outline; // @ 0x10
+				vec4 u_cell_unsplittable_outline; // @ 0x20
+				vec4 u_cell_subtle_outline_override; // @ 0x30
+				float u_cell_active_outline_thickness; // @ 0x40
+			};`,
+			textUbo: `layout(std140) uniform Text { // size = 0x38
+				vec4 u_text_color1; // @ 0x00, i = 0
+				vec4 u_text_color2; // @ 0x10, i = 4
+				float u_text_alpha; // @ 0x20, i = 8
+				float u_text_aspect_ratio; // @ 0x24, i = 9
+				float u_text_scale; // @ 0x28, i = 10
+				int u_text_silhouette_enabled; // @ 0x2c, i = 11
+				vec2 u_text_offset; // @ 0x30, i = 12
+			};`,
+			tracerUbo: `layout(std140) uniform Tracer { // size = 0x10
+				vec2 u_tracer_pos1; // @ 0x00, i = 0
+				vec2 u_tracer_pos2; // @ 0x08, i = 2
+			};`,
+		};
 
 
 
 		function init() {
 			gl.enable(gl.BLEND);
-			gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+			gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); // TODO: move this elsewhere
 
 			// create programs and uniforms
-			programs.bg = program(
-				'bg',
-				shader('bg.vShader', gl.VERTEX_SHADER, `#version 300 es
-				layout(location = 0) in vec2 a_pos;
-
-				uniform float u_aspect_ratio;
-				uniform vec2 u_camera_pos;
-				uniform float u_camera_scale;
-
+			programs.bg = program('bg', `
+				${parts.boilerplate}
+				layout(location = 0) in vec2 a_vertex;
+				${parts.cameraUbo}
 				out vec2 v_world_pos;
 
 				void main() {
-					gl_Position = vec4(a_pos, 0, 1);
+					gl_Position = vec4(a_vertex, 0, 1);
 
-					v_world_pos = a_pos * vec2(u_aspect_ratio, 1.0) / u_camera_scale;
+					v_world_pos = a_vertex * vec2(u_camera_ratio, 1.0) / u_camera_scale;
 					v_world_pos += u_camera_pos * vec2(1.0, -1.0);
 				}
-				`),
-				shader('bg.fShader', gl.FRAGMENT_SHADER, `#version 300 es
-				precision highp float;
+			`, `
+				${parts.boilerplate}
 				in vec2 v_world_pos;
-
-				uniform float u_camera_scale;
-
-				uniform vec4 u_border_color;
-				uniform float[4] u_border_lrtb;
-				uniform bool u_dark_theme_enabled;
-				uniform bool u_grid_enabled;
+				${parts.borderUbo}
+				${parts.cameraUbo}
 				uniform sampler2D u_texture;
-
 				out vec4 out_color;
 
 				void main() {
-					if (u_grid_enabled) {
+					if ((u_border_flags & 0x01) != 0) {
 						vec2 t_coord = v_world_pos / 50.0;
 						out_color = texture(u_texture, t_coord);
 						out_color.a *= 0.1;
-						if (!u_dark_theme_enabled) {
+						if ((u_border_flags & 0x02) != 0) {
 							out_color *= vec4(0, 0, 0, 1);
 						}
 					}
@@ -2851,228 +2886,167 @@
 
 					// make a larger inner rectangle and a normal inverted outer rectangle
 					float inner_alpha = min(
-						min((v_world_pos.x + thickness) - u_border_lrtb[0],
-							u_border_lrtb[1] - (v_world_pos.x - thickness)),
-						min((v_world_pos.y + thickness) - u_border_lrtb[2],
-							u_border_lrtb[3] - (v_world_pos.y - thickness))
+						min((v_world_pos.x + thickness) - u_border_xyzw_lrtb.x,
+							u_border_xyzw_lrtb.y - (v_world_pos.x - thickness)),
+						min((v_world_pos.y + thickness) - u_border_xyzw_lrtb.z,
+							u_border_xyzw_lrtb.w - (v_world_pos.y - thickness))
 					);
 					float outer_alpha = max(
-						max(u_border_lrtb[0] - v_world_pos.x, v_world_pos.x - u_border_lrtb[1]),
-						max(u_border_lrtb[2] - v_world_pos.y, v_world_pos.y - u_border_lrtb[3])
+						max(u_border_xyzw_lrtb.x - v_world_pos.x, v_world_pos.x - u_border_xyzw_lrtb.y),
+						max(u_border_xyzw_lrtb.z - v_world_pos.y, v_world_pos.y - u_border_xyzw_lrtb.w)
 					);
 					float alpha = clamp(min(inner_alpha, outer_alpha), 0.0, 1.0);
 
 					out_color = out_color * (1.0 - alpha) + u_border_color * alpha;
 				}
-				`),
-			);
-			uniforms.bg = getUniforms('bg', programs.bg, [
-				'u_aspect_ratio', 'u_camera_pos', 'u_camera_scale',
-				'u_border_color', 'u_border_lrtb', 'u_dark_theme_enabled', 'u_grid_enabled',
-			]);
+			`, ['Border', 'Camera'], ['u_texture']);
 
 
 
-			programs.cell = program(
-				'cell',
-				shader('cell.vShader', gl.VERTEX_SHADER, `#version 300 es
-				layout(location = 0) in vec2 a_pos;
-
-				uniform float u_aspect_ratio;
-				uniform vec2 u_camera_pos;
-				uniform float u_camera_scale;
-
-				uniform float u_radius;
-				uniform float u_radius_skin;
-				uniform vec2 u_pos;
-
-				out vec2 v_pos;
+			// TODO: can you use `inout` for a_vertex?
+			programs.cell = program('cell', `
+				${parts.boilerplate}
+				layout(location = 0) in vec2 a_vertex;
+				${parts.cameraUbo}
+				${parts.cellUbo}
+				out vec2 v_vertex;
 				out vec2 v_uv;
 
 				void main() {
-					v_pos = a_pos;
-					v_uv = a_pos * (u_radius / u_radius_skin) * 0.5 + 0.5;
+					v_vertex = a_vertex;
+					v_uv = a_vertex * (u_cell_radius / u_cell_radius_skin) * 0.5 + 0.5;
 
-					vec2 clip_pos = -u_camera_pos + u_pos + v_pos * u_radius;
-					clip_pos *= u_camera_scale * vec2(1.0 / u_aspect_ratio, -1.0);
+					vec2 clip_pos = -u_camera_pos + u_cell_pos + v_vertex * u_cell_radius;
+					clip_pos *= u_camera_scale * vec2(1.0 / u_camera_ratio, -1.0);
 					gl_Position = vec4(clip_pos, 0, 1);
 				}
-				`),
-				shader('cell.fShader', gl.FRAGMENT_SHADER, `#version 300 es
-				precision highp float;
-				in vec2 v_pos;
+			`, `
+				${parts.boilerplate}
+				in vec2 v_vertex;
 				in vec2 v_uv;
-
-				uniform float u_camera_scale;
-
-				uniform float u_alpha;
-				uniform vec4 u_color;
-				uniform vec4 u_outline_color;
-				uniform vec4 u_outline_inactive_color;
-				uniform vec4 u_outline_selected_color;
-				uniform float u_outline_selected_thickness;
-				uniform vec4 u_outline_unsplittable_color;
-				uniform float u_radius;
-				uniform float u_radius_skin;
-				uniform int u_selected;
-				uniform bool u_subtle_outline;
-				uniform sampler2D u_texture;
-				uniform bool u_texture_enabled;
-
+				${parts.cameraUbo}
+				${parts.cellUbo}
+				${parts.cellSettingsUbo}
+				uniform sampler2D u_skin;
 				out vec4 out_color;
 
 				void main() {
-					float blur = 0.5 * u_radius * (540.0 * u_camera_scale);
-					float d = length(v_pos.xy);
+					float blur = 0.5 * u_cell_radius * (540.0 * u_camera_scale);
+					float d = length(v_vertex.xy);
 
-					out_color = u_color;
+					out_color = u_cell_color;
 
-					if (u_texture_enabled) {
+					if ((u_cell_flags & 0x01) != 0) { // skin
 						// square clipping, outskirts should use the cell color
 						if (0.0 <= min(v_uv.x, v_uv.y) && max(v_uv.x, v_uv.y) <= 1.0) {
-							vec4 tc = texture(u_texture, v_uv);
-							out_color = out_color * (1.0 - tc.a) + tc;
+							vec4 tex = texture(u_skin, v_uv);
+							out_color = out_color * (1.0 - tex.a) + tex;
 						}
 					}
 
-					float subtle_thickness = max(u_radius * 0.02, 10.0);
-					if (u_subtle_outline) {
-						float inner_radius = (u_radius - subtle_thickness) / u_radius;
-						float a = clamp(blur * (d - inner_radius), 0.0, 1.0) * u_outline_color.a;
-						out_color.rgb = out_color.rgb * (1.0 - a) + u_outline_color.rgb * a;
+					if ((u_cell_flags & 0x02) != 0) { // subtle outline
+						float subtle_thickness = max(u_cell_radius * 0.02, 10.0);
+						float inner_radius = (u_cell_radius - subtle_thickness) / u_cell_radius;
+						vec3 outline = u_cell_color.rgb * 0.9;
+						outline += (u_cell_subtle_outline_override.rgb - outline) * u_cell_subtle_outline_override.a;
+						float a = clamp(blur * (d - inner_radius), 0.0, 1.0);
+						out_color.rgb += (outline - out_color.rgb) * a;
 					}
 
-					if (u_selected > 0) {
+					if ((u_cell_flags & 0x0c) != 0) { // active multibox outline
 						// thick multibox outline, a % of the visible cell radius
-						float inv_thickness = 1.0 - u_outline_selected_thickness;
-						vec4 outline = (u_selected == 1) ? u_outline_selected_color : u_outline_inactive_color;
+						float inv_thickness = 1.0 - u_cell_active_outline_thickness;
+						vec4 outline = ((u_cell_flags & 0x04) != 0) ? u_cell_active_outline : u_cell_inactive_outline;
 						float a = clamp(blur * (d - inv_thickness), 0.0, 1.0) * outline.a;
 						out_color.rgb = out_color.rgb * (1.0 - a) + outline.rgb * a;
 					}
 
 					// unsplittable cell outline, 2x the subtle thickness
 					// (except at small sizes, it shouldn't look overly thick)
-					float unsplittable_thickness = max(u_radius * 0.04, 10.0);
-					float inner_radius = (u_radius - unsplittable_thickness) / u_radius;
-					float oa = clamp(blur * (d - inner_radius), 0.0, 1.0) * u_outline_unsplittable_color.a;
-					out_color.rgb = out_color.rgb * (1.0 - oa) + u_outline_unsplittable_color.rgb * oa;
+					if ((u_cell_flags & 0x10) != 0) { // unsplittable outline
+						float unsplittable_thickness = max(u_cell_radius * 0.04, 10.0);
+						float inner_radius = (u_cell_radius - unsplittable_thickness) / u_cell_radius;
+						float oa = clamp(blur * (d - inner_radius), 0.0, 1.0) * u_cell_unsplittable_outline.a;
+						out_color.rgb = out_color.rgb * (1.0 - oa) + u_cell_unsplittable_outline.rgb * oa;
+					}
 
 					// final circle mask
 					float a = clamp(-blur * (d - 1.0), 0.0, 1.0);
-					out_color.a *= a * u_alpha;
+					out_color.a *= a * u_cell_alpha;
 				}
-				`),
-			);
-			uniforms.cell = getUniforms('cell', programs.cell, [
-				'u_aspect_ratio', 'u_camera_pos', 'u_camera_scale',
-				'u_alpha', 'u_color', 'u_outline_color', 'u_outline_inactive_color', 'u_outline_selected_thickness',
-				'u_outline_selected_color', 'u_outline_unsplittable_color', 'u_pos', 'u_radius', 'u_radius_skin',
-				'u_selected', 'u_subtle_outline', 'u_texture_enabled',
-			]);
+			`, ['Camera', 'Cell', 'CellSettings'], ['u_skin']);
 
 
 
-			programs.cellGlow = program(
-				'cellGlow',
-				shader('cellGlow.vShader', gl.VERTEX_SHADER, `#version 300 es
-				layout(location = 0) in vec2 a_pos;
-
-				uniform float u_aspect_ratio;
-				uniform vec2 u_camera_pos;
-				uniform float u_camera_scale;
-
-				uniform vec2 u_pos;
-				uniform float u_radius;
-
-				out vec2 v_pos;
+			programs.cellGlow = program('cellGlow', `
+				${parts.boilerplate}
+				layout(location = 0) in vec2 a_vertex;
+				${parts.cameraUbo}
+				${parts.cellUbo}
+				out vec2 v_vertex;
 
 				void main() {
-					v_pos = a_pos;
+					v_vertex = a_vertex;
 
 					// should probably make the 4.0 a setting
-					vec2 clip_pos = -u_camera_pos + u_pos + a_pos * (u_radius * 4.0 + 50.0);
-					clip_pos *= u_camera_scale * vec2(1.0 / u_aspect_ratio, -1.0);
+					vec2 clip_pos = -u_camera_pos + u_cell_pos + a_vertex * (u_cell_radius * 4.0 + 50.0);
+					clip_pos *= u_camera_scale * vec2(1.0 / u_camera_ratio, -1.0);
 					gl_Position = vec4(clip_pos, 0, 1);
 				}
-				`),
-				shader('cellGlow.fShader', gl.FRAGMENT_SHADER, `#version 300 es
-				precision highp float;
-				in vec2 v_pos;
-
-				uniform float u_camera_scale;
-
-				uniform float u_alpha;
-				uniform vec4 u_color;
-				uniform float u_radius;
-
+			`,`
+				${parts.boilerplate}
+				in vec2 v_vertex;
+				${parts.cameraUbo}
+				${parts.cellUbo}
 				out vec4 out_color;
 
 				void main() {
-					float d2 = v_pos.x * v_pos.x + v_pos.y * v_pos.y;
+					float d2 = v_vertex.x * v_vertex.x + v_vertex.y * v_vertex.y;
 					// 20 radius (4 mass) => 0.1
 					// 200 radius (400 mass) => 0.15
 					// 2000 radius (40,000 mass) => 0.2
-					float strength = log(5.0 * u_radius) / log(10.0) * 0.05;
-					out_color = vec4(u_color.rgb, u_color.a * u_alpha * (1.0 - pow(d2, 0.25)) * strength);
+					float strength = log(5.0 * u_cell_radius) / log(10.0) * 0.05;
+					out_color = vec4(u_cell_color.rgb, u_cell_color.a * u_cell_alpha * (1.0 - pow(d2, 0.25)) * strength);
 				}
-				`),
-			);
-			uniforms.cellGlow = getUniforms('cellGlow', programs.cellGlow, [
-				'u_aspect_ratio', 'u_camera_pos', 'u_camera_scale',
-				'u_alpha', 'u_color', 'u_pos', 'u_radius',
-			]);
+			`, ['Camera', 'Cell'], []);
 
 
 
-			programs.text = program(
-				'text',
-				shader('text.vShader', gl.VERTEX_SHADER, `#version 300 es
-				layout(location = 0) in vec2 a_pos;
-
-				uniform float u_aspect_ratio;
-				uniform vec2 u_camera_pos;
-				uniform float u_camera_scale;
-
-				uniform vec2 u_pos;
-				uniform float u_radius;
-				uniform float u_text_aspect_ratio;
-				uniform vec2 u_text_offset;
-				uniform float u_text_scale;
-
-				out vec2 v_pos;
+			programs.text = program('text', `
+				${parts.boilerplate}
+				layout(location = 0) in vec2 a_vertex;
+				${parts.cameraUbo}
+				${parts.cellUbo}
+				${parts.textUbo}
+				out vec2 v_vertex;
 
 				void main() {
-					v_pos = a_pos;
-					vec2 clip_space = v_pos * u_text_scale + u_text_offset;
-					clip_space *= u_radius * 0.45 * vec2(u_text_aspect_ratio, 1.0);
-					clip_space += -u_camera_pos + u_pos;
-					clip_space *= u_camera_scale * vec2(1.0 / u_aspect_ratio, -1.0);
+					v_vertex = a_vertex;
+					vec2 clip_space = v_vertex * u_text_scale + u_text_offset;
+					clip_space *= u_cell_radius_skin * 0.45 * vec2(u_text_aspect_ratio, 1.0);
+					clip_space += -u_camera_pos + u_cell_pos;
+					clip_space *= u_camera_scale * vec2(1.0 / u_camera_ratio, -1.0);
 					gl_Position = vec4(clip_space, 0, 1);
 				}
-				`),
-				shader('text.fShader', gl.FRAGMENT_SHADER, `#version 300 es
-				precision highp float;
-				in vec2 v_pos;
-
-				uniform float u_alpha;
-				uniform vec4 u_color1;
-				uniform vec4 u_color2;
-				uniform bool u_silhouette_enabled;
-
+			`, `
+				${parts.boilerplate}
+				in vec2 v_vertex;
+				${parts.cameraUbo}
+				${parts.cellUbo}
+				${parts.textUbo}
 				uniform sampler2D u_texture;
 				uniform sampler2D u_silhouette;
-
 				out vec4 out_color;
 
 				void main() {
-					vec2 t_coord = v_pos * 0.5 + 0.5;
+					vec2 uv = v_vertex * 0.5 + 0.5;
 
-					float c2_alpha = (t_coord.x + t_coord.y) / 2.0;
-					vec4 color = u_color1 * (1.0 - c2_alpha) + u_color2 * c2_alpha;
-					vec4 normal = texture(u_texture, t_coord);
+					float c2_alpha = (uv.x + uv.y) / 2.0;
+					vec4 color = u_text_color1 * (1.0 - c2_alpha) + u_text_color2 * c2_alpha;
+					vec4 normal = texture(u_texture, uv);
 
-					if (u_silhouette_enabled) {
-						vec4 silhouette = texture(u_silhouette, t_coord);
+					if (u_text_silhouette_enabled != 0) {
+						vec4 silhouette = texture(u_silhouette, uv);
 
 						// #fff - #000 => color (text)
 						// #fff - #fff => #fff (respect emoji)
@@ -3083,58 +3057,39 @@
 						out_color = normal * color;
 					}
 
-					out_color.a *= u_alpha;
+					out_color.a *= u_text_alpha;
 				}
-				`),
-			);
-			uniforms.text = getUniforms('text', programs.text, [
-				'u_aspect_ratio', 'u_camera_pos', 'u_camera_scale',
-				'u_alpha', 'u_color1', 'u_color2', 'u_pos', 'u_radius', 'u_silhouette', 'u_silhouette_enabled',
-				'u_text_aspect_ratio', 'u_text_offset', 'u_text_scale', 'u_texture',
-			]);
+			`, ['Camera', 'Cell', 'Text'], ['u_texture', 'u_silhouette']);
 
-			programs.tracer = program(
-				'tracer',
-				shader('tracer.vShader', gl.VERTEX_SHADER, `#version 300 es
-				layout(location = 0) in vec2 a_pos;
-
-				uniform float u_aspect_ratio;
-				uniform vec2 u_camera_pos;
-				uniform float u_camera_scale;
-				uniform vec2 u_pos1;
-				uniform vec2 u_pos2;
-
-				out vec2 v_pos;
+			programs.tracer = program('tracer', `
+				${parts.boilerplate}
+				layout(location = 0) in vec2 a_vertex;
+				${parts.cameraUbo}
+				${parts.tracerUbo}
+				out vec2 v_vertex;
 
 				void main() {
-					v_pos = a_pos;
-					float alpha = (a_pos.x + 1.0) / 2.0;
-					float d = length(u_pos2 - u_pos1);
+					v_vertex = a_vertex;
+					float alpha = (a_vertex.x + 1.0) / 2.0;
+					float d = length(u_tracer_pos2 - u_tracer_pos1);
 					float thickness = 0.002 / u_camera_scale;
 					// black magic
-					vec2 world_pos = u_pos1 + (u_pos2 - u_pos1)
-						* mat2(alpha, a_pos.y / d * thickness, a_pos.y / d * -thickness, alpha);
+					vec2 world_pos = u_tracer_pos1 + (u_tracer_pos2 - u_tracer_pos1)
+						* mat2(alpha, a_vertex.y / d * thickness, a_vertex.y / d * -thickness, alpha);
 
 					vec2 clip_pos = -u_camera_pos + world_pos;
-					clip_pos *= u_camera_scale * vec2(1.0 / u_aspect_ratio, -1.0);
+					clip_pos *= u_camera_scale * vec2(1.0 / u_camera_ratio, -1.0);
 					gl_Position = vec4(clip_pos, 0, 1);
 				}
-				`),
-				shader('tracer.fShader', gl.FRAGMENT_SHADER, `#version 300 es
-				precision highp float;
+			`, `
+				${parts.boilerplate}
 				in vec2 v_pos;
-
 				out vec4 out_color;
 
 				void main() {
 					out_color = vec4(0.5, 0.5, 0.5, 0.25);
 				}
-				`),
-			);
-			uniforms.tracer = getUniforms('tracer', programs.tracer, [
-				'u_aspect_ratio', 'u_camera_pos', 'u_camera_scale',
-				'u_pos1', 'u_pos2',
-			]);
+			`, ['Camera', 'Tracer'], []);
 
 			// create and bind objects
 			const square = gl.createBuffer();
@@ -3146,8 +3101,7 @@
 				1, 1,
 			]), gl.STATIC_DRAW);
 
-			const vao = gl.createVertexArray();
-			gl.bindVertexArray(vao);
+			gl.bindVertexArray(gl.createVertexArray());
 			gl.enableVertexAttribArray(0);
 			gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
 		}
@@ -3171,6 +3125,9 @@
 		// eslint-disable-next-line max-len
 		const gridSrc = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAAAAXNSR0IArs4c6QAAAKVJREFUaEPtkkEKwlAUxBzw/jeWL4J4gECkSrqftC/pzjnn9gfP3ofcf/mWbY8OuVLBilypxutbKlIRyUC/liQWYyuC1UnDikhiMbYiWJ00rIgkFmMrgtVJw4pIYjG2IlidNKyIJBZjK4LVScOKSGIxtiJYnTSsiCQWYyuC1UnDikhiMbYiWJ00rIgkFmMrgtVJw4pIYjG2IlidNPwU2TbpHV/DPgFxJfgvliP9RQAAAABJRU5ErkJggg==';
 
+		let lastMinimapDraw = performance.now();
+		/** @type {{ bg: ImageData, darkTheme: boolean } | undefined} */
+		let minimapCache;
 
 
 		// #2 : define helper functions
@@ -3377,11 +3334,22 @@
 		render.resetTextCache = resetTextCache;
 
 
-		// #3: define minimap stuff
-		let lastMinimapDraw = performance.now();
-		/** @type {{ bg: ImageData, darkTheme: boolean } | undefined} */
-		let minimapCache;
+		// #3 : define ubo views
+		const borderUboBuffer = new ArrayBuffer(0x24);
+		// must reference an arraybuffer for the memory to be shared between these views
+		const borderUboFloats = new Float32Array(borderUboBuffer);
+		const borderUboInts = new Int32Array(borderUboBuffer);
 
+		const cellUboBuffer = new ArrayBuffer(0x28);
+		const cellUboFloats = new Float32Array(cellUboBuffer);
+		const cellUboInts = new Int32Array(cellUboBuffer);
+
+		const textUboBuffer = new ArrayBuffer(0x38);
+		const textUboFloats = new Float32Array(textUboBuffer);
+		const textUboInts = new Int32Array(textUboBuffer);
+
+		const tracerUboBuffer = new ArrayBuffer(0x10);
+		const tracerUboFloats = new Float32Array(tracerUboBuffer);
 
 
 		// #4 : define the render function
@@ -3407,9 +3375,11 @@
 			const showGrid = aux.setting('input#showGrid', true);
 			const showMass = aux.setting('input#showMass', false);
 			const showMinimap = aux.setting('input#showMinimap', true);
-			const showNames = aux.setting('input#showNames', true);
+			const showNames = aux.sigmodSettings?.showNames ?? true;
 			const showSkins = aux.setting('input#showSkins', true);
 			const jellyPhysics = aux.setting('input#jellyPhysics', false);
+
+			const { cellColor, foodColor, outlineColor, skinReplacement } = aux.sigmodSettings ?? {};
 
 			/** @type {HTMLInputElement | null} */
 			const nickElement = document.querySelector('input#nick');
@@ -3423,41 +3393,25 @@
 			})();
 
 			(function setGlobalUniforms() {
-				const aspectRatio = ui.game.canvas.width / ui.game.canvas.height;
-				const cameraPosX = world.camera.x;
-				const cameraPosY = world.camera.y;
-				const cameraScale = world.camera.scale / 540; // (height of 1920x1080 / 2 = 540)
+				// note that binding the same buffer to gl.UNIFORM_BUFFER twice in a row causes it to not update.
+				// why that happens is completely beyond me but oh well.
+				// for consistency, we always bind gl.UNIFORM_BUFFER to null directly after updating it.
+				gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Camera);
+				gl.bufferSubData(gl.UNIFORM_BUFFER, 0, new Float32Array([
+					ui.game.canvas.width / ui.game.canvas.height, world.camera.scale / 540,
+					world.camera.x, world.camera.y
+				]));
+				gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 
-				gl.useProgram(programs.bg);
-				gl.uniform1f(uniforms.bg.u_aspect_ratio, aspectRatio);
-				gl.uniform2f(uniforms.bg.u_camera_pos, cameraPosX, cameraPosY);
-				gl.uniform1f(uniforms.bg.u_camera_scale, cameraScale);
-
-				gl.useProgram(programs.cell);
-				gl.uniform1f(uniforms.cell.u_aspect_ratio, aspectRatio);
-				gl.uniform2f(uniforms.cell.u_camera_pos, cameraPosX, cameraPosY);
-				gl.uniform1f(uniforms.cell.u_camera_scale, cameraScale);
-				gl.uniform1f(uniforms.cell.u_outline_selected_thickness,
-					world.camera.merged ? settings.outlineMulti : -Infinity);
-				gl.uniform4f(uniforms.cell.u_outline_selected_color, ...settings.outlineMultiColor);
-				gl.uniform4f(uniforms.cell.u_outline_inactive_color, ...settings.outlineMultiInactiveColor);
-
-				gl.useProgram(programs.cellGlow);
-				gl.uniform1f(uniforms.cellGlow.u_aspect_ratio, aspectRatio);
-				gl.uniform2f(uniforms.cellGlow.u_camera_pos, cameraPosX, cameraPosY);
-				gl.uniform1f(uniforms.cellGlow.u_camera_scale, cameraScale);
-
-				gl.useProgram(programs.text);
-				gl.uniform1f(uniforms.text.u_aspect_ratio, aspectRatio);
-				gl.uniform2f(uniforms.text.u_camera_pos, cameraPosX, cameraPosY);
-				gl.uniform1f(uniforms.text.u_camera_scale, cameraScale);
-				gl.uniform1i(uniforms.text.u_texture, 0);
-				gl.uniform1i(uniforms.text.u_silhouette, 1);
-
-				gl.useProgram(programs.tracer);
-				gl.uniform1f(uniforms.tracer.u_aspect_ratio, aspectRatio);
-				gl.uniform2f(uniforms.tracer.u_camera_pos, cameraPosX, cameraPosY);
-				gl.uniform1f(uniforms.tracer.u_camera_scale, cameraScale);
+				gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.CellSettings);
+				gl.bufferSubData(gl.UNIFORM_BUFFER, 0, new Float32Array([
+					...settings.outlineMultiColor, // cell_active_outline
+					...settings.outlineMultiInactiveColor, // cell_inactive_outline
+					...(darkTheme ? [1, 1, 1, 1] : [0, 0, 0, 1]), // cell_unsplittable_outline
+					...(outlineColor ?? [0, 0, 0, 0]), // cell_subtle_outline_override
+					settings.outlineMulti,
+				]));
+				gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 			})();
 
 			(function background() {
@@ -3470,24 +3424,37 @@
 				}
 				gl.clear(gl.COLOR_BUFFER_BIT);
 
+				gl.useProgram(glconf.programs.bg);
+
 				const gridTexture = textureFromCache(gridSrc);
 				if (!gridTexture) return;
 				gl.bindTexture(gl.TEXTURE_2D, gridTexture);
 
-				gl.useProgram(programs.bg);
-
+				let borderColor;
+				let borderLrtb;
 				if (showBorder && world.border) {
-					gl.uniform4f(uniforms.bg.u_border_color, 0, 0, 1, 1); // #00f
-					gl.uniform1fv(uniforms.bg.u_border_lrtb,
-						new Float32Array([world.border.l, world.border.r, world.border.t, world.border.b]));
+					borderColor = [0, 0, 1, 1]; // #00ff
+					borderLrtb = world.border;
 				} else {
-					gl.uniform4f(uniforms.bg.u_border_color, 0, 0, 0, 0); // transparent
-					gl.uniform1fv(uniforms.bg.u_border_lrtb, new Float32Array([0, 0, 0, 0]));
+					borderColor = [0, 0, 0, 0]; // transparent
+					borderLrtb = { l: 0, r: 0, t: 0, b: 0 };
 				}
 
-				gl.uniform1i(uniforms.bg.u_dark_theme_enabled, Number(darkTheme));
-				gl.uniform1i(uniforms.bg.u_grid_enabled, Number(showGrid));
+				// u_border_color
+				borderUboFloats[0] = borderColor[0]; borderUboFloats[1] = borderColor[1];
+				borderUboFloats[2] = borderColor[2]; borderUboFloats[3] = borderColor[3];
+				// u_border_xyzw_lrtb
+				borderUboFloats[4] = borderLrtb.l;
+				borderUboFloats[5] = borderLrtb.r;
+				borderUboFloats[6] = borderLrtb.t;
+				borderUboFloats[7] = borderLrtb.b;
 
+				// flags
+				borderUboInts[8] = (showGrid ? 0x01 : 0) | (darkTheme ? 0x02 : 0);
+
+				gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Border);
+				gl.bufferSubData(gl.UNIFORM_BUFFER, 0, borderUboFloats);
+				gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 				gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 			})();
 
@@ -3509,8 +3476,6 @@
 					return nextCellIdx++ < 16;
 				});
 
-				const { cellColor, foodColor, outlineColor, skinReplacement } = aux.sigmodSettings ?? {};
-
 				/**
 				 * @param {Cell} cell
 				 * @returns {number}
@@ -3530,90 +3495,66 @@
 				 */
 				function draw(cell) {
 					// #1 : draw cell
-					gl.useProgram(programs.cell);
+					gl.useProgram(glconf.programs.cell);
 
 					const alpha = calcAlpha(cell);
-					gl.uniform1f(uniforms.cell.u_alpha, alpha * settings.cellOpacity);
+					cellUboFloats[8] = alpha * settings.cellOpacity;
 
 					const { x, y, r, jr } = world.xyr(cell, map, now);
 					// without jelly physics, the radius of cells is adjusted such that its subtle outline doesn't go
 					// past its original radius.
 					// jelly physics does not do this, so colliding cells need to look kinda 'joined' together,
 					// so we multiply the radius by 1.01 (approximately the size increase from the stroke thickness)
-					gl.uniform2f(uniforms.cell.u_pos, x, y);
-					if (jellyPhysics) {
-						gl.uniform1f(uniforms.cell.u_radius, jr * 1.01);
-						gl.uniform1f(uniforms.cell.u_radius_skin, (settings.jellySkinLag ? r : jr) * 1.01);
+					cellUboFloats[2] = x;
+					cellUboFloats[3] = y;
+					if (jellyPhysics && !cell.jagged) {
+						cellUboFloats[0] = jr * 1.01;
+						cellUboFloats[1] = (settings.jellySkinLag ? r : jr) * 1.01;
 					} else {
-						gl.uniform1f(uniforms.cell.u_radius, r);
-						gl.uniform1f(uniforms.cell.u_radius_skin, r);
+						cellUboFloats[0] = cellUboFloats[1] = r;
 					}
-
-					gl.uniform1i(uniforms.cell.u_selected, 0);
-					gl.uniform4f(uniforms.cell.u_outline_unsplittable_color, 0, 0, 0, 0);
 
 					if (cell.jagged) {
 						const virusTexture = textureFromCache(virusSrc);
 						if (!virusTexture)
 							return;
 
-						gl.uniform4f(uniforms.cell.u_color, 0, 0, 0, 0);
-						gl.uniform4f(uniforms.cell.u_outline_color, 0, 0, 0, 0);
-						gl.uniform1i(uniforms.cell.u_texture_enabled, 1);
-						gl.bindTexture(gl.TEXTURE_2D, virusTexture);
+						// draw a fully transparent cell
+						cellUboFloats[4] = cellUboFloats[5] = cellUboFloats[6] = cellUboFloats[7] = 0;
+						cellUboInts[9] = 0x01; // skin and nothing else
 
+						gl.bindTexture(gl.TEXTURE_2D, virusTexture);
+						gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Cell);
+						gl.bufferSubData(gl.UNIFORM_BUFFER, 0, cellUboBuffer);
+						gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 						return;
 					}
 
-					if (cell.nr <= 20) {
-						gl.uniform1i(uniforms.cell.u_subtle_outline, 0);
-						if (foodColor) {
-							gl.uniform4f(uniforms.cell.u_color, ...foodColor);
-						} else {
-							gl.uniform4f(uniforms.cell.u_color, cell.Rgb, cell.rGb, cell.rgB, 1);
-						}
-					} else {
-						gl.uniform1i(uniforms.cell.u_subtle_outline, settings.cellOutlines ? 1 : 0);
-						if (cellColor)
-							gl.uniform4f(uniforms.cell.u_color, ...cellColor);
-						else
-							gl.uniform4f(uniforms.cell.u_color, cell.Rgb, cell.rGb, cell.rgB, 1);
-					}
+					cellUboInts[9] = 0; // TODO: make it less lazy
+					const color = (cell.nr <= 20 ? foodColor : cellColor) ?? [cell.Rgb, cell.rGb, cell.rgB, 1];
+					cellUboFloats[4] = color[0]; cellUboFloats[5] = color[1];
+					cellUboFloats[6] = color[2]; cellUboFloats[7] = color[3];
 
-					gl.uniform1i(uniforms.cell.u_texture_enabled, 0);
+					cellUboInts[9] |= settings.cellOutlines ? 0x02 : 0;
+
 					if (cell.nr > 20) {
-						if (outlineColor)
-							gl.uniform4f(uniforms.cell.u_outline_color, ...outlineColor);
-						else
-							gl.uniform4f(uniforms.cell.u_outline_color,
-								cell.Rgb * 0.9, cell.rGb * 0.9, cell.rgB * 0.9, 1);
-
 						const myIndex = world.mine.indexOf(cell.id);
 						if (myIndex !== -1) {
-							gl.uniform1i(uniforms.cell.u_selected, 1);
-
-							if (!canSplit[myIndex] && settings.unsplittableOpacity > 0) {
-								if (darkTheme)
-									gl.uniform4f(uniforms.cell.u_outline_unsplittable_color,
-										1, 1, 1, settings.unsplittableOpacity);
-								else
-									gl.uniform4f(uniforms.cell.u_outline_unsplittable_color,
-										0, 0, 0, settings.unsplittableOpacity);
-							}
+							if (world.camera.merged) cellUboInts[9] |= 0x04; // active multi outline
+							if (!canSplit[myIndex] && settings.unsplittableOpacity > 0) cellUboInts[9] |= 0x10;
 						}
 
 						let skin = '';
 						for (const [_, data] of sync.others) {
 							if (data.owned.has(cell.id)) {
-								gl.uniform1i(uniforms.cell.u_selected, 2);
-								if (settings.syncSkin)
-									skin = data.skin;
+								if (world.camera.merged) cellUboInts[9] |= 0x08; // inactive multi outline
+								if (settings.syncSkin) skin = data.skin;
 								break;
 							}
 						}
 
-						if (settings.selfSkin && (world.mine.includes(cell.id) || world.mineDead.has(cell.id))) {
+						if (settings.selfSkin && (myIndex !== -1 || world.mineDead.has(cell.id))) {
 							skin = settings.selfSkin;
 						} else {
 							if (!skin && showSkins && cell.skin) {
@@ -3627,12 +3568,15 @@
 						if (skin) {
 							const texture = textureFromCache(skin);
 							if (texture) {
-								gl.uniform1i(uniforms.cell.u_texture_enabled, 1);
+								cellUboInts[9] |= 0x01; // skin
 								gl.bindTexture(gl.TEXTURE_2D, texture);
 							}
 						}
 					}
 
+					gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Cell);
+					gl.bufferSubData(gl.UNIFORM_BUFFER, 0, cellUboBuffer);
+					gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 					gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
 					// #2 : draw text
@@ -3641,35 +3585,38 @@
 					const showThisName = showNames && cell.nr > 75;
 					const showThisMass = showMass && cell.nr > 75;
 					const clan = settings.clans ? (aux.clans.get(cell.clan) ?? cell.clan) : '';
-					if (!showThisName && !showThisMass && clan) return;
+					if (!showThisName && !showThisMass && !clan) return;
 
-					gl.useProgram(programs.text);
-
-					gl.uniform1f(uniforms.text.u_alpha, alpha);
-					if (jellyPhysics)
-						gl.uniform2f(uniforms.text.u_pos, x, y);
-					else
-						gl.uniform2f(uniforms.text.u_pos, x, y);
-					gl.uniform1f(uniforms.text.u_radius, r); // jelly physics never affects the text *size*
+					gl.useProgram(glconf.programs.text);
+					textUboFloats[8] = alpha; // text_alpha
 
 					let useSilhouette = false;
 					if (cell.sub) {
-						gl.uniform4f(uniforms.text.u_color1, 0xeb / 255, 0x95 / 255, 0x00 / 255, 1); // #eb9500
-						gl.uniform4f(uniforms.text.u_color2, 0xe4 / 255, 0xb1 / 255, 0x10 / 255, 1); // #e4b110
+						// text_color1 = #eb9500
+						textUboFloats[0] = 0xeb / 255; textUboFloats[1] = 0x95 / 255;
+						textUboFloats[2] = 0x00 / 255; textUboFloats[3] = 1;
+						// text_color2 = #e4b110
+						textUboFloats[4] = 0xe4 / 255; textUboFloats[5] = 0xb1 / 255;
+						textUboFloats[6] = 0x10 / 255; textUboFloats[7];
 						useSilhouette = true;
 					} else {
-						gl.uniform4f(uniforms.text.u_color1, 1, 1, 1, 1);
-						gl.uniform4f(uniforms.text.u_color2, 1, 1, 1, 1);
+						// text_color1 = text_color2 = #fff
+						textUboFloats[0] = textUboFloats[1] = textUboFloats[2] = textUboFloats[3] = 1;
+						textUboFloats[4] = textUboFloats[5] = textUboFloats[6] = textUboFloats[7] = 1;
 					}
 
 					if (name === nick) {
-						if (aux.sigmodSettings?.nameColor1) {
-							gl.uniform4f(uniforms.text.u_color1, ...aux.sigmodSettings?.nameColor1);
+						const nameColor1 = aux.sigmodSettings?.nameColor1;
+						const nameColor2 = aux.sigmodSettings?.nameColor2;
+						if (nameColor1) {
+							textUboFloats[0] = nameColor1[0]; textUboFloats[1] = nameColor1[1];
+							textUboFloats[2] = nameColor1[2]; textUboFloats[3] = nameColor1[3];
 							useSilhouette = true;
 						}
 
-						if (aux.sigmodSettings?.nameColor2) {
-							gl.uniform4f(uniforms.text.u_color2, ...aux.sigmodSettings?.nameColor2);
+						if (nameColor2) {
+							textUboFloats[4] = nameColor2[0]; textUboFloats[5] = nameColor2[1];
+							textUboFloats[6] = nameColor2[2]; textUboFloats[7] = nameColor2[3];
 							useSilhouette = true;
 						}
 					}
@@ -3677,12 +3624,12 @@
 					if (clan) {
 						const { aspectRatio, text, silhouette } = textFromCache(clan, useSilhouette);
 						if (text) {
-							gl.uniform1f(uniforms.text.u_text_aspect_ratio, aspectRatio);
-							gl.uniform1i(uniforms.text.u_silhouette_enabled, useSilhouette ? 1 : 0);
-							gl.uniform1f(uniforms.text.u_text_scale, showThisName ? 0.5 : 1);
-							gl.uniform2f(uniforms.text.u_text_offset, 0,
-								showThisName ? -settings.nameScaleFactor / 3 - 1 / 6 : 0);
-
+							textUboFloats[9] = aspectRatio; // text_aspect_ratio
+							textUboFloats[10] = showThisName ? 0.5 : 1; // text_scale
+							textUboInts[11] = Number(useSilhouette); // text_silhouette_enabled
+							textUboFloats[12] = 0; // text_offset.x
+							textUboFloats[13] = showThisName ? -settings.nameScaleFactor/3 - 1/6 : 0; // text_offset.y
+							
 							gl.bindTexture(gl.TEXTURE_2D, text);
 							if (silhouette) {
 								gl.activeTexture(gl.TEXTURE1);
@@ -3690,6 +3637,9 @@
 								gl.activeTexture(gl.TEXTURE0);
 							}
 
+							gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Text);
+							gl.bufferSubData(gl.UNIFORM_BUFFER, 0, textUboBuffer);
+							gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 							gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 						}
 					}
@@ -3697,10 +3647,10 @@
 					if (showThisName) {
 						const { aspectRatio, text, silhouette } = textFromCache(name, useSilhouette);
 						if (text) {
-							gl.uniform1f(uniforms.text.u_text_aspect_ratio, aspectRatio);
-							gl.uniform1i(uniforms.text.u_silhouette_enabled, silhouette ? 1 : 0);
-							gl.uniform2f(uniforms.text.u_text_offset, 0, 0);
-							gl.uniform1f(uniforms.text.u_text_scale, settings.nameScaleFactor);
+							textUboFloats[9] = aspectRatio; // text_aspect_ratio
+							textUboFloats[10] = settings.nameScaleFactor; // text_scale
+							textUboInts[11] = Number(silhouette); // text_silhouette_enabled
+							textUboFloats[12] = textUboFloats[13] = 0; // text_offset = (0, 0)
 
 							gl.bindTexture(gl.TEXTURE_2D, text);
 							if (silhouette) {
@@ -3709,20 +3659,23 @@
 								gl.activeTexture(gl.TEXTURE0);
 							}
 
+							gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Text);
+							gl.bufferSubData(gl.UNIFORM_BUFFER, 0, textUboBuffer);
+							gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 							gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 						}
 					}
 
 					if (showThisMass) {
-						gl.uniform1f(uniforms.text.u_alpha, alpha * settings.massOpacity);
-						gl.uniform1i(uniforms.text.u_silhouette_enabled, 0);
-						gl.uniform1f(uniforms.text.u_text_scale, 0.5 * settings.massScaleFactor);
+						textUboFloats[8] = alpha * settings.massOpacity; // text_alpha
+						textUboFloats[10] = 0.5 * settings.massScaleFactor; // text_scale
+						textUboInts[11] = 0; // text_silhouette_enabled
 
 						let yOffset;
 						if (showThisName)
-							yOffset = settings.nameScaleFactor / 3 + 0.5 * settings.massScaleFactor / 3;
+							yOffset = (settings.nameScaleFactor + 0.5 * settings.massScaleFactor) / 3;
 						else if (clan)
-							yOffset = 1 / 3 + 0.5 * settings.massScaleFactor / 3;
+							yOffset = (1 + 0.5 * settings.massScaleFactor) / 3;
 						else
 							yOffset = 0;
 						// draw each digit separately, as Ubuntu makes them all the same width.
@@ -3730,11 +3683,15 @@
 						const mass = Math.floor(cell.nr * cell.nr / 100).toString();
 						for (let i = 0; i < mass.length; ++i) {
 							const { aspectRatio, texture } = massTextFromCache(mass[i]);
-							gl.uniform1f(uniforms.text.u_text_aspect_ratio, aspectRatio);
-							gl.uniform2f(uniforms.text.u_text_offset,
-								(i - (mass.length - 1) / 2) * 0.75 * settings.massScaleFactor, yOffset);
-
+							textUboFloats[9] = aspectRatio; // text_aspect_ratio
+							// text_offset.x; multiply by 0.75 to reduce kerning (padding) between digits
+							textUboFloats[12] = (i - (mass.length - 1) / 2) * 0.75 * settings.massScaleFactor;
+							textUboFloats[13] = yOffset;
 							gl.bindTexture(gl.TEXTURE_2D, texture);
+
+							gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Text);
+							gl.bufferSubData(gl.UNIFORM_BUFFER, 0, textUboBuffer);
+							gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 							gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 						}
 					}
@@ -3755,55 +3712,26 @@
 				for (const [cell] of sorted)
 					draw(cell);
 
-				// redraw if using rtx
-				if (settings.rtx) {
-					gl.blendFunc(gl.SRC_ALPHA, gl.ONE); // additive blending
-					gl.useProgram(programs.cellGlow);
-
-					/** @param {Cell} cell */
-					const drawRtx = cell => {
-						if (cell.jagged) return;
-
-						gl.uniform1f(uniforms.cellGlow.u_alpha, calcAlpha(cell) * settings.cellOpacity);
-
-						if (cell.nr <= 20 && foodColor)
-							gl.uniform4f(uniforms.cellGlow.u_color, ...foodColor);
-						else if (cellColor)
-							gl.uniform4f(uniforms.cellGlow.u_color, ...cellColor);
-						else
-							gl.uniform4f(uniforms.cellGlow.u_color, cell.Rgb, cell.rGb, cell.rgB, 1);
-
-						const { x, y, r, jr } = world.xyr(cell, map, now);
-						gl.uniform2f(uniforms.cellGlow.u_pos, x, y);
-						gl.uniform1f(uniforms.cellGlow.u_radius, jellyPhysics ? jr : r);
-
-						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-					};
-
-					if (!aux.sigmodSettings?.hidePellets)
-						for (const cell of map.pellets.values())
-							drawRtx(cell);
-
-					for (const [cell] of sorted)
-						drawRtx(cell);
-
-					gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-				}
+				// TODO redraw if using rtx
 
 				// draw tracers
 				if (settings.tracer) {
-					gl.useProgram(programs.tracer);
+					gl.useProgram(glconf.programs.tracer);
 
 					const [x, y] = input.mouse();
-					gl.uniform2f(uniforms.tracer.u_pos2, x, y);
+					tracerUboFloats[2] = x; // tracer_pos2.x
+					tracerUboFloats[3] = y; // tracer_pos2.y
 
 					world.mine.forEach(id => {
 						const cell = map.cells.get(id);
 						if (!cell) return;
 
 						let { x, y } = world.xyr(cell, map, now);
-						gl.uniform2f(uniforms.tracer.u_pos1, x, y);
-
+						tracerUboFloats[0] = x; // tracer_pos1.x
+						tracerUboFloats[1] = y; // tracer_pos1.y
+						gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Tracer);
+						gl.bufferSubData(gl.UNIFORM_BUFFER, 0, tracerUboBuffer);
+						gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 					});
 				}
@@ -3983,6 +3911,6 @@
 
 	// @ts-expect-error for debugging purposes. dm me on discord @8y8x to work out stability if you need something
 	window.sigfix = {
-		destructor, aux, ui, settings, sync, world, net, gl: { init: initWebGL, programs, uniforms }, render,
+		destructor, aux, ui, settings, sync, world, net, glconf, render,
 	};
 })();
