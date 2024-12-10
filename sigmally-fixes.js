@@ -491,7 +491,7 @@
 			}
 
 			const gl = aux.require(
-				newCanvas.getContext('webgl2'),
+				newCanvas.getContext('webgl2', { alpha: false, depth: false }),
 				'Couldn\'t get WebGL2 context. Possible causes:\r\n' +
 				'- Maybe GPU/Hardware acceleration needs to be enabled in your browser settings; \r\n' +
 				'- Maybe your browser is just acting weird and it might fix itself after a restart; \r\n' +
@@ -2048,6 +2048,7 @@
 					world.clean();
 					sync.broadcast(now);
 					ui.stats.update();
+					render.uploadPellets();
 
 					break;
 				}
@@ -2727,8 +2728,11 @@
 	const glconf = (() => {
 		// note: WebGL functions only really return null if the context is lost - in which case, data will be replaced
 		// anyway after it's restored. so, we cast everything to a non-null type.
-		const programs = {};
-		const uniforms = {};
+		const glconf = {};
+		const programs = glconf.programs = {};
+		const uniforms = glconf.uniforms = {};
+		/** @type {WebGLBuffer} */
+		glconf.pelletBuffer = /** @type {never} */ (undefined);
 
 		const gl = ui.game.gl;
 		/** @type {Map<string, number>} */
@@ -2846,7 +2850,7 @@
 
 
 
-		function init() {
+		glconf.init = () => {
 			gl.enable(gl.BLEND);
 			gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); // TODO: move this elsewhere
 
@@ -2855,16 +2859,22 @@
 				${parts.boilerplate}
 				layout(location = 0) in vec2 a_vertex;
 				${parts.cameraUbo}
+				flat out float f_blur;
+				out vec2 v_uv;
 				out vec2 v_world_pos;
 
 				void main() {
-					gl_Position = vec4(a_vertex, 0, 1);
-
+					f_blur = 1.0 * (540.0 * u_camera_scale);
 					v_world_pos = a_vertex * vec2(u_camera_ratio, 1.0) / u_camera_scale;
 					v_world_pos += u_camera_pos * vec2(1.0, -1.0);
+					v_uv = v_world_pos * 0.02;
+
+					gl_Position = vec4(a_vertex, 0, 1);
 				}
 			`, `
 				${parts.boilerplate}
+				flat in float f_blur;
+				in vec2 v_uv;
 				in vec2 v_world_pos;
 				${parts.borderUbo}
 				${parts.cameraUbo}
@@ -2872,17 +2882,16 @@
 				out vec4 out_color;
 
 				void main() {
-					if ((u_border_flags & 0x01) != 0) {
-						vec2 t_coord = v_world_pos / 50.0;
-						out_color = texture(u_texture, t_coord);
+					if ((u_border_flags & 0x01) != 0) { // grid enabled
+						out_color = texture(u_texture, v_uv);
 						out_color.a *= 0.1;
-						if ((u_border_flags & 0x02) != 0) {
-							out_color *= vec4(0, 0, 0, 1);
+						if ((u_border_flags & 0x02) == 0) { // not dark theme
+							out_color.rgb *= vec3(0, 0, 0);
 						}
 					}
 
 					// force border to always be visible, otherwise it flickers
-					float thickness = max(3.0 / (u_camera_scale * 540.0), 25.0);
+					float thickness = max(f_blur * 5.0, 25.0);
 
 					// make a larger inner rectangle and a normal inverted outer rectangle
 					float inner_alpha = min(
@@ -2895,7 +2904,7 @@
 						max(u_border_xyzw_lrtb.x - v_world_pos.x, v_world_pos.x - u_border_xyzw_lrtb.y),
 						max(u_border_xyzw_lrtb.z - v_world_pos.y, v_world_pos.y - u_border_xyzw_lrtb.w)
 					);
-					float alpha = clamp(min(inner_alpha, outer_alpha), 0.0, 1.0);
+					float alpha = clamp(f_blur * min(inner_alpha, outer_alpha), 0.0, 1.0);
 
 					out_color = out_color * (1.0 - alpha) + u_border_color * alpha;
 				}
@@ -2903,16 +2912,55 @@
 
 
 
-			// TODO: can you use `inout` for a_vertex?
 			programs.cell = program('cell', `
 				${parts.boilerplate}
 				layout(location = 0) in vec2 a_vertex;
 				${parts.cameraUbo}
 				${parts.cellUbo}
+				${parts.cellSettingsUbo}
+				flat out vec4 f_active_outline;
+				flat out float f_active_radius;
+				flat out float f_blur;
+				flat out int f_show_skin;
+				flat out vec4 f_subtle_outline;
+				flat out float f_subtle_radius;
+				flat out vec4 f_unsplittable_outline;
+				flat out float f_unsplittable_radius;
 				out vec2 v_vertex;
 				out vec2 v_uv;
 
 				void main() {
+					f_blur = 0.5 * u_cell_radius * (540.0 * u_camera_scale);
+					f_show_skin = u_cell_flags & 0x01;
+
+					// subtle outlines
+					float subtle_thickness = max(u_cell_radius * 0.02, 10.0);
+					f_subtle_radius = 1.0 - (subtle_thickness / u_cell_radius);
+					if ((u_cell_flags & 0x02) != 0) {
+						f_subtle_outline = u_cell_color * 0.9; // darker outline by default
+						f_subtle_outline.rgb += (u_cell_subtle_outline_override.rgb - f_subtle_outline.rgb) * u_cell_subtle_outline_override.a;
+					} else {
+						f_subtle_outline = vec4(0, 0, 0, 0);
+					}
+
+					// active multibox outlines (thick, a % of the visible cell radius)
+					f_active_radius = 1.0 - u_cell_active_outline_thickness;
+					if ((u_cell_flags & 0x0c) != 0) {
+						f_active_outline = (u_cell_flags & 0x04) != 0 ? u_cell_active_outline : u_cell_inactive_outline;
+					} else {
+						f_active_outline = vec4(0, 0, 0, 0);
+					}
+
+					// unsplittable cell outline, 2x the subtle thickness
+					// (except at small sizes, it shouldn't look overly thick)
+					float unsplittable_thickness = max(u_cell_radius * 0.04, 10.0);
+					f_unsplittable_radius = 1.0 - (unsplittable_thickness / u_cell_radius);
+					if ((u_cell_flags & 0x10) != 0) {
+						f_unsplittable_outline = u_cell_unsplittable_outline;
+					} else {
+						f_unsplittable_outline = vec4(0, 0, 0, 0);
+					}
+
 					v_vertex = a_vertex;
 					v_uv = a_vertex * (u_cell_radius / u_cell_radius_skin) * 0.5 + 0.5;
 
@@ -2922,6 +2970,14 @@
 				}
 			`, `
 				${parts.boilerplate}
+				flat in vec4 f_active_outline;
+				flat in float f_active_radius;
+				flat in float f_blur;
+				flat in int f_show_skin;
+				flat in vec4 f_subtle_outline;
+				flat in float f_subtle_radius;
+				flat in vec4 f_unsplittable_outline;
+				flat in float f_unsplittable_radius;
 				in vec2 v_vertex;
 				in vec2 v_uv;
 				${parts.cameraUbo}
@@ -2931,84 +2987,69 @@
 				out vec4 out_color;
 
 				void main() {
-					float blur = 0.5 * u_cell_radius * (540.0 * u_camera_scale);
 					float d = length(v_vertex.xy);
 
-					out_color = u_cell_color;
-
-					if ((u_cell_flags & 0x01) != 0) { // skin
-						// square clipping, outskirts should use the cell color
-						if (0.0 <= min(v_uv.x, v_uv.y) && max(v_uv.x, v_uv.y) <= 1.0) {
-							vec4 tex = texture(u_skin, v_uv);
-							out_color = out_color * (1.0 - tex.a) + tex;
-						}
+					// skin; square clipping, outskirts should use the cell color
+					if (f_show_skin != 0 && 0.0 <= min(v_uv.x, v_uv.y) && max(v_uv.x, v_uv.y) <= 1.0) {
+						vec4 tex = texture(u_skin, v_uv);
+						out_color = out_color * (1.0 - tex.a) + tex;
+					} else {
+						out_color = u_cell_color;
 					}
 
-					if ((u_cell_flags & 0x02) != 0) { // subtle outline
-						float subtle_thickness = max(u_cell_radius * 0.02, 10.0);
-						float inner_radius = (u_cell_radius - subtle_thickness) / u_cell_radius;
-						vec3 outline = u_cell_color.rgb * 0.9;
-						outline += (u_cell_subtle_outline_override.rgb - outline) * u_cell_subtle_outline_override.a;
-						float a = clamp(blur * (d - inner_radius), 0.0, 1.0);
-						out_color.rgb += (outline - out_color.rgb) * a;
-					}
+					// subtle outline
+					float a = clamp(f_blur * (d - f_subtle_radius), 0.0, 1.0) * f_subtle_outline.a;
+					out_color.rgb += (f_subtle_outline.rgb - out_color.rgb) * a;
 
-					if ((u_cell_flags & 0x0c) != 0) { // active multibox outline
-						// thick multibox outline, a % of the visible cell radius
-						float inv_thickness = 1.0 - u_cell_active_outline_thickness;
-						vec4 outline = ((u_cell_flags & 0x04) != 0) ? u_cell_active_outline : u_cell_inactive_outline;
-						float a = clamp(blur * (d - inv_thickness), 0.0, 1.0) * outline.a;
-						out_color.rgb = out_color.rgb * (1.0 - a) + outline.rgb * a;
-					}
+					// active multibox outline
+					a = clamp(f_blur * (d - f_active_radius), 0.0, 1.0) * f_active_outline.a;
+					out_color.rgb += (f_active_outline.rgb - out_color.rgb) * a;
 
-					// unsplittable cell outline, 2x the subtle thickness
-					// (except at small sizes, it shouldn't look overly thick)
-					if ((u_cell_flags & 0x10) != 0) { // unsplittable outline
-						float unsplittable_thickness = max(u_cell_radius * 0.04, 10.0);
-						float inner_radius = (u_cell_radius - unsplittable_thickness) / u_cell_radius;
-						float oa = clamp(blur * (d - inner_radius), 0.0, 1.0) * u_cell_unsplittable_outline.a;
-						out_color.rgb = out_color.rgb * (1.0 - oa) + u_cell_unsplittable_outline.rgb * oa;
-					}
+					// unsplittable cell outline
+					a = clamp(f_blur * (d - f_unsplittable_radius), 0.0, 1.0) * f_unsplittable_outline.a;
+					out_color.rgb += (f_unsplittable_outline.rgb - out_color.rgb) * a;
 
 					// final circle mask
-					float a = clamp(-blur * (d - 1.0), 0.0, 1.0);
+					a = clamp(-f_blur * (d - 1.0), 0.0, 1.0);
 					out_color.a *= a * u_cell_alpha;
 				}
 			`, ['Camera', 'Cell', 'CellSettings'], ['u_skin']);
 
 
 
-			programs.cellGlow = program('cellGlow', `
+			programs.pellet = program('pellet', `
 				${parts.boilerplate}
 				layout(location = 0) in vec2 a_vertex;
+				layout(location = 1) in vec2 a_cell_pos;
+				layout(location = 2) in float a_cell_radius;
+				layout(location = 3) in vec3 a_cell_color;
 				${parts.cameraUbo}
-				${parts.cellUbo}
 				out vec2 v_vertex;
+				flat out float f_blur;
+				flat out vec3 f_cell_color;
 
 				void main() {
+					f_blur = 0.5 * a_cell_radius * (540.0 * u_camera_scale);
+					f_cell_color = a_cell_color;
 					v_vertex = a_vertex;
 
-					// should probably make the 4.0 a setting
-					vec2 clip_pos = -u_camera_pos + u_cell_pos + a_vertex * (u_cell_radius * 4.0 + 50.0);
+					vec2 clip_pos = -u_camera_pos + a_cell_pos + v_vertex * a_cell_radius;
 					clip_pos *= u_camera_scale * vec2(1.0 / u_camera_ratio, -1.0);
 					gl_Position = vec4(clip_pos, 0, 1);
 				}
-			`,`
+			`, `
 				${parts.boilerplate}
 				in vec2 v_vertex;
-				${parts.cameraUbo}
-				${parts.cellUbo}
+				flat in float f_blur;
+				flat in vec3 f_cell_color;
 				out vec4 out_color;
 
 				void main() {
-					float d2 = v_vertex.x * v_vertex.x + v_vertex.y * v_vertex.y;
-					// 20 radius (4 mass) => 0.1
-					// 200 radius (400 mass) => 0.15
-					// 2000 radius (40,000 mass) => 0.2
-					float strength = log(5.0 * u_cell_radius) / log(10.0) * 0.05;
-					out_color = vec4(u_cell_color.rgb, u_cell_color.a * u_cell_alpha * (1.0 - pow(d2, 0.25)) * strength);
+					float d = length(v_vertex.xy);
+					float a = clamp(f_blur * (1.0 - d), 0.0, 1.0);
+					out_color = vec4(f_cell_color, a);
 				}
-			`, ['Camera', 'Cell'], []);
+			`, ['Camera'], []);
 
 
 
@@ -3091,24 +3132,34 @@
 				}
 			`, ['Camera', 'Tracer'], []);
 
-			// create and bind objects
-			const square = gl.createBuffer();
-			gl.bindBuffer(gl.ARRAY_BUFFER, square);
-			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
-				-1, -1,
-				1, -1,
-				-1, 1,
-				1, 1,
-			]), gl.STATIC_DRAW);
-
+			// initialize our VAO
 			gl.bindVertexArray(gl.createVertexArray());
+
+			// square (location = 0), used for all instances
+			gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([ -1, -1,   1, -1,   -1, 1,   1, 1, ]), gl.STATIC_DRAW);
 			gl.enableVertexAttribArray(0);
 			gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+			// pellet buffer (each instance is 6 floats or 24 bytes)
+			gl.bindBuffer(gl.ARRAY_BUFFER, glconf.pelletBuffer = /** @type {WebGLBuffer} */ (gl.createBuffer()));
+			gl.bufferData(gl.ARRAY_BUFFER, 0, gl.STATIC_DRAW); // TODO: necessary?
+			// a_cell_pos, vec2 (location = 1)
+			gl.enableVertexAttribArray(1);
+			gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 4 * 6, 0);
+			gl.vertexAttribDivisor(1, 1);
+			// a_cell_radius, float (location = 2)
+			gl.enableVertexAttribArray(2);
+			gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 4 * 6, 4 * 2);
+			gl.vertexAttribDivisor(2, 1);
+			// a_cell_color, vec3 (location = 3)
+			gl.enableVertexAttribArray(3);
+			gl.vertexAttribPointer(3, 3, gl.FLOAT, false, 4 * 6, 4 * 3);
+			gl.vertexAttribDivisor(3, 1);
 		}
 
-		init();
-
-		return { init, programs, uniforms };
+		glconf.init();
+		return glconf;
 	})();
 
 
@@ -3332,6 +3383,53 @@
 			return { massTextFromCache, resetTextCache, textFromCache };
 		})();
 		render.resetTextCache = resetTextCache;
+
+		let pelletBuffer = new Float32Array(0);
+		let uploadedPellets = 0;
+		render.uploadPellets = () => {
+			if (aux.sigmodSettings?.hidePellets) {
+				uploadedPellets = 0;
+				return;
+			}
+
+			// find expected # of pellets (exclude any that are being *animated*)
+			let expectedPellets = 0;
+			for (const pellet of world.pellets.values()) {
+				if (pellet.deadTo === -1) ++expectedPellets;
+			}
+
+			gl.bindBuffer(gl.ARRAY_BUFFER, glconf.pelletBuffer);
+			// grow the pellet buffer by 2x multiples if necessary
+			let pelletBufferFloats = pelletBuffer.length || 1;
+			while (pelletBufferFloats < expectedPellets * 6) {
+				pelletBufferFloats *= 2;
+			}
+			const resizing = pelletBufferFloats !== pelletBuffer.length;
+			if (resizing) {
+				pelletBuffer = new Float32Array(pelletBufferFloats);
+			}
+
+			let i = 0;
+			for (const pellet of world.pellets.values()) {
+				if (pellet.deadTo !== -1) continue;
+				pelletBuffer[i * 6] = pellet.nx;
+				pelletBuffer[i * 6 + 1] = pellet.ny;
+				pelletBuffer[i * 6 + 2] = pellet.nr;
+				pelletBuffer[i * 6 + 3] = pellet.Rgb;
+				pelletBuffer[i * 6 + 4] = pellet.rGb;
+				pelletBuffer[i * 6 + 5] = pellet.rgB;
+				++i;
+			}
+
+			// now, upload data
+			if (resizing) {
+				gl.bufferData(gl.ARRAY_BUFFER, pelletBuffer, gl.STATIC_DRAW);
+			} else {
+				gl.bufferSubData(gl.ARRAY_BUFFER, 0, pelletBuffer);
+			}
+
+			uploadedPellets = expectedPellets;
+		};
 
 
 		// #3 : define ubo views
@@ -3697,9 +3795,15 @@
 					}
 				}
 
-				if (!aux.sigmodSettings?.hidePellets)
-					for (const cell of map.pellets.values())
-						draw(cell);
+				// draw static pellets first
+				gl.useProgram(glconf.programs.pellet);
+				gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, uploadedPellets);
+
+				// then draw *animated* pellets
+				for (const pellet of map.pellets.values()) {
+					if (pellet.deadTo !== -1)
+						draw(pellet);
+				}
 
 				/** @type {[Cell, number][]} */
 				const sorted = [];
