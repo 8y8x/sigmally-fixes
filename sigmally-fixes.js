@@ -394,7 +394,6 @@
 			},
 		}));
 
-		const leaveWorldRepresentation = new TextEncoder().encode('/leaveworld').toString();
 		/** @type {WeakSet<WebSocket>} */
 		const safeWebSockets = new WeakSet();
 		let realWsSend = WebSocket.prototype.send;
@@ -409,15 +408,20 @@
 				let matched = false;
 				if (x instanceof ArrayBuffer) {
 					matched = x.byteLength === '/leaveworld'.length + 3
-						&& new Uint8Array(x).toString().includes(leaveWorldRepresentation);
+						&& new Uint8Array(x).toString().includes('/leaveworld');
 				} else if (x instanceof Uint8Array) {
-					matched = x.byteLength === '/leaveworld'.length + 3
-						&& x.toString().includes(leaveWorldRepresentation);
+					matched = x.byteLength === '/leaveworld'.length + 3 && x.toString().includes('/leaveworld');
 				}
 
 				if (matched) {
 					// trying to respawn; see if we are nearby an alive multi-tab
-					// TODO: block spawns if nearby any tabs
+					if (world.mine.length > 0) {
+						for (const [_, data] of sync.others) {
+							const d = Math.hypot(data.camera.tx - world.camera.tx, data.camera.ty - world.camera.ty);
+							if (data.owned.size > 0 && d <= 7500)
+								return;
+						}
+					}
 				}
 			}
 
@@ -1399,6 +1403,7 @@
 	////////////////////////////////
 	/** @typedef {{
 	 * 	self: string,
+	 * 	camera: { tx: number, ty: number },
 	 * 	owned: Map<number, { x: number, y: number, r: number, jr: number } | false>,
 	 * 	skin: string,
 	 * 	updated: { now: number, timeOrigin: number },
@@ -1459,6 +1464,7 @@
 			/** @type {TabData} */
 			const syncData = {
 				self,
+				camera: world.camera,
 				owned,
 				skin: settings.selfSkin,
 				updated: { now, timeOrigin: performance.timeOrigin },
@@ -1601,6 +1607,7 @@
 							// update name
 							[name, off] = aux.readZTString(dat, off);
 							name = aux.parseName(name);
+							render.textFromCache(name, sub); // make sure the texture is ready on render
 						}
 
 						const jagged = !!(flags & 0x11);
@@ -2563,9 +2570,13 @@
 			if (now - lastCheck < 10_000) return;
 			lastCheck = now;
 
-			let anyAlive = false;
-			// TODO: check other tabs
-			if (anyAlive) net.qup(); // send literally any packet at all
+			// check if any other tabs are *alive*
+			for (const tab of sync.others.values()) {
+				if (tab.owned.size > 0) {
+					net.qup(); // send literally any packet at all
+					break;
+				}
+			}
 		};
 
 		// sigmod freezes the player by overlaying an invisible div, so we just listen for canvas movements instead
@@ -3078,7 +3089,7 @@
 
 		glconf.init = () => {
 			gl.enable(gl.BLEND);
-			gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); // TODO: move this elsewhere
+			gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
 			// create programs and uniforms
 			programs.bg = program('bg', `
@@ -3444,12 +3455,12 @@
 		})();
 		render.resetTextureCache = resetTextureCache;
 
-		const { massTextFromCache, resetTextCache, textFromCache } = (() => {
+		const { refreshTextCache, massTextFromCache, resetTextCache, textFromCache } = (() => {
 			/**
 			 * @template {boolean} T
 			 * @typedef {{
 			 * 	aspectRatio: number,
-			 * 	text: WebGLTexture | null | undefined,
+			 * 	text: WebGLTexture | null,
 			 *	silhouette: WebGLTexture | null | undefined,
 			 * 	accessed: number
 			 * }} CacheEntry
@@ -3480,7 +3491,7 @@
 				'the page?',
 			);
 
-			const baseTextSize = 96;
+			const baseTextSize = 72;
 
 			/**
 			 * @param {string} text
@@ -3559,6 +3570,15 @@
 
 			let drawnNamesBold = false;
 			let drawnNamesScaleFactor = -1;
+
+			const refreshTextCache = () => {
+				if (drawnNamesScaleFactor !== settings.nameScaleFactor || drawnNamesBold !== settings.nameBold) {
+					cache.clear();
+					drawnNamesScaleFactor = settings.nameScaleFactor;
+					drawnNamesBold = settings.nameBold;
+				}
+			};
+
 			/**
 			 * @template {boolean} T
 			 * @param {string} text
@@ -3566,29 +3586,17 @@
 			 * @returns {CacheEntry<T>}
 			 */
 			const textFromCache = (text, silhouette) => {
-				if (drawnNamesScaleFactor !== settings.nameScaleFactor || drawnNamesBold !== settings.nameBold) {
-					cache.clear();
-					drawnNamesScaleFactor = settings.nameScaleFactor;
-					drawnNamesBold = settings.nameBold;
-				}
-
 				let entry = cache.get(text);
 				if (!entry) {
 					const shortened = aux.trim(text);
 					/** @type {CacheEntry<T>} */
-					const entry2 = entry = {
-						text: undefined,
-						aspectRatio: 1,
-						silhouette: undefined,
+					entry = {
+						text: texture(shortened, false, false),
+						aspectRatio: canvas.width / canvas.height, // mind the execution order
+						silhouette: silhouette ? texture(shortened, true, false) : undefined,
 						accessed: performance.now(),
 					};
 					cache.set(text, entry);
-					setTimeout(() => {
-						entry2.text = texture(shortened, false, false);
-						entry2.aspectRatio = canvas.width / canvas.height; // mind the execution order
-						if (silhouette)
-							entry2.silhouette = texture(shortened, true, false);
-					});
 				} else {
 					entry.accessed = performance.now();
 				}
@@ -3605,9 +3613,10 @@
 			// reload text once Ubuntu has loaded, prevents some serif fonts from being locked in
 			document.fonts.ready.then(() => resetTextCache());
 
-			return { massTextFromCache, resetTextCache, textFromCache };
+			return { refreshTextCache, massTextFromCache, resetTextCache, textFromCache };
 		})();
 		render.resetTextCache = resetTextCache;
+		render.textFromCache = textFromCache;
 
 		let pelletBuffer = new Float32Array(0);
 		let uploadedPellets = 0;
@@ -3711,6 +3720,8 @@
 			/** @type {HTMLInputElement | null} */
 			const nickElement = document.querySelector('input#nick');
 			const nick = nickElement?.value ?? '?';
+
+			refreshTextCache();
 
 			// note: most routines are named, for benchmarking purposes
 			(function updateGame() {
@@ -3858,7 +3869,7 @@
 						return;
 					}
 
-					cellUboInts[9] = 0; // TODO: make it less lazy
+					cellUboInts[9] = 0;
 					const color = (cell.nr <= 20 ? foodColor : cellColor) ?? [cell.Rgb, cell.rGb, cell.rgB, 1];
 					cellUboFloats[4] = color[0]; cellUboFloats[5] = color[1];
 					cellUboFloats[6] = color[2]; cellUboFloats[7] = color[3];
@@ -4045,7 +4056,7 @@
 				for (const [cell] of sorted)
 					draw(cell);
 
-				// TODO redraw if using rtx
+				// TODO: rtx
 
 				// draw tracers
 				if (settings.tracer) {
