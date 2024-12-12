@@ -453,6 +453,11 @@
 			const watermark = document.createElement('span');
 			watermark.innerHTML = `<a href="https://greasyfork.org/scripts/483587/versions" \
 				target="_blank">Sigmally Fixes ${sfVersion}</a> by yx`;
+			if (sfVersion.includes('BETA')) {
+				watermark.innerHTML += ' <br><a \
+					href="https://raw.githubusercontent.com/8y8x/sigmally-fixes/refs/heads/main/sigmally-fixes.user.js"\
+					target="_blank">[Update beta here]</a>';
+			}
 			title.insertAdjacentElement('afterend', watermark);
 
 			// check if this version is problematic, don't do anything if this version is too new to be in versions.json
