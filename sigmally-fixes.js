@@ -1434,8 +1434,8 @@
 		frame.addEventListener('message', () => {
 			// only update the world if we aren't rendering ourselves (example case: games open on two monitors)
 			if (document.visibilityState === 'hidden') {
+				world.moveCamera();
 				input.move();
-				world.update();
 			}
 
 			// might be preferable over document.visibilityState
@@ -1494,8 +1494,15 @@
 
 			sync.maps.set(data.self, { cells: data.cells, pellets: data.pellets });
 		});
+		let lastSyncResponse = 0;
 		worldsyncRequest.addEventListener('message', e => {
 			if (self !== /** @type {string} */ (e.data)) return;
+			// do NOT tolerate spamming worldsyncRequests. let the other tabs suffer for a second, rather than resending
+			// like 50 times on a lag spike
+			const now = performance.now();
+			if (now - lastSyncResponse < 1000) return;
+			lastSyncResponse = now;
+
 			worldsync.postMessage({ cells: world.cells, pellets: world.pellets, self });
 		});
 		worldupdate.addEventListener('message', e => {
@@ -1866,14 +1873,12 @@
 			render.uploadPellets();
 		};
 
-		// clear dead tabs regularly, even when not receiving messages
-		let lastClean = performance.now();
 		sync.clean = () => {
 			const now = performance.now();
-			if (now - lastClean < 250) return;
-
 			sync.others.forEach((data, key) => {
-				if (now - localized(data, data.updated.now) > 250) {
+				// when in laggy circumstances, it might take over 250ms to update, which could cause a snowball effect
+				// if worldsync needs to keep getting fired
+				if (now - localized(data, data.updated.now) > 500) {
 					sync.others.delete(key);
 					sync.maps.delete(key);
 				}
@@ -3708,9 +3713,10 @@
 			const nick = nickElement?.value ?? '?';
 
 			// note: most routines are named, for benchmarking purposes
-			(function updateCells() {
+			(function updateGame() {
 				world.moveCamera();
 				input.move();
+				sync.frame();
 			})();
 
 			(function setGlobalUniforms() {
