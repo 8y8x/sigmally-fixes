@@ -3098,20 +3098,24 @@
 				layout(location = 0) in vec2 a_vertex;
 				${parts.cameraUbo}
 				flat out float f_blur;
+				flat out float f_thickness;
 				out vec2 v_uv;
 				out vec2 v_world_pos;
 
 				void main() {
 					f_blur = 1.0 * (540.0 * u_camera_scale);
+					f_thickness = max(3.0 / f_blur, 25.0); // force border to always be visible, otherwise it flickers
+
 					v_world_pos = a_vertex * vec2(u_camera_ratio, 1.0) / u_camera_scale;
 					v_world_pos += u_camera_pos * vec2(1.0, -1.0);
 					v_uv = v_world_pos * 0.02;
 
-					gl_Position = vec4(a_vertex, 0, 1);
+					gl_Position = vec4(a_vertex, 0, 1); // span the whole screen
 				}
 			`, `
 				${parts.boilerplate}
 				flat in float f_blur;
+				flat in float f_thickness;
 				in vec2 v_uv;
 				in vec2 v_world_pos;
 				${parts.borderUbo}
@@ -3128,15 +3132,12 @@
 						}
 					}
 
-					// force border to always be visible, otherwise it flickers
-					float thickness = max(f_blur * 5.0, 25.0);
-
 					// make a larger inner rectangle and a normal inverted outer rectangle
 					float inner_alpha = min(
-						min((v_world_pos.x + thickness) - u_border_xyzw_lrtb.x,
-							u_border_xyzw_lrtb.y - (v_world_pos.x - thickness)),
-						min((v_world_pos.y + thickness) - u_border_xyzw_lrtb.z,
-							u_border_xyzw_lrtb.w - (v_world_pos.y - thickness))
+						min((v_world_pos.x + f_thickness) - u_border_xyzw_lrtb.x,
+							u_border_xyzw_lrtb.y - (v_world_pos.x - f_thickness)),
+						min((v_world_pos.y + f_thickness) - u_border_xyzw_lrtb.z,
+							u_border_xyzw_lrtb.w - (v_world_pos.y - f_thickness))
 					);
 					float outer_alpha = max(
 						max(u_border_xyzw_lrtb.x - v_world_pos.x, v_world_pos.x - u_border_xyzw_lrtb.y),
@@ -3297,10 +3298,16 @@
 				${parts.cameraUbo}
 				${parts.cellUbo}
 				${parts.textUbo}
+				out vec4 v_color;
+				out vec2 v_uv;
 				out vec2 v_vertex;
 
 				void main() {
+					v_uv = a_vertex * 0.5 + 0.5;
+					float c2_alpha = (v_uv.x + v_uv.y) / 2.0;
+					v_color = u_text_color1 * (1.0 - c2_alpha) + u_text_color2 * c2_alpha;
 					v_vertex = a_vertex;
+
 					vec2 clip_space = v_vertex * u_text_scale + u_text_offset;
 					clip_space *= u_cell_radius_skin * 0.45 * vec2(u_text_aspect_ratio, 1.0);
 					clip_space += -u_camera_pos + u_cell_pos;
@@ -3309,6 +3316,8 @@
 				}
 			`, `
 				${parts.boilerplate}
+				in vec4 v_color;
+				in vec2 v_uv;
 				in vec2 v_vertex;
 				${parts.cameraUbo}
 				${parts.cellUbo}
@@ -3318,22 +3327,18 @@
 				out vec4 out_color;
 
 				void main() {
-					vec2 uv = v_vertex * 0.5 + 0.5;
-
-					float c2_alpha = (uv.x + uv.y) / 2.0;
-					vec4 color = u_text_color1 * (1.0 - c2_alpha) + u_text_color2 * c2_alpha;
-					vec4 normal = texture(u_texture, uv);
+					vec4 normal = texture(u_texture, v_uv);
 
 					if (u_text_silhouette_enabled != 0) {
-						vec4 silhouette = texture(u_silhouette, uv);
+						vec4 silhouette = texture(u_silhouette, v_uv);
 
 						// #fff - #000 => color (text)
 						// #fff - #fff => #fff (respect emoji)
 						// #888 - #888 => #888 (respect emoji)
 						// #fff - #888 => #888 + color/2 (blur/antialias)
-						out_color = silhouette + (normal - silhouette) * color;
+						out_color = silhouette + (normal - silhouette) * v_color;
 					} else {
-						out_color = normal * color;
+						out_color = normal * v_color;
 					}
 
 					out_color.a *= u_text_alpha;
