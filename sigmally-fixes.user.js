@@ -221,7 +221,8 @@
 				aux.sigmodSettings.skinReplacement = sigmod.game?.skins;
 				aux.sigmodSettings.virusImage = sigmod.game?.virusImage;
 				aux.sigmodSettings.rapidFeedKey = sigmod.macros?.keys?.rapidFeed;
-				aux.sigmodSettings.showNames = sigmod?.settings?.showNames;
+				// sigmod's showNames setting is always "true" interally (i think??)
+				aux.sigmodSettings.showNames = aux.setting('input#showNames', true);
 			}
 		}, 50);
 
@@ -3390,7 +3391,7 @@
 			gl.vertexAttribDivisor(2, 1);
 			// a_cell_color, vec3 (location = 3)
 			gl.enableVertexAttribArray(3);
-			gl.vertexAttribPointer(3, 3, gl.FLOAT, false, 4 * 7, 4 * 3);
+			gl.vertexAttribPointer(3, 4, gl.FLOAT, false, 4 * 7, 4 * 3);
 			gl.vertexAttribDivisor(3, 1);
 		}
 
@@ -3647,6 +3648,7 @@
 			}
 
 			const foodColor = aux.sigmodSettings?.foodColor;
+			const foodBlank = foodColor?.[0] === 0 && foodColor?.[1] === 0 && foodColor?.[2] === 0;
 
 			let i = 0;
 			for (const pellet of map.pellets.values()) {
@@ -3655,12 +3657,12 @@
 				pelletBuffer[i * 7] = pellet.nx;
 				pelletBuffer[i * 7 + 1] = pellet.ny;
 				pelletBuffer[i * 7 + 2] = pellet.nr;
-				if (foodColor) {
+				if (foodColor && !foodBlank) {
 					pelletBuffer[i * 7 + 3] = foodColor[0]; pelletBuffer[i * 7 + 4] = foodColor[1];
 					pelletBuffer[i * 7 + 5] = foodColor[2]; pelletBuffer[i * 7 + 6] = foodColor[3];
 				} else {
 					pelletBuffer[i * 7 + 3] = pellet.Rgb; pelletBuffer[i * 7 + 4] = pellet.rGb;
-					pelletBuffer[i * 7 + 5] = pellet.rgB; pelletBuffer[i * 7 + 6] = 1;
+					pelletBuffer[i * 7 + 5] = pellet.rgB; pelletBuffer[i * 7 + 6] = foodBlank ? foodColor[3] : 1;
 				}
 				++i;
 			}
