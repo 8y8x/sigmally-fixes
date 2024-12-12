@@ -1009,7 +1009,6 @@
 			massOpacity: 1,
 			massScaleFactor: 1,
 			mergeCamera: false,
-			mergeCameraWeight: 2,
 			mergeViewArea: false,
 			nameBold: false,
 			nameScaleFactor: 1,
@@ -1017,7 +1016,6 @@
 			// delta's default colors, #ff00aa and #ffffff
 			outlineMultiColor: /** @type {[number, number, number, number]} */ ([1, 0, 2/3, 1]),
 			outlineMultiInactiveColor: /** @type {[number, number, number, number]} */ ([1, 1, 1, 1]),
-			rtx: false,
 			scrollFactor: 1,
 			selfSkin: '',
 			syncSkin: true,
@@ -1322,10 +1320,11 @@
 		separator();
 		checkbox('mergeCamera', 'Merge camera between tabs',
 			'Whether to place the camera in between your nearby tabs. This makes tab changes while multiboxing ' +
-			'completely seamless (a sort of \'one-tab\'). This mode uses a weighted camera.');
+			'completely seamless (a sort of \'one-tab\'). This setting uses a weighted camera, which focuses the ' +
+			'camera at your center of mass (i.e. your tiny cells won\'t mess up your aim).');
 		checkbox('mergeViewArea', 'Combine visible cells between tabs',
-			'When enabled, all tabs will share what cells they see between each other. Due to browser limitations, ' +
-			'this might be slow on lower-end PCs.');
+			'When enabled, all tabs will share what cells they see between each other. Sigmally Fixes puts a lot of ' +
+			'effort into making this as seamless as possible, so it may be laggy on lower-end devices.');
 		slider('outlineMulti', 'Current tab cell outline thickness', 0.2, 0, 1, 0.01, 2, true,
 			'Draws an inverse outline on your cells. This is a necessity when using the \'merge camera\' setting. ' +
 			'Setting to 0 turns this off. Only shows when near one of your tabs.');
@@ -1333,19 +1332,15 @@
 			'The outline color of your current multibox tab.');
 		color('outlineMultiInactiveColor', 'Other tab outline color',
 			'The outline color for the cells of your other unfocused multibox tabs. Turn off the checkbox to disable.');
-		slider('mergeCameraWeight', 'Merge camera weighting factor', 1, 0, 2, 0.01, 2, true,
-			'The amount of focus to put on bigger cells. Only used with \'merge camera\'. 0 focuses every cell ' +
-			'equally, 1 focuses on every cell based on its radius, 2 focuses on every cell based on its mass. ' +
-			'Focusing on where your mass is can make the camera much smoother and predictable when splitrunning.');
 		separator();
 		slider('scrollFactor', 'Zoom speed', 1, 0.05, 1, 0.05, 2, false,
 			'A smaller zoom speed lets you fine-tune your zoom.');
 		checkbox('blockBrowserKeybinds', 'Block all browser keybinds',
 			'When enabled, only Ctrl+Tab and F11 are allowed to be pressed. You must be in fullscreen, and ' +
-			'non-Chrome browsers probably won\'t respect this setting.');
+			'non-Chrome browsers probably won\'t respect this setting. Doesn\'t work for Ctrl+W anymore: get a ' +
+			'browser extension to block it for you.');
 		checkbox('blockNearbyRespawns', 'Block respawns near other tabs',
-			'Disables the respawn keybind when near one of your bigger tabs.');
-		checkbox('rtx', 'RTX', 'Makes everything glow. (Not actually ray-tracing shaders!)');
+			'Disables the respawn keybind (SigMod-only) when near one of your bigger tabs.');
 		separator();
 		slider('nameScaleFactor', 'Name scale factor', 1, 0.5, 2, 0.01, 2, false, 'The size multiplier of names.');
 		slider('massScaleFactor', 'Mass scale factor', 1, 0.5, 4, 0.01, 2, false,
@@ -1354,13 +1349,13 @@
 			'The opacity of the mass text. You might find it visually appealing to have mass be a little dimmer than ' +
 			'names.');
 		checkbox('nameBold', 'Bold name text', 'Uses the bold Ubuntu font for names (like Agar.io).');
-		checkbox('massBold', 'Bold mass text', 'Uses a bold font for mass');
+		checkbox('massBold', 'Bold mass text', 'Uses a bold font for mass.');
 		separator();
-		checkbox('clans', 'Show clans', 'When enabled, shows the name of the clan a player is in above their name.');
-		checkbox('jellySkinLag', 'Jelly physics cut-off on skins',
-			'Jelly physics causes cells to grow and shrink a little slower, but skins don\'t, which makes clips look ' +
-			'more satisfying. But if your skin decorates the edge of your cell (e.g. sasa, has a custom outline), ' +
-			'then it may look weird.');
+		checkbox('clans', 'Show clans', 'When enabled, shows the name of the clan a player is in above their name. ' +
+			'If you turn off names (using SigMod), then player names will be replaced with their clan\'s.');
+		checkbox('jellySkinLag', 'Jelly physics cell size lag',
+			'Jelly physics causes cells to grow and shrink slower than text and skins, making the game more ' +
+			'satisfying. If you have a skin that looks weird only with jelly physics, try turning this off.');
 
 		// #3 : create options for sigmod
 		let sigmodInjection;
@@ -1956,7 +1951,7 @@
 			const dt = (now - cell.updated) / 1000;
 			return {
 				x, y, r,
-				jr: aux.exponentialEase(cell.jr, r, 10, dt),
+				jr: aux.exponentialEase(cell.jr, r, 5, dt), // vanilla uses a factor of 10, but it's basically unusable
 			};
 		};
 
@@ -1967,7 +1962,7 @@
 			last = now;
 
 			const map = (settings.mergeViewArea && sync.merge) ? sync.merge : world;
-			const weight = settings.mergeCamera ? settings.mergeCameraWeight : 0;
+			const weight = settings.mergeCamera ? 2 : 0;
 
 			/**
 			 * @param {Iterable<number>} owned
