@@ -236,19 +236,30 @@
 			return el ? el.checked : value;
 		};
 
-		/**
-		 * Only changes sometimes, like when your skin is updated
-		 * @type {object | undefined}
-		 */
-		aux.settings = undefined;
-		function settings() {
+		const settings = () => {
 			try {
+				// current skin is saved in localStorage
 				aux.settings = JSON.parse(localStorage.getItem('settings') ?? '');
-			} catch (_) { }
+			} catch (_) {
+				aux.settings = /** @type {any} */ ({});
+			}
+
+			aux.settings.darkTheme = aux.setting('input#darkTheme', true);
+			aux.settings.jellyPhysics = aux.setting('input#jellyPhysics', false);
+			aux.settings.showBorder = aux.setting('input#showBorder', true);
+			aux.settings.showClanmates = aux.setting('input#showClanmates', true)
+			aux.settings.showGrid = aux.setting('input#showGrid', true);
+			aux.settings.showMass = aux.setting('input#showMass', false);
+			aux.settings.showMinimap = aux.setting('input#showMinimap', true);
+			aux.settings.showSkins = aux.setting('input#showSkins', true);
+			return aux.settings;
 		}
 
-		settings();
-		setInterval(settings, 50);
+		/** @type {{ darkTheme: boolean, jellyPhysics: boolean, showBorder: boolean, showClanmates: boolean,
+		 showGrid: boolean, showMass: boolean, showMinimap: boolean, showSkins: boolean,
+		 gamemode: any, skin: any }} */
+		aux.settings = settings();
+		setInterval(settings, 250);
 		// apply saved gamemode because sigmally fixes connects before the main game even loads
 		if (aux.settings?.gamemode) {
 			/** @type {HTMLSelectElement | null} */
@@ -627,7 +638,7 @@
 			}
 
 			function matchTheme() {
-				let color = aux.setting('input#darkTheme', true) ? '#fff' : '#000';
+				let color = aux.settings.darkTheme ? '#fff' : '#000';
 				score.style.color = color;
 				measures.style.color = color;
 				misc.style.color = color;
@@ -967,9 +978,8 @@
 			};
 
 			chat.matchTheme = () => {
-				const darkTheme = aux.setting('input#darkTheme', true);
-				list.style.color = darkTheme ? '#fffc' : '#000c';
-				list.style.filter = darkTheme ? '' : 'brightness(75%)'; // make author names darker in light theme
+				list.style.color = aux.settings.darkTheme ? '#fffc' : '#000c';
+				list.style.filter = aux.settings.darkTheme ? '' : 'brightness(75%)'; // make author names darker in light theme
 			};
 
 			return chat;
@@ -1830,7 +1840,7 @@
 			for (const cell of all.values()) {
 				const old = pellets.get(cell.id) ?? cells.get(cell.id);
 				if (old) {
-					const { x, y, r, jr } = world.xyr(old, sync.merge, now);
+					const { x, y, r, jr } = world.xyr(old, undefined, now);
 					old.ox = x; old.oy = y; old.or = r;
 					old.jr = jr;
 					old.nx = cell.nx; old.ny = cell.ny; old.nr = cell.nr;
@@ -1943,7 +1953,7 @@
 
 		/**
 		 * @param {Cell} cell
-		 * @param {{ cells: Map<number, Cell>, pellets: Map<number, Cell> }} map
+		 * @param {{ cells: Map<number, Cell>, pellets: Map<number, Cell> } | undefined} map
 		 * @param {number} now
 		 * @returns {{ x: number, y: number, r: number, jr: number }}
 		 */
@@ -1952,7 +1962,7 @@
 			a = a < 0 ? 0 : a > 1 ? 1 : a;
 			let nx = cell.nx;
 			let ny = cell.ny;
-			if (cell.deadAt !== undefined && cell.deadTo !== -1) { // check deadTo to avoid unnecessary map lookup
+			if (map && cell.deadAt !== undefined && cell.deadTo !== -1) {
 				const killer = map.cells.get(cell.deadTo) ?? map.pellets.get(cell.deadTo);
 				if (killer && (killer.deadAt === undefined || cell.deadAt <= killer.deadAt)) {
 					// do not animate death towards a cell that died already (went offscreen)
@@ -2708,11 +2718,11 @@
 			return {
 				state: spectating ? 2 : undefined,
 				name: nickElement?.value ?? '',
-				skin: aux.settings?.skin,
+				skin: aux.settings.skin,
 				token: aux.token?.token,
 				sub: (aux.userData?.subscription ?? 0) > Date.now(),
 				clan: aux.userData?.clan,
-				showClanmates: aux.setting('input#showClanmates', true),
+				showClanmates: aux.settings.showClanmates,
 				password: password?.value,
 			};
 		}
@@ -3731,14 +3741,7 @@
 			const defaultVirusSrc = '/assets/images/viruses/2.png';
 			const virusSrc = aux.sigmodSettings?.virusImage ?? defaultVirusSrc;
 
-			const darkTheme = aux.setting('input#darkTheme', true);
-			const showBorder = aux.setting('input#showBorder', true);
-			const showGrid = aux.setting('input#showGrid', true);
-			const showMass = aux.setting('input#showMass', false);
-			const showMinimap = aux.setting('input#showMinimap', true);
 			const showNames = aux.sigmodSettings?.showNames ?? true;
-			const showSkins = aux.setting('input#showSkins', true);
-			const jellyPhysics = aux.setting('input#jellyPhysics', false);
 
 			const { cellColor, foodColor, outlineColor, skinReplacement } = aux.sigmodSettings ?? {};
 
@@ -3770,7 +3773,7 @@
 				gl.bufferSubData(gl.UNIFORM_BUFFER, 0, new Float32Array([
 					...settings.outlineMultiColor, // cell_active_outline
 					...settings.outlineMultiInactiveColor, // cell_inactive_outline
-					...(darkTheme ? [1, 1, 1, 1] : [0, 0, 0, 1]), // cell_unsplittable_outline
+					...(aux.settings.darkTheme ? [1, 1, 1, 1] : [0, 0, 0, 1]), // cell_unsplittable_outline
 					...(outlineColor ?? [0, 0, 0, 0]), // cell_subtle_outline_override
 					settings.outlineMulti,
 				]));
@@ -3780,7 +3783,7 @@
 			(function background() {
 				if (aux.sigmodSettings?.mapColor) {
 					gl.clearColor(...aux.sigmodSettings.mapColor);
-				} else if (darkTheme) {
+				} else if (aux.settings.darkTheme) {
 					gl.clearColor(0x11 / 255, 0x11 / 255, 0x11 / 255, 1); // #111
 				} else {
 					gl.clearColor(0xf2 / 255, 0xfb / 255, 0xff / 255, 1); // #f2fbff
@@ -3795,7 +3798,7 @@
 
 				let borderColor;
 				let borderLrtb;
-				if (showBorder && world.border) {
+				if (aux.settings.showBorder && world.border) {
 					borderColor = [0, 0, 1, 1]; // #00ff
 					borderLrtb = world.border;
 				} else {
@@ -3813,7 +3816,7 @@
 				borderUboFloats[7] = borderLrtb.b;
 
 				// flags
-				borderUboInts[8] = (showGrid ? 0x01 : 0) | (darkTheme ? 0x02 : 0);
+				borderUboInts[8] = (aux.settings.showGrid ? 0x01 : 0) | (aux.settings.darkTheme ? 0x02 : 0);
 
 				gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Border);
 				gl.bufferSubData(gl.UNIFORM_BUFFER, 0, borderUboFloats);
@@ -3870,7 +3873,7 @@
 					// so we multiply the radius by 1.02 (approximately the size increase from the stroke thickness)
 					cellUboFloats[2] = x;
 					cellUboFloats[3] = y;
-					if (jellyPhysics && !cell.jagged) {
+					if (aux.settings.jellyPhysics && !cell.jagged) {
 						const strokeThickness = Math.max(jr * 0.01, 10);
 						cellUboFloats[0] = jr + strokeThickness;
 						cellUboFloats[1] = (settings.jellySkinLag ? r : jr) + strokeThickness;
@@ -3892,8 +3895,9 @@
 						gl.bufferSubData(gl.UNIFORM_BUFFER, 0, cellUboBuffer);
 						gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-						// draw default viruses twice for better contrast in light theme
-						if (!darkTheme && virusSrc === defaultVirusSrc) gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+						// draw default viruses twice for better contrast against light theme
+						if (!aux.settings.darkTheme && virusSrc === defaultVirusSrc)
+							gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 						return;
 					}
 
@@ -3923,7 +3927,7 @@
 						if (settings.selfSkin && (myIndex !== -1 || world.mineDead.has(cell.id))) {
 							skin = settings.selfSkin;
 						} else {
-							if (!skin && showSkins && cell.skin) {
+							if (!skin && aux.settings.showSkins && cell.skin) {
 								if (skinReplacement && cell.skin.includes(skinReplacement.original + '.png'))
 									skin = skinReplacement.replacement ?? skinReplacement.replaceImg ?? '';
 								else
@@ -3949,7 +3953,7 @@
 					if (cell.nr <= 20) return; // quick return if a pellet
 					const name = cell.name || 'An unnamed cell';
 					const showThisName = showNames && cell.nr > 75;
-					const showThisMass = showMass && cell.nr > 75;
+					const showThisMass = aux.settings.showMass && cell.nr > 75;
 					const clan = (settings.clans && aux.clans.get(cell.clan)) || '';
 					if (!showThisName && !showThisMass && !clan) return;
 
@@ -4113,7 +4117,7 @@
 				if (now - lastMinimapDraw < 40) return;
 				lastMinimapDraw = now;
 
-				if (!showMinimap) {
+				if (!aux.settings.showMinimap) {
 					ui.minimap.canvas.style.display = 'none';
 					return;
 				} else {
@@ -4125,13 +4129,14 @@
 				const sectorSize = canvas.width / 5;
 
 				// cache the background if necessary (25 texts = bad)
-				if (minimapCache && minimapCache.bg.width === canvasLength && minimapCache.darkTheme === darkTheme) {
+				if (minimapCache && minimapCache.bg.width === canvasLength
+					&& minimapCache.darkTheme === aux.settings.darkTheme) {
 					ctx.putImageData(minimapCache.bg, 0, 0);
 				} else {
 					// draw section names
 					ctx.font = `${Math.floor(sectorSize / 3)}px Ubuntu`;
 					ctx.fillStyle = '#fff';
-					ctx.globalAlpha = darkTheme ? 0.3 : 0.7;
+					ctx.globalAlpha = aux.settings.darkTheme ? 0.3 : 0.7;
 					ctx.textAlign = 'center';
 					ctx.textBaseline = 'middle';
 
@@ -4143,7 +4148,10 @@
 						});
 					});
 
-					minimapCache = { bg: ctx.getImageData(0, 0, canvas.width, canvas.height), darkTheme };
+					minimapCache = {
+						bg: ctx.getImageData(0, 0, canvas.width, canvas.height),
+						darkTheme: aux.settings.darkTheme
+					};
 				}
 
 				const { border } = world;
@@ -4174,7 +4182,7 @@
 
 				// draw section names
 				ctx.font = `${Math.floor(sectorSize / 3)}px Ubuntu`;
-				ctx.fillStyle = darkTheme ? '#fff' : '#000';
+				ctx.fillStyle = aux.settings.darkTheme ? '#fff' : '#000';
 				ctx.textAlign = 'center';
 				ctx.textBaseline = 'middle';
 
