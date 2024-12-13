@@ -275,11 +275,12 @@
 			aux.settings.showMass = aux.setting('input#showMass', false);
 			aux.settings.showMinimap = aux.setting('input#showMinimap', true);
 			aux.settings.showSkins = aux.setting('input#showSkins', true);
+			aux.settings.zoomout = aux.setting('input#moreZoom', true);
 			return aux.settings;
 		}
 
 		/** @type {{ darkTheme: boolean, jellyPhysics: boolean, showBorder: boolean, showClanmates: boolean,
-		 showGrid: boolean, showMass: boolean, showMinimap: boolean, showSkins: boolean,
+		 showGrid: boolean, showMass: boolean, showMinimap: boolean, showSkins: boolean, zoomout: boolean,
 		 gamemode: any, skin: any }} */
 		aux.settings = settings();
 		setInterval(settings, 250);
@@ -2644,7 +2645,8 @@
 		addEventListener('wheel', e => {
 			if (unfocused()) return;
 			input.zoom *= 0.8 ** (e.deltaY / 100 * settings.scrollFactor);
-			input.zoom = Math.min(Math.max(input.zoom, 0.8 ** 10), 0.8 ** -11);
+			const minZoom = (!settings.mergeCamera && !aux.settings.zoomout) ? 1 : 0.8 ** 10;
+			input.zoom = Math.min(Math.max(input.zoom, minZoom), 0.8 ** -11);
 			sync.zoom();
 		});
 
