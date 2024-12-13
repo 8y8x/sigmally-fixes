@@ -528,8 +528,8 @@
 			newCanvas.addEventListener('webglcontextrestored', () => glconf.init());
 
 			function resize() {
-				newCanvas.width = Math.floor(innerWidth * devicePixelRatio);
-				newCanvas.height = Math.floor(innerHeight * devicePixelRatio);
+				newCanvas.width = Math.ceil(innerWidth * devicePixelRatio);
+				newCanvas.height = Math.ceil(innerHeight * devicePixelRatio);
 				game.gl.viewport(0, 0, newCanvas.width, newCanvas.height);
 			}
 
@@ -1094,21 +1094,30 @@
 		function slider(property, title, initial, min, max, step, decimals, double, help) {
 			/**
 			 * @param {HTMLInputElement} slider
-			 * @param {HTMLElement} display
+			 * @param {HTMLInputElement} display
 			 */
 			const listen = (slider, display) => {
 				slider.value = settings[property].toString();
-				display.textContent = settings[property].toFixed(decimals);
+				display.value = settings[property].toFixed(decimals);
 
 				slider.addEventListener('input', () => {
 					settings[property] = Number(slider.value);
-					display.textContent = settings[property].toFixed(decimals);
+					display.value = settings[property].toFixed(decimals);
+					save();
+				});
+
+				display.addEventListener('change', () => {
+					const value = Number(display.value);
+					if (!Number.isNaN(value))
+						settings[property] = value;
+
+					display.value = slider.value = settings[property].toFixed(decimals);
 					save();
 				});
 
 				onSaves.add(() => {
 					slider.value = settings[property].toString();
-					display.textContent = settings[property].toFixed(decimals);
+					display.value = settings[property].toFixed(decimals);
 				});
 			};
 
@@ -1120,14 +1129,14 @@
 							margin-left: 5px;" min="${min}" max="${max}" step="${step}" value="${initial}"
 							list="sf-${property}-markers" type="range" />
 						<datalist id="sf-${property}-markers"> <option value="${initial}"></option> </datalist>
-						<span id="sf-${property}-display" style="display: block; float: left; height: 25px; \
-							line-height: 25px; width: 40px; text-align: right;"></span>
+						<input id="sf-${property}-display" style="display: block; float: left; height: 25px; \
+							line-height: 25px; width: 40px; text-align: right;" />
 					</div>
 				</div>
 			`);
 			listen(
 				/** @type {HTMLInputElement} */(vanilla.querySelector(`input#sf-${property}`)),
-				/** @type {HTMLElement} */(vanilla.querySelector(`#sf-${property}-display`)));
+				/** @type {HTMLInputElement} */(vanilla.querySelector(`input#sf-${property}-display`)));
 			vanillaContainer.appendChild(vanilla);
 
 			const sigmod = fromHTML(`
@@ -1137,13 +1146,14 @@
 						<input id="sfsm-${property}" style="width: 200px;" type="range" min="${min}" max="${max}"
 							step="${step}" value="${initial}" list="sfsm-${property}-markers" />
 						<datalist id="sfsm-${property}-markers"> <option value="${initial}"></option> </datalist>
-						<span id="sfsm-${property}-display" class="text-center" style="width: 75px;"></span>
+						<input id="sfsm-${property}-display" class="text-center form-control" style="border: none; \
+							width: 45px; margin: 0 15px;" />
 					</span>
 				</div>
 			`);
 			listen(
 				/** @type {HTMLInputElement} */(sigmod.querySelector(`input#sfsm-${property}`)),
-				/** @type {HTMLElement} */(sigmod.querySelector(`#sfsm-${property}-display`)));
+				/** @type {HTMLInputElement} */(sigmod.querySelector(`input#sfsm-${property}-display`)));
 			sigmodContainer.appendChild(sigmod);
 		}
 
@@ -3879,6 +3889,7 @@
 						gl.bufferSubData(gl.UNIFORM_BUFFER, 0, cellUboBuffer);
 						gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+						if (!darkTheme) gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); // draw twice for better contrast
 						return;
 					}
 
