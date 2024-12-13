@@ -3950,7 +3950,7 @@
 					const name = cell.name || 'An unnamed cell';
 					const showThisName = showNames && cell.nr > 75;
 					const showThisMass = showMass && cell.nr > 75;
-					const clan = settings.clans ? (aux.clans.get(cell.clan) ?? cell.clan) : '';
+					const clan = (settings.clans && aux.clans.get(cell.clan)) || '';
 					if (!showThisName && !showThisMass && !clan) return;
 
 					gl.useProgram(glconf.programs.text);
