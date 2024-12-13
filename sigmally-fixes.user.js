@@ -48,6 +48,12 @@
 					if (typeof clan._id !== 'string' || typeof clan.name !== 'string') return;
 					aux.clans.set(clan._id, clan.name);
 				});
+
+				// does not need to be updated often, but just enough so people who leave their tab open don't miss out
+				setTimeout(() => fetchClans(), 600_000);
+			}).catch(err => {
+				console.warn('Error while fetching clans:', err);
+				setTimeout(() => fetchClans(), 10_000);
 			});
 		}
 		fetchClans();
@@ -515,6 +521,12 @@
 		ui.game = (() => {
 			const game = {};
 
+			/** @type {HTMLCanvasElement | null} */
+			const oldCanvas = document.querySelector('canvas#canvas');
+			if (!oldCanvas) {
+				throw 'exiting script - no canvas found';
+			}
+
 			const newCanvas = document.createElement('canvas');
 			newCanvas.id = 'sf-canvas';
 			newCanvas.style.cssText = `background: #003; width: 100vw; height: 100vh; position: fixed; top: 0; left: 0;
@@ -522,19 +534,15 @@
 			game.canvas = newCanvas;
 			(document.querySelector('body div') ?? document.body).appendChild(newCanvas);
 
-			/** @type {HTMLCanvasElement | null} */
-			const oldCanvas = document.querySelector('canvas#canvas');
-			if (oldCanvas) {
-				// leave the old canvas so the old client can actually run
-				oldCanvas.style.display = 'none';
+			// leave the old canvas so the old client can actually run
+			oldCanvas.style.display = 'none';
 
-				// forward macro inputs from the canvas to the old one - this is for sigmod mouse button controls
-				newCanvas.addEventListener('mousedown', e => oldCanvas.dispatchEvent(new MouseEvent('mousedown', e)));
-				newCanvas.addEventListener('mouseup', e => oldCanvas.dispatchEvent(new MouseEvent('mouseup', e)));
-				// forward mouse movements from the old canvas to the window - this is for sigmod keybinds that move
-				// the mouse
-				oldCanvas.addEventListener('mousemove', e => dispatchEvent(new MouseEvent('mousemove', e)));
-			}
+			// forward macro inputs from the canvas to the old one - this is for sigmod mouse button controls
+			newCanvas.addEventListener('mousedown', e => oldCanvas.dispatchEvent(new MouseEvent('mousedown', e)));
+			newCanvas.addEventListener('mouseup', e => oldCanvas.dispatchEvent(new MouseEvent('mouseup', e)));
+			// forward mouse movements from the old canvas to the window - this is for sigmod keybinds that move
+			// the mouse
+			oldCanvas.addEventListener('mousemove', e => dispatchEvent(new MouseEvent('mousemove', e)));
 
 			const gl = aux.require(
 				newCanvas.getContext('webgl2', { alpha: false, depth: false }),
@@ -2168,6 +2176,8 @@
 		};
 
 		function connect() {
+			// you can connect to multiple servers easily while being ratelimited
+			if (ws?.readyState !== WebSocket.CLOSED && ws?.readyState !== WebSocket.CLOSING) ws?.close?.();
 			try {
 				ws = new destructor.realWebSocket(net.url());
 			} catch (err) {
@@ -2268,7 +2278,8 @@
 		 * @param {object} data
 		 */
 		function sendJson(opcode, data) {
-			if (!handshake) return;
+			// must check readyState as a weboscket might be in the 'CLOSING' state (so annoying!)
+			if (!handshake || ws.readyState !== WebSocket.OPEN) return;
 			const dataBuf = aux.textEncoder.encode(JSON.stringify(data));
 			const dat = new DataView(new ArrayBuffer(dataBuf.byteLength + 2));
 
@@ -2282,7 +2293,7 @@
 
 		function createPingLoop() {
 			function ping() {
-				if (!handshake) return; // shouldn't ever happen
+				if (!handshake || ws.readyState !== WebSocket.OPEN) return; // shouldn't ever happen
 
 				if (pendingPingFrom !== undefined) {
 					// ping was not replied to, tell the player the ping text might be wonky for a bit
@@ -2470,7 +2481,7 @@
 		 * @param {number} y
 		 */
 		net.move = function (x, y) {
-			if (!handshake) return;
+			if (!handshake || ws.readyState !== WebSocket.OPEN) return;
 			const dat = new DataView(new ArrayBuffer(13));
 
 			dat.setUint8(0, Number(handshake.shuffle.get(0x10)));
@@ -2481,22 +2492,22 @@
 		};
 
 		net.w = function () {
-			if (!handshake) return;
+			if (!handshake || ws.readyState !== WebSocket.OPEN) return;
 			ws.send(new Uint8Array([Number(handshake.shuffle.get(21))]));
 		};
 
 		net.qdown = function () {
-			if (!handshake) return;
+			if (!handshake || ws.readyState !== WebSocket.OPEN) return;
 			ws.send(new Uint8Array([Number(handshake.shuffle.get(18))]));
 		};
 
 		net.qup = function () {
-			if (!handshake) return;
+			if (!handshake || ws.readyState !== WebSocket.OPEN) return;
 			ws.send(new Uint8Array([Number(handshake.shuffle.get(19))]));
 		};
 
 		net.split = function () {
-			if (!handshake) return;
+			if (!handshake || ws.readyState !== WebSocket.OPEN) return;
 			ws.send(new Uint8Array([Number(handshake.shuffle.get(17))]));
 		};
 
@@ -2504,7 +2515,7 @@
 		 * @param {string} msg
 		 */
 		net.chat = function (msg) {
-			if (!handshake) return;
+			if (!handshake || ws.readyState !== WebSocket.OPEN) return;
 			const msgBuf = aux.textEncoder.encode(msg);
 			const dat = new DataView(new ArrayBuffer(msgBuf.byteLength + 3));
 
@@ -2524,7 +2535,7 @@
 		};
 
 		net.howarewelosingmoney = function () {
-			if (!handshake) return;
+			if (!handshake || ws.readyState !== WebSocket.OPEN) return;
 			// this is a new thing added with the rest of the recent source code obfuscation (2024/02/18)
 			// which collects and links to your sigmally account, seemingly just for light data analysis but probably
 			// just for the fun of it:
@@ -2539,8 +2550,7 @@
 
 		net.connection = function () {
 			if (!ws) return undefined;
-			if (ws.readyState !== WebSocket.OPEN) return undefined;
-			if (!handshake) return undefined;
+			if (!handshake || ws.readyState !== WebSocket.OPEN) return undefined;
 			return ws;
 		};
 
@@ -2838,6 +2848,7 @@
 			const used = Symbol();
 			/** @type {unique symbol} */
 			const waiting = Symbol();
+			let nextTryAt = 0;
 			/** @type {undefined | typeof waiting | typeof used
 			 * | { variant: string, token: string | undefined }} */
 			let token = undefined;
@@ -2876,6 +2887,7 @@
 						.catch(err => {
 							play.textContent = playText;
 							token = undefined;
+							nextTryAt = performance.now() + 400;
 							throw err;
 						});
 				} else {
@@ -2897,6 +2909,8 @@
 
 				if (typeof token !== 'object') {
 					// get a new token if first time, or if we're on a new connection now
+					if (performance.now() < nextTryAt) return;
+
 					token = waiting;
 					play.disabled = spectate.disabled = true;
 					play.textContent = `${playText} (getting type)`;
@@ -2965,6 +2979,7 @@
 							}
 						}).catch(err => {
 							token = undefined;
+							nextTryAt = performance.now() + 400;
 							console.warn('Error while getting token variant:', err);
 						});
 				} else {
@@ -2982,6 +2997,7 @@
 								publishToken(url, got.variant, got.token);
 						}).catch(err => {
 							token = got;
+							nextTryAt = performance.now() + 400;
 							console.warn('Error while getting token variant:', err);
 						});
 				}
@@ -3465,6 +3481,7 @@
 		let lastMinimapDraw = performance.now();
 		/** @type {{ bg: ImageData, darkTheme: boolean } | undefined} */
 		let minimapCache;
+		document.fonts.ready.then(() => void (minimapCache = undefined)); // make sure minimap is drawn with Ubuntu font
 
 
 		// #2 : define helper functions
