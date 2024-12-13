@@ -224,7 +224,24 @@
 				// sigmod's showNames setting is always "true" interally (i think??)
 				aux.sigmodSettings.showNames = aux.setting('input#showNames', true);
 			}
-		}, 50);
+		}, 200);
+
+		// patch some sigmod bugs
+		let patchSigmodInterval;
+		patchSigmodInterval = setInterval(() => {
+			const sigmod = /** @type {any} */ (window).sigmod;
+			if (!sigmod) return;
+
+			clearInterval(patchSigmodInterval);
+
+			// anchor chat and minimap to the screen, so scrolling to zoom doesn't move them
+			// it's possible that cursed will change something at any time so i'm being safe here
+			const minimapContainer = /** @type {HTMLElement | null} */ (document.querySelector('.minimapContainer'));
+			if (minimapContainer) minimapContainer.style.position = 'fixed';
+
+			const modChat = /** @type {HTMLElement | null} */ (document.querySelector('.modChat'));
+			if (modChat) modChat.style.position = 'fixed';
+		}, 500);
 
 		/**
 		 * @param {string} selector
@@ -822,7 +839,7 @@
 
 		ui.minimap = (() => {
 			const canvas = document.createElement('canvas');
-			canvas.style.cssText = 'position: absolute; bottom: 0; right: 0; background: #0006; width: 200px; \
+			canvas.style.cssText = 'position: fixed; bottom: 0; right: 0; background: #0006; width: 200px; \
 				height: 200px; z-index: 2; user-select: none;';
 			canvas.width = canvas.height = 200;
 			document.body.appendChild(canvas);
@@ -874,8 +891,13 @@
 				'Can\'t find the chat textbox. Try reloading the page?',
 			));
 
+			// allow zooming in/out on trackpad without moving the UI
+			input.style.position = 'fixed';
+			toggle.style.position = 'fixed';
+			scrollbar.style.position = 'fixed';
+
 			const list = document.createElement('div');
-			list.style.cssText = 'width: 400px; height: 182px; position: absolute; bottom: 54px; left: 46px; \
+			list.style.cssText = 'width: 400px; height: 182px; position: fixed; bottom: 54px; left: 46px; \
 				overflow: hidden; user-select: none; z-index: 301;';
 			block.appendChild(list);
 
