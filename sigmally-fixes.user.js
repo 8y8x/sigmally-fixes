@@ -967,7 +967,9 @@
 			};
 
 			chat.matchTheme = () => {
-				list.style.color = aux.setting('input#darkTheme', true) ? '#fffc' : '#000c';
+				const darkTheme = aux.setting('input#darkTheme', true);
+				list.style.color = darkTheme ? '#fffc' : '#000c';
+				list.style.filter = darkTheme ? '' : 'brightness(75%)'; // make author names darker in light theme
 			};
 
 			return chat;
@@ -3182,8 +3184,8 @@
 					f_blur = 0.5 * u_cell_radius * (540.0 * u_camera_scale);
 					f_show_skin = u_cell_flags & 0x01;
 
-					// subtle outlines
-					float subtle_thickness = max(u_cell_radius * 0.02, 10.0);
+					// subtle outlines (at least 1px wide)
+					float subtle_thickness = max(max(u_cell_radius * 0.02, 2.0 / (540.0 * u_camera_scale)), 10.0);
 					f_subtle_radius = 1.0 - (subtle_thickness / u_cell_radius);
 					if ((u_cell_flags & 0x02) != 0) {
 						f_subtle_outline = u_cell_color * 0.9; // darker outline by default
@@ -3202,7 +3204,7 @@
 
 					// unsplittable cell outline, 2x the subtle thickness
 					// (except at small sizes, it shouldn't look overly thick)
-					float unsplittable_thickness = max(u_cell_radius * 0.04, 10.0);
+					float unsplittable_thickness = max(max(u_cell_radius * 0.04, 4.0 / (540.0 * u_camera_scale)), 10.0);
 					f_unsplittable_radius = 1.0 - (unsplittable_thickness / u_cell_radius);
 					if ((u_cell_flags & 0x10) != 0) {
 						f_unsplittable_outline = u_cell_unsplittable_outline;
@@ -3726,8 +3728,8 @@
 			}
 
 			// get settings
-			/** @type {string} */
-			const virusSrc = aux.sigmodSettings?.virusImage ?? '/assets/images/viruses/2.png';
+			const defaultVirusSrc = '/assets/images/viruses/2.png';
+			const virusSrc = aux.sigmodSettings?.virusImage ?? defaultVirusSrc;
 
 			const darkTheme = aux.setting('input#darkTheme', true);
 			const showBorder = aux.setting('input#showBorder', true);
@@ -3865,12 +3867,13 @@
 					// without jelly physics, the radius of cells is adjusted such that its subtle outline doesn't go
 					// past its original radius.
 					// jelly physics does not do this, so colliding cells need to look kinda 'joined' together,
-					// so we multiply the radius by 1.01 (approximately the size increase from the stroke thickness)
+					// so we multiply the radius by 1.02 (approximately the size increase from the stroke thickness)
 					cellUboFloats[2] = x;
 					cellUboFloats[3] = y;
 					if (jellyPhysics && !cell.jagged) {
-						cellUboFloats[0] = jr * 1.01;
-						cellUboFloats[1] = (settings.jellySkinLag ? r : jr) * 1.01;
+						const strokeThickness = Math.max(jr * 0.01, 10);
+						cellUboFloats[0] = jr + strokeThickness;
+						cellUboFloats[1] = (settings.jellySkinLag ? r : jr) + strokeThickness;
 					} else {
 						cellUboFloats[0] = cellUboFloats[1] = r;
 					}
@@ -3889,7 +3892,8 @@
 						gl.bufferSubData(gl.UNIFORM_BUFFER, 0, cellUboBuffer);
 						gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-						if (!darkTheme) gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); // draw twice for better contrast
+						// draw default viruses twice for better contrast in light theme
+						if (!darkTheme && virusSrc === defaultVirusSrc) gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 						return;
 					}
 
@@ -4126,8 +4130,8 @@
 				} else {
 					// draw section names
 					ctx.font = `${Math.floor(sectorSize / 3)}px Ubuntu`;
-					ctx.fillStyle = darkTheme ? '#fff' : '#000';
-					ctx.globalAlpha = 0.3;
+					ctx.fillStyle = '#fff';
+					ctx.globalAlpha = darkTheme ? 0.3 : 0.7;
 					ctx.textAlign = 'center';
 					ctx.textBaseline = 'middle';
 
