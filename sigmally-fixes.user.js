@@ -3026,6 +3026,8 @@
 		const programs = glconf.programs = {};
 		const uniforms = glconf.uniforms = {};
 		/** @type {WebGLBuffer} */
+		glconf.pelletAlphaBuffer = /** @type {never} */ (undefined);
+		/** @type {WebGLBuffer} */
 		glconf.pelletBuffer = /** @type {never} */ (undefined);
 
 		const gl = ui.game.gl;
@@ -3318,6 +3320,7 @@
 				layout(location = 1) in vec2 a_cell_pos;
 				layout(location = 2) in float a_cell_radius;
 				layout(location = 3) in vec4 a_cell_color;
+				layout(location = 4) in float a_cell_alpha;
 				${parts.cameraUbo}
 				out vec2 v_vertex;
 				flat out float f_blur;
@@ -3325,7 +3328,7 @@
 
 				void main() {
 					f_blur = 0.5 * a_cell_radius * (540.0 * u_camera_scale);
-					f_cell_color = a_cell_color;
+					f_cell_color = a_cell_color * vec4(1, 1, 1, a_cell_alpha);
 					v_vertex = a_vertex;
 
 					vec2 clip_pos = -u_camera_pos + a_cell_pos + v_vertex * a_cell_radius;
@@ -3454,6 +3457,13 @@
 			gl.enableVertexAttribArray(3);
 			gl.vertexAttribPointer(3, 4, gl.FLOAT, false, 4 * 7, 4 * 3);
 			gl.vertexAttribDivisor(3, 1);
+
+			// pellet alpha buffer, updated every frame
+			gl.bindBuffer(gl.ARRAY_BUFFER, glconf.pelletAlphaBuffer = /** @type {WebGLBuffer} */ (gl.createBuffer()));
+			// a_cell_alpha, float (location = 4)
+			gl.enableVertexAttribArray(4);
+			gl.vertexAttribPointer(4, 1, gl.FLOAT, false, 0, 0);
+			gl.vertexAttribDivisor(4, 1);
 		}
 
 		glconf.init();
@@ -3681,6 +3691,7 @@
 		render.resetTextCache = resetTextCache;
 		render.textFromCache = textFromCache;
 
+		let pelletAlpha = new Float32Array(0);
 		let pelletBuffer = new Float32Array(0);
 		let uploadedPellets = 0;
 		render.uploadPellets = () => {
@@ -3694,19 +3705,18 @@
 			// find expected # of pellets (exclude any that are being *animated*)
 			let expectedPellets = 0;
 			for (const pellet of map.pellets.values()) {
-				// TODO: replace `false` with a setting "Fade pellets in/out"
-				if (!false ? pellet.deadAt === undefined : pellet.deadTo === -1) ++expectedPellets;
+				if (pellet.deadTo === -1) ++expectedPellets;
 			}
 
-			gl.bindBuffer(gl.ARRAY_BUFFER, glconf.pelletBuffer);
 			// grow the pellet buffer by 2x multiples if necessary
-			let pelletBufferFloats = pelletBuffer.length || 1;
-			while (pelletBufferFloats < expectedPellets * 7) {
-				pelletBufferFloats *= 2;
+			let instances = pelletAlpha.length || 1;
+			while (instances < expectedPellets) {
+				instances *= 2;
 			}
-			const resizing = pelletBufferFloats !== pelletBuffer.length;
+			const resizing = instances !== pelletAlpha.length;
 			if (resizing) {
-				pelletBuffer = new Float32Array(pelletBufferFloats);
+				pelletAlpha = new Float32Array(instances);
+				pelletBuffer = new Float32Array(instances * 7);
 			}
 
 			const foodColor = aux.sigmodSettings?.foodColor;
@@ -3714,8 +3724,7 @@
 
 			let i = 0;
 			for (const pellet of map.pellets.values()) {
-				// TODO: use same condition as above
-				if (!(!false ? pellet.deadAt === undefined : pellet.deadTo === -1)) continue;
+				if (pellet.deadTo !== -1) continue;
 				pelletBuffer[i * 7] = pellet.nx;
 				pelletBuffer[i * 7 + 1] = pellet.ny;
 				pelletBuffer[i * 7 + 2] = pellet.nr;
@@ -3731,8 +3740,12 @@
 
 			// now, upload data
 			if (resizing) {
+				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.pelletBuffer);
 				gl.bufferData(gl.ARRAY_BUFFER, pelletBuffer, gl.STATIC_DRAW);
+				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.pelletAlphaBuffer);
+				gl.bufferData(gl.ARRAY_BUFFER, pelletAlpha.byteLength, gl.STATIC_DRAW);
 			} else {
+				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.pelletBuffer);
 				gl.bufferSubData(gl.ARRAY_BUFFER, 0, pelletBuffer);
 			}
 
@@ -4103,6 +4116,14 @@
 				}
 
 				// draw static pellets first
+				let i = 0;
+				for (const pellet of map.pellets.values()) {
+					// deadTo property should never change in between uploadPellets() calls
+					if (pellet.deadTo !== -1) continue;
+					pelletAlpha[i++] = calcAlpha(pellet);
+				}
+				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.pelletAlphaBuffer);
+				gl.bufferSubData(gl.ARRAY_BUFFER, 0, pelletAlpha);
 				gl.useProgram(glconf.programs.pellet);
 				gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, uploadedPellets);
 
