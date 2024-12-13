@@ -597,15 +597,14 @@
 
 			let statsLastUpdated = performance.now();
 			const update = () => {
+				ui.stats.matchTheme();
+
 				statsLastUpdated = performance.now();
 				if ((aux.sigmodSettings?.showNames ?? true) && world.leaderboard.length > 0)
 					ui.leaderboard.container.style.display = '';
 				else {
 					ui.leaderboard.container.style.display = 'none';
-					return;
 				}
-
-				ui.stats.matchTheme();
 
 				let score = 0;
 				for (const id of world.mine) {
@@ -1608,7 +1607,7 @@
 							if (map === world) {
 								world.clanmates.delete(killed);
 
-								if (killed.nr <= 20 && world.mine.includes(killerId))
+								if (killed.pellet && world.mine.includes(killerId))
 									++world.stats.foodEaten;
 
 								const myIdx = world.mine.indexOf(killedId);
@@ -1664,6 +1663,7 @@
 						}
 
 						const jagged = !!(flags & 0x11);
+						const eject = !!(flags & 0x20);
 
 						const cell = map.pellets.get(id) ?? map.cells.get(id);
 						if (cell && cell.deadAt === undefined) {
@@ -1703,16 +1703,14 @@
 								oy: y, ny: y,
 								or: r, nr: r, jr: r,
 								Rgb: Rgb ?? 1, rGb: rGb ?? 1, rgB: rgB ?? 1,
-								jagged,
+								jagged, pellet: r < 75 && !eject, // tourney servers have bigger pellets
 								updated: now, born: now,
 								deadAt: undefined, deadTo: -1,
 								name, skin, sub, clan,
 							};
 
-							if (r <= 20)
-								map.pellets.set(id, ncell);
-							else
-								map.cells.set(id, ncell);
+							if (ncell.pellet) map.pellets.set(id, ncell);
+							else map.cells.set(id, ncell);
 
 							if (map === world && clan === aux.userData?.clan)
 								world.clanmates.add(ncell);
@@ -1896,17 +1894,15 @@
 						oy: cell.oy, ny: cell.ny,
 						or: cell.or, nr: cell.nr, jr: cell.jr,
 						Rgb: cell.Rgb, rGb: cell.rGb, rgB: cell.rgB,
-						jagged: cell.jagged,
+						jagged: cell.jagged, pellet: cell.pellet,
 						name: cell.name, skin: cell.skin, sub: cell.sub, clan: cell.clan,
 						born: cell.born, updated: now,
 						deadTo: cell.deadTo,
 						deadAt: cell.deadAt !== undefined ? now : undefined,
 					};
 
-					if (cell.nr <= 20)
-						pellets.set(cell.id, ncell);
-					else
-						cells.set(cell.id, ncell);
+					if (ncell.pellet) pellets.set(cell.id, ncell);
+					else cells.set(cell.id, ncell);
 				}
 			}
 
@@ -1963,7 +1959,7 @@
 	 * or: number, nr: number, jr: number,
 	 * Rgb: number, rGb: number, rgB: number,
 	 * updated: number, born: number, deadTo: number, deadAt: number | undefined,
-	 * jagged: boolean,
+	 * jagged: boolean, pellet: boolean,
 	 * name: string, skin: string, sub: boolean, clan: string,
 	 * }} Cell */
 	const world = (() => {
@@ -3941,13 +3937,13 @@
 					}
 
 					cellUboInts[9] = 0;
-					const color = (cell.nr <= 20 ? foodColor : cellColor) ?? [cell.Rgb, cell.rGb, cell.rgB, 1];
+					const color = (cell.pellet ? foodColor : cellColor) ?? [cell.Rgb, cell.rGb, cell.rgB, 1];
 					cellUboFloats[4] = color[0]; cellUboFloats[5] = color[1];
 					cellUboFloats[6] = color[2]; cellUboFloats[7] = color[3];
 
 					cellUboInts[9] |= settings.cellOutlines ? 0x02 : 0;
 
-					if (cell.nr > 20) {
+					if (!cell.pellet) {
 						const myIndex = world.mine.indexOf(cell.id);
 						if (myIndex !== -1) {
 							if (world.camera.merged) cellUboInts[9] |= 0x04; // active multi outline
@@ -3989,7 +3985,7 @@
 					gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
 					// #2 : draw text
-					if (cell.nr <= 20) return; // quick return if a pellet
+					if (cell.pellet) return;
 					const name = cell.name || 'An unnamed cell';
 					const showThisName = showNames && cell.nr > 75;
 					const showThisMass = aux.settings.showMass && cell.nr > 75;
