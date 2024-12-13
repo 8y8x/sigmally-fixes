@@ -4251,11 +4251,13 @@
 					const y = (cell.ny - border.t) / gameHeight * canvas.height;
 					const r = Math.max(cell.nr / gameWidth * canvas.width, 2);
 
+					ctx.scale(0.01, 0.01); // prevent sigmod from treating minimap cells as pellets
 					ctx.fillStyle = aux.rgba2hex(cell.Rgb, cell.rGb, cell.rgB, 1);
 					ctx.beginPath();
-					ctx.moveTo(x + r, y);
-					ctx.arc(x, y, r, 0, 2 * Math.PI);
+					ctx.moveTo((x + r) * 100, y * 100);
+					ctx.arc(x * 100, y * 100, r * 100, 0, 2 * Math.PI);
 					ctx.fill();
+					ctx.resetTransform();
 				};
 
 				/**
