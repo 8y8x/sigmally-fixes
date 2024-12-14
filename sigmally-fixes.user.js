@@ -3803,10 +3803,11 @@
 
 			// now, upload data
 			if (resizing) {
+				console.log('render.upload resizing', key);
 				gl.bindBuffer(gl.ARRAY_BUFFER, vao.alphaBuffer);
-				gl.bufferData(gl.ARRAY_BUFFER, alphaBuffer, gl.STATIC_DRAW);
+				gl.bufferData(gl.ARRAY_BUFFER, alphaBuffer.byteLength, gl.STATIC_DRAW);
 				gl.bindBuffer(gl.ARRAY_BUFFER, vao.circleBuffer);
-				gl.bufferData(gl.ARRAY_BUFFER, objBuffer.byteLength, gl.STATIC_DRAW);
+				gl.bufferData(gl.ARRAY_BUFFER, objBuffer, gl.STATIC_DRAW);
 			} else {
 				gl.bindBuffer(gl.ARRAY_BUFFER, vao.circleBuffer);
 				gl.bufferSubData(gl.ARRAY_BUFFER, 0, objBuffer);
