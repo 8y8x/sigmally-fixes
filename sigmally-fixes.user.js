@@ -1788,7 +1788,8 @@
 			// if the view areas are disjoint, then there's nothing we can do but this should never happen when
 			// splitrunning
 
-			if (!settings.mergeViewArea) {
+			if (!settings.mergeViewArea || render.lastFrame > 45_000) {
+				// very performance-intensive; don't update if not rendering
 				sync.merge = undefined;
 				render.upload('pellets');
 				return;
@@ -3731,7 +3732,7 @@
 		 * @param {number=} now
 		 */
 		render.upload = (key, now) => {
-			if ((key === 'pellets' && aux.sigmodSettings?.hidePellets) || performance.now() - lastFrame > 45_000) {
+			if ((key === 'pellets' && aux.sigmodSettings?.hidePellets) || performance.now() - render.lastFrame > 45_000) {
 				// do not render pellets on inactive windows (very laggy!)
 				uploadedPellets = 0;
 				return;
@@ -3845,12 +3846,12 @@
 
 		// #4 : define the render function
 		render.fps = 0;
-		let lastFrame = performance.now();
+		render.lastFrame = performance.now();
 		function renderGame() {
 			const now = performance.now();
-			const dt = Math.max(now - lastFrame, 0.1) / 1000; // there's a chance (now - lastFrame) can be 0
+			const dt = Math.max(now - render.lastFrame, 0.1) / 1000; // there's a chance (now - lastFrame) can be 0
 			render.fps += (1 / dt - render.fps) / 10;
-			lastFrame = now;
+			render.lastFrame = now;
 
 			if (gl.isContextLost()) {
 				requestAnimationFrame(renderGame);
@@ -4250,7 +4251,7 @@
 					gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
 
 					gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
-					gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([ 0.25, 1.5 ]), gl.STATIC_DRAW);
+					gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([ 0.33, 1.5 ]), gl.STATIC_DRAW);
 					gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 
 					gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, map.cells.size);
