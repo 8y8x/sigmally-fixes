@@ -1815,7 +1815,7 @@
 			// if the view areas are disjoint, then there's nothing we can do but this should never happen when
 			// splitrunning
 
-			if (!settings.mergeViewArea || render.lastFrame > 45_000) {
+			if (!settings.mergeViewArea || performance.now() - render.lastFrame > 45_000) {
 				// very performance-intensive; don't update if not rendering
 				sync.merge = undefined;
 				render.upload('pellets');
@@ -2248,6 +2248,7 @@
 			world.mineDead.clear();
 			sync.tabsync(performance.now());
 			sync.worldupdate(new DataView(new Uint8Array([ 0x12 ]).buffer)); // broadcast a "delete all cells" packet
+			sync.tryMerge();
 		}
 
 		let reconnectAttempts = 0;
