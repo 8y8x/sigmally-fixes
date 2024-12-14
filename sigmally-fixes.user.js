@@ -853,7 +853,7 @@
 			document.body.appendChild(canvas);
 
 			const ctx = aux.require(
-				canvas.getContext('2d'),
+				canvas.getContext('2d', { willReadFrequently: false }),
 				'Unable to get 2D context for the minimap. This is probably your browser being dumb, maybe reload ' +
 				'the page?',
 			);
@@ -3566,8 +3566,6 @@
 				'the page?',
 			);
 
-			const baseTextSize = 72;
-
 			/**
 			 * @param {string} text
 			 * @param {boolean} silhouette
@@ -3578,6 +3576,7 @@
 				const texture = gl.createTexture();
 				if (!texture) return texture;
 
+				const baseTextSize = devicePixelRatio > 1 ? 96 : 72;
 				const textSize = baseTextSize * (mass ? 0.5 * settings.massScaleFactor : settings.nameScaleFactor);
 				const lineWidth = Math.ceil(textSize / 10);
 
@@ -3697,7 +3696,8 @@
 		let pelletBuffer = new Float32Array(0);
 		let uploadedPellets = 0;
 		render.uploadPellets = () => {
-			if (aux.sigmodSettings?.hidePellets) {
+			if (aux.sigmodSettings?.hidePellets || performance.now() - lastFrame > 45_000) {
+				// do not render pellets on inactive windows (very laggy!)
 				uploadedPellets = 0;
 				return;
 			}
@@ -3715,7 +3715,9 @@
 			while (instances < expectedPellets) {
 				instances *= 2;
 			}
-			const resizing = instances !== pelletAlpha.length;
+			gl.bindBuffer(gl.ARRAY_BUFFER, glconf.pelletAlphaBuffer);
+			// when the webgl context is lost, the buffer sizes get reset to zero
+			const resizing = instances * 4 !== gl.getBufferParameter(gl.ARRAY_BUFFER, gl.BUFFER_SIZE);
 			if (resizing) {
 				pelletAlpha = new Float32Array(instances);
 				pelletBuffer = new Float32Array(instances * 7);
