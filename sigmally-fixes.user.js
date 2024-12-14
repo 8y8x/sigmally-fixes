@@ -1065,6 +1065,7 @@
 			clans: false,
 			clanScaleFactor: 1,
 			drawDelay: 120,
+			dynamicPelletCount: false,
 			jellySkinLag: true,
 			massBold: false,
 			massOpacity: 1,
@@ -1401,7 +1402,11 @@
 			'camera at your center of mass (i.e. your tiny cells won\'t mess up your aim).');
 		checkbox('mergeViewArea', 'Combine visible cells between tabs',
 			'When enabled, *all* tabs will share what cells they see between each other. Sigmally Fixes puts a lot ' +
-			'of effort into making this as seamless as possible, so it may be laggy on lower-end devices.');
+			'of effort into making this as seamless as possible, so it can be laggy on lower-end devices.');
+		checkbox('dynamicPelletCount', 'Dynamically reduce pellets when big',
+			'When enabled with \'Combine visible cells between tabs\', Sigmally Fixes will try to keep the total ' +
+			'number of visible pellets at around 100. You should try this if you find \'one-tab\' multiboxing too ' +
+			'laggy.');
 		slider('outlineMulti', 'Current tab cell outline thickness', 0.2, 0, 1, 0.01, 2, true,
 			'Draws an inverse outline on your cells, the thickness being a % of your cell radius. This only shows ' +
 			'when \'merge camera between tabs\' is enabled and when you\'re near one of your tabs.');
@@ -1807,9 +1812,10 @@
 			}
 		};
 
-		// stored outside to keep memory allocated
 		/** @type {Map<number, Cell>} */
 		const all = new Map();
+		let pelletThreshold = Infinity;
+		let lastUpdatedThreshold = 0;
 
 		sync.tryMerge = () => {
 			// for camera merging to look extremely smooth, we need to merge packets and apply them *ONLY* when all
@@ -1828,6 +1834,15 @@
 				sync.merge = undefined;
 				render.upload('pellets');
 				return;
+			}
+
+			if (sync.others.size === 0) {
+				// save on performance if people leave the mergeViewArea setting on
+				sync.merge = world;
+				render.upload('pellets');
+				return;
+			} else if (sync.merge === world) {
+				sync.merge = undefined;
 			}
 
 			/** @type {Map<number, Cell>} */
@@ -1877,6 +1892,28 @@
 				return true;
 			};
 
+			if (settings.dynamicPelletCount) {
+				// only update the threshold every few seconds, otherwise pellets may rapidly flicker in and out
+				if (now - lastUpdatedThreshold > 1000) {
+					lastUpdatedThreshold = now;
+
+					let totalPellets = world.pellets.size;
+					for (const key of sync.others.keys()) {
+						const map = sync.maps.get(key);
+						if (!map) continue;
+						totalPellets += map.pellets.size;
+					}
+
+					// totalPellets = 100 => pelletThreshold = 100%
+					// totalPellets = 200 => pelletThreshold = 50%
+					// totalPellets = 400 => pelletThreshold = 25%
+					// reciprocal function
+					pelletThreshold = Math.max(100 / totalPellets, 0) * 50;
+				}
+			} else {
+				pelletThreshold = Infinity;
+			}
+
 			/**
 			 * @param {'cells' | 'pellets'} mapKey
 			 * @returns {boolean}
@@ -1889,7 +1926,9 @@
 					// disregard tabs not updated in 250ms, they may have lagged out
 					if (now - localized(data, data.updated.now) > 250) continue;
 					for (const cell of map[mapKey].values()) {
-						if (!check(cell)) return false;
+						if (!cell.pellet || cell.id % 50 <= pelletThreshold) {
+							if (!check(cell)) return false;
+						}
 					}
 				}
 
@@ -1900,8 +1939,10 @@
 				return;
 
 			// #3 : then, check if all the pellets are synced
-			for (const [id, cell] of world.pellets)
-				all.set(id, cell);
+			for (const [id, cell] of world.pellets) {
+				if (id % 50 <= pelletThreshold)
+					all.set(id, cell);
+			}
 			if (!iterate('pellets'))
 				return;
 
@@ -4338,7 +4379,12 @@
 					let i = 0;
 					for (const cell of map.cells.values()) {
 						if (cell.jagged) cellAlpha[i++] = 0;
-						else cellAlpha[i++] = calcAlpha(cell);
+						else {
+							let alpha = calcAlpha(cell);
+							// it looks kinda weird when cells get sucked in when being eaten
+							if (cell.deadTo !== -1) alpha *= 0.25;
+							cellAlpha[i++] = alpha;
+						}
 					}
 
 					gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao[1].alphaBuffer);
