@@ -1201,7 +1201,7 @@
 			vanillaContainer.appendChild(vanilla);
 
 			const sigmod = fromHTML(`
-				<div class="modRowItems justify-sb" title="${help}">
+				<div class="modRowItems justify-sb" style="padding: 5px 10px;" title="${help}">
 					<span>${title}</span>
 					<span class="justify-sb">
 						<input id="sfsm-${property}" style="width: 200px;" type="range" min="${min}" max="${max}"
@@ -1257,9 +1257,10 @@
 			vanillaContainer.appendChild(vanilla);
 
 			const sigmod = fromHTML(`
-				<div class="modRowItems justify-sb" title="${help}">
+				<div class="modRowItems justify-sb" style="padding: 5px 10px;" title="${help}">
 					<span>${title}</span>
-					<input class="modInput" id="sfsm-${property}" placeholder="${placeholder}" type="text" />
+					<input class="modInput" id="sfsm-${property}" placeholder="${placeholder}" \
+						style="width: 250px;" type="text" />
 				</div>
 			`);
 			listen(/** @type {HTMLInputElement} */(sigmod.querySelector(`input#sfsm-${property}`)));
@@ -1298,7 +1299,7 @@
 			vanillaContainer.appendChild(vanilla);
 
 			const sigmod = fromHTML(`
-				<div class="modRowItems justify-sb" title="${help}">
+				<div class="modRowItems justify-sb" style="padding: 5px 10px;" title="${help}">
 					<span>${title}</span>
 					<div style="width: 75px; text-align: center;">
 						<div class="modCheckbox" style="display: inline-block;">
@@ -1354,7 +1355,7 @@
 			vanillaContainer.appendChild(vanilla);
 
 			const sigmod = fromHTML(`
-				<div class="modRowItems justify-sb" title="${help}">
+				<div class="modRowItems justify-sb" style="padding: 5px 10px;" title="${help}">
 					<span>${title}</span>
 					<div style="width: 75px; text-align: center;">
 						<div class="modCheckbox" style="display: inline-block;">
@@ -1380,9 +1381,6 @@
 		slider('drawDelay', 'Draw delay', 120, 40, 300, 1, 0, false,
 			'How long (in ms) cells will lag behind for. Lower values mean cells will very quickly catch up to where ' +
 			'they actually are.');
-		slider('unsplittableOpacity', 'Unsplittable cell outline opacity', 1, 0, 1, 0.01, 2, true,
-			'How visible the white outline around cells that can\'t split should be. 0 = not visible, 1 = fully ' +
-			'visible.');
 		checkbox('cellOutlines', 'Cell outlines', 'Whether the subtle dark outlines around cells (including skins) ' +
 			'should draw.');
 		slider('cellOpacity', 'Cell opacity', undefined, 0.5, 1, 0.005, 3, false,
@@ -1391,29 +1389,27 @@
 		input('selfSkin', 'Self skin URL (not synced)', 'https://i.imgur.com/...', false,
 			'Direct URL to a custom skin for yourself. Not visible to others. You are able to use different skins ' +
 			'for different tabs.');
-		checkbox('syncSkin', 'Show self skin on other tabs',
-			'Whether your custom skin should be shown on your other tabs too.');
 		input('background', 'Map background image', 'https://i.imgur.com/...', true,
 			'A square background image to use within the entire map border. Images under 1024x1024 will be treated ' +
 			'as a repeating pattern, where 32 pixels = 1 grid square.');
 		checkbox('tracer', 'Lines between cells and mouse', 'If enabled, draws a line between all of the cells you ' +
 			'control and your mouse. Useful as a hint to your subconscious about which tab you\'re currently on.');
-		separator();
+		separator('• multibox •');
 		checkbox('mergeCamera', 'Merge camera between tabs',
 			'Whether to place the camera in between your nearby tabs. This makes tab changes while multiboxing ' +
 			'completely seamless (a sort of \'one-tab\'). This setting uses a weighted camera, which focuses the ' +
 			'camera at your center of mass (i.e. your tiny cells won\'t mess up your aim).');
 		checkbox('mergeViewArea', 'Combine visible cells between tabs',
-			'When enabled, all tabs will share what cells they see between each other. Sigmally Fixes puts a lot of ' +
-			'effort into making this as seamless as possible, so it may be laggy on lower-end devices.');
+			'When enabled, *all* tabs will share what cells they see between each other. Sigmally Fixes puts a lot ' +
+			'of effort into making this as seamless as possible, so it may be laggy on lower-end devices.');
 		slider('outlineMulti', 'Current tab cell outline thickness', 0.2, 0, 1, 0.01, 2, true,
-			'Draws an inverse outline on your cells. This is a necessity when using the \'merge camera\' setting. ' +
-			'Setting to 0 turns this off. Only shows when near one of your tabs.');
+			'Draws an inverse outline on your cells, the thickness being a % of your cell radius. This only shows ' +
+			'when \'merge camera between tabs\' is enabled and when you\'re near one of your tabs.');
 		color('outlineMultiColor', 'Current tab outline color',
 			'The outline color of your current multibox tab.');
 		color('outlineMultiInactiveColor', 'Other tab outline color',
 			'The outline color for the cells of your other unfocused multibox tabs. Turn off the checkbox to disable.');
-		separator();
+		separator('• inputs •');
 		slider('scrollFactor', 'Zoom speed', 1, 0.05, 1, 0.05, 2, false,
 			'A smaller zoom speed lets you fine-tune your zoom.');
 		checkbox('blockBrowserKeybinds', 'Block all browser keybinds',
@@ -1422,7 +1418,7 @@
 			'browser extension to block it for you.');
 		checkbox('blockNearbyRespawns', 'Block respawns near other tabs',
 			'Disables the respawn keybind (SigMod-only) when near one of your bigger tabs.');
-		separator();
+		separator('• text •');
 		slider('nameScaleFactor', 'Name scale factor', 1, 0.5, 2, 0.01, 2, false, 'The size multiplier of names.');
 		slider('massScaleFactor', 'Mass scale factor', 1, 0.5, 4, 0.01, 2, false,
 			'The size multiplier of mass (which is half the size of names)');
@@ -1439,16 +1435,23 @@
 		slider('textOutlinesFactor', 'Text outline thickness factor', 1, 0, 2, 0.01, 2, false,
 			'The multiplier of the thickness of the black stroke around names, mass, and clans on cells. You can set ' +
 			'this to 0 to disable outlines AND text shadows.');
-		separator();
+		separator('• other •');
+		slider('unsplittableOpacity', 'Unsplittable cell outline opacity', 1, 0, 1, 0.01, 2, true,
+			'How visible the white outline around cells that can\'t split should be. 0 = not visible, 1 = fully ' +
+			'visible.');
 		checkbox('jellySkinLag', 'Jelly physics cell size lag',
 			'Jelly physics causes cells to grow and shrink slower than text and skins, making the game more ' +
 			'satisfying. If you have a skin that looks weird only with jelly physics, try turning this off.');
-		checkbox('cellGlow', 'Cell glow', 'When enabled, makes cells have a slight glow.');
-		checkbox('pelletGlow', 'Pellet glow', 'When enabled, gives pellets a slight glow.');
+		checkbox('cellGlow', 'Cell glow', 'When enabled, makes cells have a slight glow. This could slightly ' +
+			'affect performance.');
+		checkbox('pelletGlow', 'Pellet glow', 'When enabled, gives pellets a slight glow. This should not affect ' +
+			'performance.');
 		checkbox('boldUi', 'Top UI uses bold text', 'When enabled, the top-left score and stats UI and the ' +
 			'leaderboard will use the bold Ubuntu font.');
 		checkbox('showStats', 'Show server stats', 'When disabled, hides the top-left server stats including the ' +
 			'player count and server uptime.');
+		checkbox('syncSkin', 'Show self skin on other tabs',
+			'Whether your custom skin should be shown on your other tabs too.');
 
 		// #3 : create options for sigmod
 		let sigmodInjection;
