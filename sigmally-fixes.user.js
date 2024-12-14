@@ -1082,6 +1082,7 @@
 			selfSkin: '',
 			showStats: true,
 			syncSkin: true,
+			textOutlinesFactor: 1,
 			tracer: false,
 			unsplittableOpacity: 1,
 		};
@@ -1435,6 +1436,9 @@
 		slider('clanScaleFactor', 'Clan scale factor', 1, 0.5, 4, 0.01, 2, false,
 			'The size multiplier of a player\'s clan displayed above their name (only when \'Show clans\' is ' +
 			'enabled). When names are off, names will be replaced with clans and use the name scale factor instead.');
+		slider('textOutlinesFactor', 'Text outline thickness factor', 1, 0, 2, 0.01, 2, false,
+			'The multiplier of the thickness of the black stroke around names, mass, and clans on cells. You can set ' +
+			'this to 0 to disable outlines AND text shadows.');
 		separator();
 		checkbox('jellySkinLag', 'Jelly physics cell size lag',
 			'Jelly physics causes cells to grow and shrink slower than text and skins, making the game more ' +
@@ -3674,7 +3678,7 @@
 
 				const baseTextSize = devicePixelRatio > 1 ? 96 : 72;
 				const textSize = baseTextSize * (mass ? 0.5 * settings.massScaleFactor : settings.nameScaleFactor);
-				const lineWidth = Math.ceil(textSize / 10);
+				const lineWidth = Math.ceil(textSize / 10) * settings.textOutlinesFactor;
 
 				let font = '';
 				if (mass ? settings.massBold : settings.nameBold)
@@ -3682,7 +3686,8 @@
 				font += ' ' + textSize + 'px Ubuntu';
 
 				ctx.font = font;
-				canvas.width = ctx.measureText(text).width + lineWidth * 2;
+				// if rendering an empty string (somehow) then width can be 0 with no outlines
+				canvas.width = (ctx.measureText(text).width + lineWidth * 2) || 1;
 				canvas.height = textSize * 3;
 				ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -3695,10 +3700,10 @@
 				ctx.textBaseline = 'middle';
 
 				ctx.shadowBlur = lineWidth;
-				ctx.shadowColor = '#0002';
+				ctx.shadowColor = lineWidth > 0 ? '#0002' : 'transparent';
 
 				// add a space, which is to prevent sigmod from detecting the name
-				ctx.strokeText(text + ' ', lineWidth, textSize * 1.5);
+				if (lineWidth > 0) ctx.strokeText(text + ' ', lineWidth, textSize * 1.5);
 				ctx.shadowColor = 'transparent';
 				ctx.fillText(text + ' ', lineWidth, textSize * 1.5);
 
@@ -3711,8 +3716,6 @@
 				return texture;
 			};
 
-			let drawnMassBold = false;
-			let drawnMassScaleFactor = -1;
 			let massAspectRatio = 1; // assumption: all mass digits are the same aspect ratio - true in the Ubuntu font
 			/** @type {(WebGLTexture | undefined)[]} */
 			const massTextCache = [];
@@ -3722,12 +3725,6 @@
 			 * @returns {{ aspectRatio: number, texture: WebGLTexture | null }}
 			 */
 			const massTextFromCache = digit => {
-				if (settings.massScaleFactor !== drawnMassScaleFactor || settings.massBold !== drawnMassBold) {
-					while (massTextCache.pop());
-					drawnMassScaleFactor = settings.massScaleFactor;
-					drawnMassBold = settings.massBold;
-				}
-
 				let cached = massTextCache[digit];
 				if (!cached) {
 					cached = massTextCache[digit] = texture(digit, false, true);
@@ -3742,14 +3739,23 @@
 				while (massTextCache.pop());
 			};
 
+			let drawnMassBold = false;
+			let drawnMassScaleFactor = -1;
 			let drawnNamesBold = false;
 			let drawnNamesScaleFactor = -1;
+			let drawnOutlinesFactor = 1;
 
 			const refreshTextCache = () => {
-				if (drawnNamesScaleFactor !== settings.nameScaleFactor || drawnNamesBold !== settings.nameBold) {
-					cache.clear();
-					drawnNamesScaleFactor = settings.nameScaleFactor;
+				if (drawnMassBold !== settings.massBold || drawnMassScaleFactor !== settings.massScaleFactor
+					|| drawnNamesScaleFactor !== settings.nameScaleFactor || drawnNamesBold !== settings.nameBold
+					|| drawnOutlinesFactor !== settings.textOutlinesFactor
+				) {
+					resetTextCache();
+					drawnMassBold = settings.massBold;
+					drawnMassScaleFactor = settings.massScaleFactor;
 					drawnNamesBold = settings.nameBold;
+					drawnNamesScaleFactor = settings.nameScaleFactor;
+					drawnOutlinesFactor = settings.textOutlinesFactor;
 				}
 			};
 
@@ -4252,8 +4258,12 @@
 						for (let i = 0; i < mass.length; ++i) {
 							const { aspectRatio, texture } = massTextFromCache(mass[i]);
 							textUboFloats[9] = aspectRatio; // text_aspect_ratio
-							// text_offset.x; multiply by 0.75 to reduce kerning (padding) between digits
-							textUboFloats[12] = (i - (mass.length - 1) / 2) * 0.75 * settings.massScaleFactor;
+							// text_offset.x
+							// thickness 0 => 1.00 multiplier
+							// thickness 1 => 0.75
+							// probably a reciprocal function
+							textUboFloats[12] = (i - (mass.length - 1) / 2)
+								* (1 - 0.25 * Math.sqrt(settings.textOutlinesFactor)) * settings.massScaleFactor;
 							textUboFloats[13] = yOffset;
 							gl.bindTexture(gl.TEXTURE_2D, texture);
 
