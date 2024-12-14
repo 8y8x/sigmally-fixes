@@ -4393,7 +4393,8 @@
 				}
 
 				const { canvas, ctx } = ui.minimap;
-				const canvasLength = canvas.width = canvas.height = 200 * devicePixelRatio; // clears the canvas
+				// clears the canvas
+				const canvasLength = canvas.width = canvas.height = Math.ceil(200 * devicePixelRatio);
 				const sectorSize = canvas.width / 5;
 
 				// cache the background if necessary (25 texts = bad)
