@@ -3758,21 +3758,28 @@
 
 
 		// #3 : define ubo views
-		const borderUboBuffer = new ArrayBuffer(0x24);
+		// firefox adds some padding to uniform buffer sizes, so best to check its size
+		gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Border);
+		const borderUboBuffer = new ArrayBuffer(gl.getBufferParameter(gl.UNIFORM_BUFFER, gl.BUFFER_SIZE));
 		// must reference an arraybuffer for the memory to be shared between these views
 		const borderUboFloats = new Float32Array(borderUboBuffer);
 		const borderUboInts = new Int32Array(borderUboBuffer);
 
-		const cellUboBuffer = new ArrayBuffer(0x28);
+		gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Cell);
+		const cellUboBuffer = new ArrayBuffer(gl.getBufferParameter(gl.UNIFORM_BUFFER, gl.BUFFER_SIZE));
 		const cellUboFloats = new Float32Array(cellUboBuffer);
 		const cellUboInts = new Int32Array(cellUboBuffer);
 
-		const textUboBuffer = new ArrayBuffer(0x38);
+		gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Text);
+		const textUboBuffer = new ArrayBuffer(gl.getBufferParameter(gl.UNIFORM_BUFFER, gl.BUFFER_SIZE));
 		const textUboFloats = new Float32Array(textUboBuffer);
 		const textUboInts = new Int32Array(textUboBuffer);
 
-		const tracerUboBuffer = new ArrayBuffer(0x10);
+		gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Tracer);
+		const tracerUboBuffer = new ArrayBuffer(gl.getBufferParameter(gl.UNIFORM_BUFFER, gl.BUFFER_SIZE));
 		const tracerUboFloats = new Float32Array(tracerUboBuffer);
+
+		gl.bindBuffer(gl.UNIFORM_BUFFER, null); // leaving uniform buffer bound = scary!
 
 
 		// #4 : define the render function
