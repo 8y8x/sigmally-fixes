@@ -2685,7 +2685,14 @@
 
 		addEventListener('wheel', e => {
 			if (unfocused()) return;
-			input.zoom *= 0.8 ** (e.deltaY / 100 * settings.scrollFactor);
+			let deltaY;
+			if (e.deltaMode === e.DOM_DELTA_PAGE) {
+				// support for the very obscure "scroll by page" setting in windows
+				deltaY = e.deltaY;
+			} else { // i don't think browsers support DOM_DELTA_LINE, so assume DOM_DELTA_PIXEL
+				deltaY = e.deltaY / 100;
+			}
+			input.zoom *= 0.8 ** (deltaY * settings.scrollFactor);
 			const minZoom = (!settings.mergeCamera && !aux.settings.zoomout) ? 1 : 0.8 ** 10;
 			input.zoom = Math.min(Math.max(input.zoom, minZoom), 0.8 ** -11);
 			sync.zoom();
