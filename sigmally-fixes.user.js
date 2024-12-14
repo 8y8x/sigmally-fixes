@@ -1062,6 +1062,7 @@
 			cellOpacity: 1,
 			cellOutlines: true,
 			clans: false,
+			clanScaleFactor: 1,
 			drawDelay: 120,
 			jellySkinLag: true,
 			massBold: false,
@@ -1428,9 +1429,12 @@
 			'names.');
 		checkbox('nameBold', 'Bold name text', 'Uses the bold Ubuntu font for names (like Agar.io).');
 		checkbox('massBold', 'Bold mass text', 'Uses a bold font for mass.');
-		separator();
 		checkbox('clans', 'Show clans', 'When enabled, shows the name of the clan a player is in above their name. ' +
 			'If you turn off names (using SigMod), then player names will be replaced with their clan\'s.');
+		slider('clanScaleFactor', 'Clan scale factor', 1, 0.5, 4, 0.01, 2, false,
+			'The size multiplier of a player\'s clan displayed above their name (only when \'Show clans\' is ' +
+			'enabled). When names are off, names will be replaced with clans and use the name scale factor instead.');
+		separator();
 		checkbox('jellySkinLag', 'Jelly physics cell size lag',
 			'Jelly physics causes cells to grow and shrink slower than text and skins, making the game more ' +
 			'satisfying. If you have a skin that looks weird only with jelly physics, try turning this off.');
@@ -4159,11 +4163,12 @@
 						const { aspectRatio, text, silhouette } = textFromCache(clan, useSilhouette);
 						if (text) {
 							textUboFloats[9] = aspectRatio; // text_aspect_ratio
-							textUboFloats[10] = showThisName ? 0.5 : 1; // text_scale
+							textUboFloats[10] = showThisName ? settings.clanScaleFactor * 0.5 : settings.nameScaleFactor;
 							textUboInts[11] = Number(useSilhouette); // text_silhouette_enabled
 							textUboFloats[12] = 0; // text_offset.x
-							textUboFloats[13] = showThisName ? -settings.nameScaleFactor/3 - 1/6 : 0; // text_offset.y
-							
+							textUboFloats[13] = showThisName
+								? -settings.nameScaleFactor/3 - settings.clanScaleFactor/6 : 0; // text_offset.y
+
 							gl.bindTexture(gl.TEXTURE_2D, text);
 							if (silhouette) {
 								gl.activeTexture(gl.TEXTURE1);
