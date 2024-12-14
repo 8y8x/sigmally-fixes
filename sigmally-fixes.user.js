@@ -267,7 +267,8 @@
 				aux.settings = /** @type {any} */ ({});
 			}
 
-			aux.settings.darkTheme = aux.setting('input#darkTheme', true);
+			// sigmod forces dark theme to be enabled
+			aux.settings.darkTheme = aux.setting('input#darkTheme', true) || !!aux.sigmodSettings;
 			aux.settings.jellyPhysics = aux.setting('input#jellyPhysics', false);
 			aux.settings.showBorder = aux.setting('input#showBorder', true);
 			aux.settings.showClanmates = aux.setting('input#showClanmates', true)
@@ -3638,6 +3639,29 @@
 				'the page?',
 			);
 
+			// sigmod forces a *really* ugly shadow on ctx.fillText so we have to lock the property beforehand
+			const realProps = Object.getOwnPropertyDescriptors(Object.getPrototypeOf(ctx));
+			const realShadowBlurSet
+				= aux.require(realProps.shadowBlur.set, 'did CanvasRenderingContext2D spec change?').bind(ctx);
+			const realShadowColorSet
+				= aux.require(realProps.shadowColor.set, 'did CanvasRenderingContext2D spec change?').bind(ctx);
+			Object.defineProperties(ctx, {
+				shadowBlur: {
+					get: () => 0,
+					set: x => {
+						if (x === 0) realShadowBlurSet(0);
+						else realShadowBlurSet(8);
+					},
+				},
+				shadowColor: {
+					get: () => 'transparent',
+					set: x => {
+						if (x === 'transparent') realShadowColorSet('transparent');
+						else realShadowColorSet('#0003');
+					},
+				},
+			});
+
 			/**
 			 * @param {string} text
 			 * @param {boolean} silhouette
@@ -3670,8 +3694,12 @@
 				ctx.strokeStyle = '#000';
 				ctx.textBaseline = 'middle';
 
+				ctx.shadowBlur = lineWidth;
+				ctx.shadowColor = '#0002';
+
 				// add a space, which is to prevent sigmod from detecting the name
 				ctx.strokeText(text + ' ', lineWidth, textSize * 1.5);
+				ctx.shadowColor = 'transparent';
 				ctx.fillText(text + ' ', lineWidth, textSize * 1.5);
 
 				const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -4248,8 +4276,8 @@
 				gl.bufferSubData(gl.ARRAY_BUFFER, 0, pelletAlpha);
 				gl.bindBuffer(gl.ARRAY_BUFFER, null); // TODO: necessary unbinding?
 
-				if (settings.pelletGlow) {
-					gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+				if (settings.pelletGlow && aux.settings.darkTheme) {
+					gl.blendFunc(gl.SRC_ALPHA, gl.ONE); // make sure pellets (and glow) are visible in light theme
 				}
 				gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
 				gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([ 1, 0 ]), gl.STATIC_DRAW);
@@ -4275,7 +4303,8 @@
 				/** @type {[Cell, number][]} */
 				const sorted = [];
 				for (const cell of map.cells.values()) {
-					const computedR = cell.or + (cell.nr - cell.or) * (now - cell.updated) / settings.drawDelay;
+					const rAlpha = Math.min(Math.max((now - cell.updated) / settings.drawDelay, 0), 1);
+					const computedR = cell.or + (cell.nr - cell.or) * rAlpha;
 					sorted.push([cell, computedR]);
 				}
 				// sort by smallest to biggest
