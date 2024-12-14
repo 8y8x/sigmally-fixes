@@ -1045,6 +1045,7 @@
 	/////////////////////////
 	const settings = (() => {
 		const settings = {
+			background: '',
 			blockBrowserKeybinds: false,
 			blockNearbyRespawns: false,
 			cellGlow: false,
@@ -1374,6 +1375,9 @@
 			'for different tabs.');
 		checkbox('syncSkin', 'Show self skin on other tabs',
 			'Whether your custom skin should be shown on your other tabs too.');
+		input('background', 'Map background image', 'https://i.imgur.com/...', true,
+			'A square background image to use within the entire map border. Images under 1024x1024 will be treated ' +
+			'as a repeating pattern, where 32 pixels = 1 grid square.');
 		checkbox('tracer', 'Lines between cells and mouse', 'If enabled, draws a line between all of the cells you ' +
 			'control and your mouse. Useful as a hint to your subconscious about which tab you\'re currently on.');
 		separator();
@@ -3117,6 +3121,8 @@
 				vec4 u_border_color; // @ 0x00, i = 0
 				vec4 u_border_xyzw_lrtb; // @ 0x10, i = 4
 				int u_border_flags; // @ 0x20, i = 8
+				float u_background_width; // @ 0x24, i = 9
+				float u_background_height; // @ 0x28, i = 10
 			};`,
 			cameraUbo: `layout(std140) uniform Camera { // size = 0x10
 				float u_camera_ratio; // @ 0x00
@@ -3167,6 +3173,7 @@
 			programs.bg = program('bg', `
 				${parts.boilerplate}
 				layout(location = 0) in vec2 a_vertex;
+				${parts.borderUbo}
 				${parts.cameraUbo}
 				flat out float f_blur;
 				flat out float f_thickness;
@@ -3179,7 +3186,16 @@
 
 					v_world_pos = a_vertex * vec2(u_camera_ratio, 1.0) / u_camera_scale;
 					v_world_pos += u_camera_pos * vec2(1.0, -1.0);
-					v_uv = v_world_pos * 0.02;
+
+					if ((u_border_flags & 0x04) != 0) { // background repeating
+						v_uv = v_world_pos * 0.02 * (50.0 / u_background_width);
+						v_uv /= vec2(1.0, u_background_height / u_background_width);
+					} else {
+						v_uv = (v_world_pos - vec2(u_border_xyzw_lrtb.x, u_border_xyzw_lrtb.z))
+							/ vec2(u_border_xyzw_lrtb.y - u_border_xyzw_lrtb.x,
+								u_border_xyzw_lrtb.w - u_border_xyzw_lrtb.z);
+						v_uv = vec2(v_uv.x, 1.0 - v_uv.y); // flip vertically
+					}
 
 					gl_Position = vec4(a_vertex, 0, 1); // span the whole screen
 				}
@@ -3195,11 +3211,10 @@
 				out vec4 out_color;
 
 				void main() {
-					if ((u_border_flags & 0x01) != 0) { // grid enabled
-						out_color = texture(u_texture, v_uv);
-						out_color.a *= 0.1;
-						if ((u_border_flags & 0x02) == 0) { // not dark theme
-							out_color.rgb *= vec3(0, 0, 0);
+					if ((u_border_flags & 0x01) != 0) { // background enabled
+						if ((u_border_flags & 0x04) != 0 // repeating
+							|| (0.0 <= min(v_uv.x, v_uv.y) && max(v_uv.x, v_uv.y) <= 1.0)) { // within border
+							out_color = texture(u_texture, v_uv);
 						}
 					}
 
@@ -3514,7 +3529,9 @@
 		// #1 : define small misc objects
 		// no point in breaking this across multiple lines
 		// eslint-disable-next-line max-len
-		const gridSrc = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAAAAXNSR0IArs4c6QAAAKVJREFUaEPtkkEKwlAUxBzw/jeWL4J4gECkSrqftC/pzjnn9gfP3ofcf/mWbY8OuVLBilypxutbKlIRyUC/liQWYyuC1UnDikhiMbYiWJ00rIgkFmMrgtVJw4pIYjG2IlidNKyIJBZjK4LVScOKSGIxtiJYnTSsiCQWYyuC1UnDikhiMbYiWJ00rIgkFmMrgtVJw4pIYjG2IlidNPwU2TbpHV/DPgFxJfgvliP9RQAAAABJRU5ErkJggg==';
+		const darkGridSrc = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAAACXBIWXMAAA7DAAAOwwHHb6hkAAAAGXRFWHRTb2Z0d2FyZQB3d3cuaW5rc2NhcGUub3Jnm+48GgAAAGBJREFUaIHtz4EJwCAAwDA39oT/H+qeEAzSXNA+a61xgfmeLtilEU0jmkY0jWga0TSiaUTTiKYRTSOaRjSNaBrRNKJpRNOIphFNI5pGNI1oGtE0omlEc83IN8aYpyN2+AH6nwOVa0odrQAAAABJRU5ErkJggg==';
+		// eslint-disable-next-line max-len
+		const lightGridSrc = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAAACXBIWXMAAA7DAAAOwwHHb6hkAAAAGXRFWHRTb2Z0d2FyZQB3d3cuaW5rc2NhcGUub3Jnm+48GgAAAGFJREFUaIHtzwENgDAQwMA9LvAvdJgg2UF6CtrZe6+vm5n7Oh3xlkY0jWga0TSiaUTTiKYRTSOaRjSNaBrRNKJpRNOIphFNI5pGNI1oGtE0omlE04imEc1vRmatdZ+OeMMDa8cDlf3ZAHkAAAAASUVORK5CYII=';
 
 		let lastMinimapDraw = performance.now();
 		/** @type {{ bg: ImageData, darkTheme: boolean } | undefined} */
@@ -3524,7 +3541,7 @@
 
 		// #2 : define helper functions
 		const { resetTextureCache, textureFromCache } = (() => {
-			/** @type {Map<string, WebGLTexture | null>} */
+			/** @type {Map<string, { texture: WebGLTexture, width: number, height: number } | null>} */
 			const cache = new Map();
 			render.textureCache = cache;
 
@@ -3532,6 +3549,7 @@
 				resetTextureCache: () => cache.clear(),
 				/**
 				 * @param {string} src
+				 * @returns {{ texture: WebGLTexture, width: number, height: number } | undefined}
 				 */
 				textureFromCache: src => {
 					const cached = cache.get(src);
@@ -3550,7 +3568,7 @@
 						gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
 						gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
 						gl.generateMipmap(gl.TEXTURE_2D);
-						cache.set(src, texture);
+						cache.set(src, { texture, width: image.width, height: image.height });
 					});
 					image.src = src;
 
@@ -3913,9 +3931,10 @@
 
 				gl.useProgram(glconf.programs.bg);
 
-				const gridTexture = textureFromCache(gridSrc);
-				if (!gridTexture) return;
-				gl.bindTexture(gl.TEXTURE_2D, gridTexture);
+				const texture
+					= textureFromCache(settings.background || (aux.settings.darkTheme ? darkGridSrc : lightGridSrc));
+				gl.bindTexture(gl.TEXTURE_2D, texture?.texture ?? null);
+				const repeating = texture && texture.width <= 1024 && texture.height <= 1024;
 
 				let borderColor;
 				let borderLrtb;
@@ -3937,7 +3956,12 @@
 				borderUboFloats[7] = borderLrtb.b;
 
 				// flags
-				borderUboInts[8] = (aux.settings.showGrid ? 0x01 : 0) | (aux.settings.darkTheme ? 0x02 : 0);
+				borderUboInts[8] = ((aux.settings.showGrid && texture) ? 0x01 : 0)
+					| (aux.settings.darkTheme ? 0x02 : 0) | (repeating ? 0x04 : 0);
+
+				// u_background_width and u_background_height
+				borderUboFloats[9] = texture?.width ?? 1;
+				borderUboFloats[10] = texture?.height ?? 1;
 
 				gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Border);
 				gl.bufferSubData(gl.UNIFORM_BUFFER, 0, borderUboFloats);
@@ -4011,7 +4035,7 @@
 						cellUboFloats[4] = cellUboFloats[5] = cellUboFloats[6] = cellUboFloats[7] = 0;
 						cellUboInts[9] = 0x01; // skin and nothing else
 
-						gl.bindTexture(gl.TEXTURE_2D, virusTexture);
+						gl.bindTexture(gl.TEXTURE_2D, virusTexture.texture);
 						gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Cell);
 						gl.bufferSubData(gl.UNIFORM_BUFFER, 0, cellUboBuffer);
 						gl.bindBuffer(gl.UNIFORM_BUFFER, null);
@@ -4060,7 +4084,7 @@
 							const texture = textureFromCache(skin);
 							if (texture) {
 								cellUboInts[9] |= 0x01; // skin
-								gl.bindTexture(gl.TEXTURE_2D, texture);
+								gl.bindTexture(gl.TEXTURE_2D, texture.texture);
 							}
 						}
 					}
