@@ -2699,8 +2699,6 @@
 		});
 
 		addEventListener('keydown', e => {
-			if (!document.hasFocus()) return;
-
 			if (e.code === 'Escape') {
 				if (document.activeElement === ui.chat.input)
 					ui.chat.input.blur();
@@ -3079,7 +3077,11 @@
 		glconf.pelletAlphaBuffer = /** @type {never} */ (undefined);
 		/** @type {WebGLBuffer} */
 		glconf.pelletBuffer = /** @type {never} */ (undefined);
-		/** @type {{ vao: WebGLVertexArrayObject, circleBuffer: WebGLBuffer, alphaBuffer: WebGLBuffer }[]} */
+		/** @type {{
+		 * 	vao: WebGLVertexArrayObject,
+		 * 	circleBuffer: WebGLBuffer,
+		 * 	alphaBuffer: WebGLBuffer,
+		 * 	alphaBufferSize: number }[]} */
 		glconf.vao = [];
 
 		const gl = ui.game.gl;
@@ -3546,7 +3548,7 @@
 				gl.vertexAttribPointer(4, 1, gl.FLOAT, false, 0, 0);
 				gl.vertexAttribDivisor(4, 1);
 
-				glconf.vao.push({ vao, alphaBuffer, circleBuffer });
+				glconf.vao.push({ vao, alphaBuffer, circleBuffer, alphaBufferSize: 0 });
 			}
 
 			gl.bindVertexArray(glconf.vao[0].vao);
@@ -3847,8 +3849,7 @@
 				instances *= 2;
 			}
 			// when the webgl context is lost, the buffer sizes get reset to zero
-			gl.bindBuffer(gl.ARRAY_BUFFER, vao.alphaBuffer);
-			const resizing = instances * 4 !== gl.getBufferParameter(gl.ARRAY_BUFFER, gl.BUFFER_SIZE);
+			const resizing = instances * 4 !== vao.alphaBufferSize;
 			if (resizing) {
 				if (key === 'pellets') {
 					alphaBuffer = pelletAlpha = new Float32Array(instances);
@@ -3890,11 +3891,11 @@
 
 			// now, upload data
 			if (resizing) {
-				console.log('render.upload resizing', key);
 				gl.bindBuffer(gl.ARRAY_BUFFER, vao.alphaBuffer);
 				gl.bufferData(gl.ARRAY_BUFFER, alphaBuffer.byteLength, gl.STATIC_DRAW);
 				gl.bindBuffer(gl.ARRAY_BUFFER, vao.circleBuffer);
 				gl.bufferData(gl.ARRAY_BUFFER, objBuffer, gl.STATIC_DRAW);
+				vao.alphaBufferSize = alphaBuffer.byteLength;
 			} else {
 				gl.bindBuffer(gl.ARRAY_BUFFER, vao.circleBuffer);
 				gl.bufferSubData(gl.ARRAY_BUFFER, 0, objBuffer);
@@ -4456,7 +4457,7 @@
 				ctx.globalAlpha = 1;
 
 				// draw cells
-				/** @param {Cell} cell */
+				/** @param {{ nx: number, ny: number, nr: number, Rgb: number, rGb: number, rgB: number }} cell */
 				const drawCell = function drawCell(cell) {
 					const x = (cell.nx - border.l) / gameWidth * canvas.width;
 					const y = (cell.ny - border.t) / gameHeight * canvas.height;
@@ -4527,14 +4528,10 @@
 
 				if (ownN <= 0) {
 					// if no cells were drawn, draw our spectate pos instead
-					const x = (world.camera.x - border.l) / gameWidth * canvas.width;
-					const y = (world.camera.y - border.t) / gameHeight * canvas.height;
-
-					ctx.fillStyle = '#faa';
-					ctx.beginPath();
-					ctx.moveTo(x + 5, y);
-					ctx.arc(x, y, 5 * devicePixelRatio, 0, 2 * Math.PI);
-					ctx.fill();
+					drawCell({
+						nx: world.camera.x, ny: world.camera.y, nr: gameWidth / canvas.width * 5,
+						Rgb: 1, rGb: 0.6, rgB: 0.6
+					});
 				} else {
 					ownX /= ownN;
 					ownY /= ownN;
