@@ -1047,6 +1047,7 @@
 		const settings = {
 			blockBrowserKeybinds: false,
 			blockNearbyRespawns: false,
+			cellGlow: false,
 			cellOpacity: 1,
 			cellOutlines: true,
 			clans: false,
@@ -1063,6 +1064,7 @@
 			// delta's default colors, #ff00aa and #ffffff
 			outlineMultiColor: /** @type {[number, number, number, number]} */ ([1, 0, 2/3, 1]),
 			outlineMultiInactiveColor: /** @type {[number, number, number, number]} */ ([1, 1, 1, 1]),
+			pelletGlow: false,
 			scrollFactor: 1,
 			selfSkin: '',
 			syncSkin: true,
@@ -1413,6 +1415,8 @@
 		checkbox('jellySkinLag', 'Jelly physics cell size lag',
 			'Jelly physics causes cells to grow and shrink slower than text and skins, making the game more ' +
 			'satisfying. If you have a skin that looks weird only with jelly physics, try turning this off.');
+		checkbox('cellGlow', 'Cell glow', 'When enabled, makes cells have a slight glow.');
+		checkbox('pelletGlow', 'Pellet glow', 'When enabled, gives pellets a slight glow.');
 
 		// #3 : create options for sigmod
 		let sigmodInjection;
@@ -1786,7 +1790,7 @@
 
 			if (!settings.mergeViewArea) {
 				sync.merge = undefined;
-				render.uploadPellets();
+				render.upload('pellets');
 				return;
 			}
 
@@ -1927,7 +1931,7 @@
 			for (const [id, cell] of cells) clean(cells, id, cell);
 			for (const [id, cell] of pellets) clean(pellets, id, cell);
 			sync.clean();
-			render.uploadPellets();
+			render.upload('pellets');
 		};
 
 		sync.clean = () => {
@@ -3031,6 +3035,8 @@
 		glconf.pelletAlphaBuffer = /** @type {never} */ (undefined);
 		/** @type {WebGLBuffer} */
 		glconf.pelletBuffer = /** @type {never} */ (undefined);
+		/** @type {{ vao: WebGLVertexArrayObject, circleBuffer: WebGLBuffer, alphaBuffer: WebGLBuffer }[]} */
+		glconf.vao = [];
 
 		const gl = ui.game.gl;
 		/** @type {Map<string, number>} */
@@ -3130,6 +3136,10 @@
 				vec4 u_cell_unsplittable_outline; // @ 0x20
 				vec4 u_cell_subtle_outline_override; // @ 0x30
 				float u_cell_active_outline_thickness; // @ 0x40
+			};`,
+			circleUbo: `layout(std140) uniform Circle { // size = 0x08
+				float u_circle_alpha; // @ 0x00
+				float u_circle_scale; // @ 0x04
 			};`,
 			textUbo: `layout(std140) uniform Text { // size = 0x38
 				vec4 u_text_color1; // @ 0x00, i = 0
@@ -3316,7 +3326,8 @@
 
 
 
-			programs.pellet = program('pellet', `
+			// also used to draw glow
+			programs.circle = program('circle', `
 				${parts.boilerplate}
 				layout(location = 0) in vec2 a_vertex;
 				layout(location = 1) in vec2 a_cell_pos;
@@ -3324,16 +3335,23 @@
 				layout(location = 3) in vec4 a_cell_color;
 				layout(location = 4) in float a_cell_alpha;
 				${parts.cameraUbo}
+				${parts.circleUbo}
 				out vec2 v_vertex;
 				flat out float f_blur;
 				flat out vec4 f_cell_color;
 
 				void main() {
-					f_blur = 0.5 * a_cell_radius * (540.0 * u_camera_scale);
-					f_cell_color = a_cell_color * vec4(1, 1, 1, a_cell_alpha);
+					float radius = a_cell_radius;
+					f_cell_color = a_cell_color * vec4(1, 1, 1, a_cell_alpha * u_circle_alpha);
+					if (u_circle_scale > 0.0) {
+						f_blur = 1.0;
+						radius *= u_circle_scale;
+					} else {
+						f_blur = 0.5 * a_cell_radius * (540.0 * u_camera_scale);
+					}
 					v_vertex = a_vertex;
 
-					vec2 clip_pos = -u_camera_pos + a_cell_pos + v_vertex * a_cell_radius;
+					vec2 clip_pos = -u_camera_pos + a_cell_pos + v_vertex * radius;
 					clip_pos *= u_camera_scale * vec2(1.0 / u_camera_ratio, -1.0);
 					gl_Position = vec4(clip_pos, 0, 1);
 				}
@@ -3345,11 +3363,12 @@
 				out vec4 out_color;
 
 				void main() {
+					// use squared distance for more natural glow; shouldn't matter for pellets
 					float d = length(v_vertex.xy);
 					out_color = f_cell_color;
 					out_color.a *= clamp(f_blur * (1.0 - d), 0.0, 1.0);
 				}
-			`, ['Camera'], []);
+			`, ['Camera', 'Circle'], []);
 
 
 
@@ -3436,36 +3455,46 @@
 				}
 			`, ['Camera', 'Tracer'], []);
 
-			// initialize our VAO
-			gl.bindVertexArray(gl.createVertexArray());
+			// initialize two VAOs; one for pellets, one for cell glow only
+			glconf.vao = [];
+			for (let i = 0; i < 2; ++i) {
+				const vao = /** @type {WebGLVertexArrayObject} */ (gl.createVertexArray());
+				gl.bindVertexArray(vao);
 
-			// square (location = 0), used for all instances
-			gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
-			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([ -1, -1,   1, -1,   -1, 1,   1, 1, ]), gl.STATIC_DRAW);
-			gl.enableVertexAttribArray(0);
-			gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+				// square (location = 0), used for all instances
+				gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+				gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([ -1, -1,   1, -1,   -1, 1,   1, 1, ]), gl.STATIC_DRAW);
+				gl.enableVertexAttribArray(0);
+				gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
 
-			// pellet buffer (each instance is 6 floats or 24 bytes)
-			gl.bindBuffer(gl.ARRAY_BUFFER, glconf.pelletBuffer = /** @type {WebGLBuffer} */ (gl.createBuffer()));
-			// a_cell_pos, vec2 (location = 1)
-			gl.enableVertexAttribArray(1);
-			gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 4 * 7, 0);
-			gl.vertexAttribDivisor(1, 1);
-			// a_cell_radius, float (location = 2)
-			gl.enableVertexAttribArray(2);
-			gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 4 * 7, 4 * 2);
-			gl.vertexAttribDivisor(2, 1);
-			// a_cell_color, vec3 (location = 3)
-			gl.enableVertexAttribArray(3);
-			gl.vertexAttribPointer(3, 4, gl.FLOAT, false, 4 * 7, 4 * 3);
-			gl.vertexAttribDivisor(3, 1);
+				// pellet/circle buffer (each instance is 6 floats or 24 bytes)
+				const circleBuffer = /** @type {WebGLBuffer} */ (gl.createBuffer());
+				gl.bindBuffer(gl.ARRAY_BUFFER, circleBuffer);
+				// a_cell_pos, vec2 (location = 1)
+				gl.enableVertexAttribArray(1);
+				gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 4 * 7, 0);
+				gl.vertexAttribDivisor(1, 1);
+				// a_cell_radius, float (location = 2)
+				gl.enableVertexAttribArray(2);
+				gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 4 * 7, 4 * 2);
+				gl.vertexAttribDivisor(2, 1);
+				// a_cell_color, vec3 (location = 3)
+				gl.enableVertexAttribArray(3);
+				gl.vertexAttribPointer(3, 4, gl.FLOAT, false, 4 * 7, 4 * 3);
+				gl.vertexAttribDivisor(3, 1);
 
-			// pellet alpha buffer, updated every frame
-			gl.bindBuffer(gl.ARRAY_BUFFER, glconf.pelletAlphaBuffer = /** @type {WebGLBuffer} */ (gl.createBuffer()));
-			// a_cell_alpha, float (location = 4)
-			gl.enableVertexAttribArray(4);
-			gl.vertexAttribPointer(4, 1, gl.FLOAT, false, 0, 0);
-			gl.vertexAttribDivisor(4, 1);
+				// pellet/circle alpha buffer, updated every frame
+				const alphaBuffer = /** @type {WebGLBuffer} */ (gl.createBuffer());
+				gl.bindBuffer(gl.ARRAY_BUFFER, alphaBuffer);
+				// a_cell_alpha, float (location = 4)
+				gl.enableVertexAttribArray(4);
+				gl.vertexAttribPointer(4, 1, gl.FLOAT, false, 0, 0);
+				gl.vertexAttribDivisor(4, 1);
+
+				glconf.vao.push({ vao, alphaBuffer, circleBuffer });
+			}
+
+			gl.bindVertexArray(glconf.vao[0].vao);
 		}
 
 		glconf.init();
@@ -3692,68 +3721,99 @@
 		render.resetTextCache = resetTextCache;
 		render.textFromCache = textFromCache;
 
+		let cellAlpha = new Float32Array(0);
+		let cellBuffer = new Float32Array(0);
 		let pelletAlpha = new Float32Array(0);
 		let pelletBuffer = new Float32Array(0);
 		let uploadedPellets = 0;
-		render.uploadPellets = () => {
-			if (aux.sigmodSettings?.hidePellets || performance.now() - lastFrame > 45_000) {
+		/**
+		 * @param {'cells' | 'pellets'} key
+		 * @param {number=} now
+		 */
+		render.upload = (key, now) => {
+			if ((key === 'pellets' && aux.sigmodSettings?.hidePellets) || performance.now() - lastFrame > 45_000) {
 				// do not render pellets on inactive windows (very laggy!)
 				uploadedPellets = 0;
 				return;
 			}
 
+			now ??= performance.now(); // the result will never actually be used, just for type checking
+			const vao = glconf.vao[key === 'pellets' ? 0 : 1];
+
 			const map = (settings.mergeViewArea && sync.merge) ? sync.merge : world;
 
 			// find expected # of pellets (exclude any that are being *animated*)
-			let expectedPellets = 0;
-			for (const pellet of map.pellets.values()) {
-				if (pellet.deadTo === -1) ++expectedPellets;
+			let expected = 0;
+			if (key === 'pellets') {
+				for (const pellet of map.pellets.values()) {
+					if (pellet.deadTo === -1) ++expected;
+				}
+			} else {
+				expected = map.cells.size;
 			}
 
 			// grow the pellet buffer by 2x multiples if necessary
-			let instances = pelletAlpha.length || 1;
-			while (instances < expectedPellets) {
+			let alphaBuffer = key === 'cells' ? cellAlpha : pelletAlpha;
+			let objBuffer = key === 'cells' ? cellBuffer : pelletBuffer;
+			let instances = alphaBuffer.length || 1;
+			while (instances < expected) {
 				instances *= 2;
 			}
-			gl.bindBuffer(gl.ARRAY_BUFFER, glconf.pelletAlphaBuffer);
 			// when the webgl context is lost, the buffer sizes get reset to zero
+			gl.bindBuffer(gl.ARRAY_BUFFER, vao.alphaBuffer);
 			const resizing = instances * 4 !== gl.getBufferParameter(gl.ARRAY_BUFFER, gl.BUFFER_SIZE);
 			if (resizing) {
-				pelletAlpha = new Float32Array(instances);
-				pelletBuffer = new Float32Array(instances * 7);
+				if (key === 'pellets') {
+					alphaBuffer = pelletAlpha = new Float32Array(instances);
+					objBuffer = pelletBuffer = new Float32Array(instances * 7);
+				} else {
+					alphaBuffer = cellAlpha = new Float32Array(instances);
+					objBuffer = cellBuffer = new Float32Array(instances * 7);
+				}
 			}
 
-			const foodColor = aux.sigmodSettings?.foodColor;
-			const foodBlank = foodColor?.[0] === 0 && foodColor?.[1] === 0 && foodColor?.[2] === 0;
+			const color = key === 'pellets' ? aux.sigmodSettings?.foodColor : aux.sigmodSettings?.cellColor;
+			const foodBlank = key === 'pellets' && color?.[0] === 0 && color?.[1] === 0 && color?.[2] === 0;
 
 			let i = 0;
-			for (const pellet of map.pellets.values()) {
-				if (pellet.deadTo !== -1) continue;
-				pelletBuffer[i * 7] = pellet.nx;
-				pelletBuffer[i * 7 + 1] = pellet.ny;
-				pelletBuffer[i * 7 + 2] = pellet.nr;
-				if (foodColor && !foodBlank) {
-					pelletBuffer[i * 7 + 3] = foodColor[0]; pelletBuffer[i * 7 + 4] = foodColor[1];
-					pelletBuffer[i * 7 + 5] = foodColor[2]; pelletBuffer[i * 7 + 6] = foodColor[3];
+			for (const cell of map[key].values()) {
+				/** @type {number} */
+				let nx, ny, nr;
+				if (key !== 'cells') {
+					if (cell.deadTo !== -1) continue;
+					nx = cell.nx; ny = cell.ny; nr = cell.nr;
 				} else {
-					pelletBuffer[i * 7 + 3] = pellet.Rgb; pelletBuffer[i * 7 + 4] = pellet.rGb;
-					pelletBuffer[i * 7 + 5] = pellet.rgB; pelletBuffer[i * 7 + 6] = foodBlank ? foodColor[3] : 1;
+					let jr;
+					({ x: nx, y: ny, r: nr, jr } = world.xyr(cell, map, now));
+					if (aux.settings.jellyPhysics) nr = jr;
+				}
+
+				objBuffer[i * 7] = nx;
+				objBuffer[i * 7 + 1] = ny;
+				objBuffer[i * 7 + 2] = nr;
+				if (color && !foodBlank) {
+					objBuffer[i * 7 + 3] = color[0]; objBuffer[i * 7 + 4] = color[1];
+					objBuffer[i * 7 + 5] = color[2]; objBuffer[i * 7 + 6] = color[3];
+				} else {
+					objBuffer[i * 7 + 3] = cell.Rgb; objBuffer[i * 7 + 4] = cell.rGb;
+					objBuffer[i * 7 + 5] = cell.rgB; objBuffer[i * 7 + 6] = foodBlank ? color[3] : 1;
 				}
 				++i;
 			}
 
 			// now, upload data
 			if (resizing) {
-				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.pelletBuffer);
-				gl.bufferData(gl.ARRAY_BUFFER, pelletBuffer, gl.STATIC_DRAW);
-				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.pelletAlphaBuffer);
-				gl.bufferData(gl.ARRAY_BUFFER, pelletAlpha.byteLength, gl.STATIC_DRAW);
+				gl.bindBuffer(gl.ARRAY_BUFFER, vao.alphaBuffer);
+				gl.bufferData(gl.ARRAY_BUFFER, alphaBuffer, gl.STATIC_DRAW);
+				gl.bindBuffer(gl.ARRAY_BUFFER, vao.circleBuffer);
+				gl.bufferData(gl.ARRAY_BUFFER, objBuffer.byteLength, gl.STATIC_DRAW);
 			} else {
-				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.pelletBuffer);
-				gl.bufferSubData(gl.ARRAY_BUFFER, 0, pelletBuffer);
+				gl.bindBuffer(gl.ARRAY_BUFFER, vao.circleBuffer);
+				gl.bufferSubData(gl.ARRAY_BUFFER, 0, objBuffer);
 			}
+			gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
-			uploadedPellets = expectedPellets;
+			if (key === 'pellets') uploadedPellets = expected;
 		};
 
 
@@ -4129,19 +4189,36 @@
 				// draw static pellets first
 				let i = 0;
 				for (const pellet of map.pellets.values()) {
-					// deadTo property should never change in between uploadPellets() calls
+					// deadTo property should never change in between upload('pellets') calls
 					if (pellet.deadTo !== -1) continue;
 					pelletAlpha[i++] = calcAlpha(pellet);
 				}
-				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.pelletAlphaBuffer);
+				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao[0].alphaBuffer);
 				gl.bufferSubData(gl.ARRAY_BUFFER, 0, pelletAlpha);
-				gl.useProgram(glconf.programs.pellet);
+				gl.bindBuffer(gl.ARRAY_BUFFER, null); // TODO: necessary unbinding?
+
+				if (settings.pelletGlow) {
+					gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+				}
+				gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
+				gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([ 1, 0 ]), gl.STATIC_DRAW);
+				gl.bindBuffer(gl.UNIFORM_BUFFER, null);
+
+				gl.useProgram(glconf.programs.circle);
 				gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, uploadedPellets);
+				if (settings.pelletGlow) {
+					gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
+					gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([ 0.25, 2 ]), gl.STATIC_DRAW);
+					gl.bindBuffer(gl.UNIFORM_BUFFER, null);
+
+					gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, uploadedPellets);
+					gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+				}
 
 				// then draw *animated* pellets
 				for (const pellet of map.pellets.values()) {
 					if (pellet.deadTo !== -1)
-						draw(pellet);
+						draw(pellet); // no rtx glow is fine here
 				}
 
 				/** @type {[Cell, number][]} */
@@ -4155,7 +4232,30 @@
 				for (const [cell] of sorted)
 					draw(cell);
 
-				// TODO: rtx
+				if (settings.cellGlow) {
+					render.upload('cells', now);
+					let i = 0;
+					for (const cell of map.cells.values()) {
+						if (cell.jagged) cellAlpha[i++] = 0;
+						else cellAlpha[i++] = calcAlpha(cell);
+					}
+
+					gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao[1].alphaBuffer);
+					gl.bufferSubData(gl.ARRAY_BUFFER, 0, cellAlpha);
+					gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+					gl.useProgram(glconf.programs.circle);
+					gl.bindVertexArray(glconf.vao[1].vao);
+					gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+
+					gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
+					gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([ 0.25, 1.5 ]), gl.STATIC_DRAW);
+					gl.bindBuffer(gl.UNIFORM_BUFFER, null);
+
+					gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, map.cells.size);
+					gl.bindVertexArray(glconf.vao[0].vao);
+					gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+				}
 
 				// draw tracers
 				if (settings.tracer) {
