@@ -1128,7 +1128,7 @@
 		/**
 		 * @param {PropertyOfType<typeof settings, number>} property
 		 * @param {string} title
-		 * @param {number} initial
+		 * @param {number | undefined} initial
 		 * @param {number} min
 		 * @param {number} max
 		 * @param {number} step
@@ -1173,9 +1173,11 @@
 						<input id="sf-${property}" style="display: block; float: left; height: 25px; line-height: 25px;\
 							margin-left: 5px;" min="${min}" max="${max}" step="${step}" value="${initial}"
 							list="sf-${property}-markers" type="range" />
-						<datalist id="sf-${property}-markers"> <option value="${initial}"></option> </datalist>
+						${initial !== undefined
+							? `<datalist id="sf-${property}-markers"> <option value="${initial}"></option> </datalist>`
+							: ''}
 						<input id="sf-${property}-display" style="display: block; float: left; height: 25px; \
-							line-height: 25px; width: 40px; text-align: right;" />
+							line-height: 25px; width: 50px; text-align: right;" />
 					</div>
 				</div>
 			`);
@@ -1190,9 +1192,11 @@
 					<span class="justify-sb">
 						<input id="sfsm-${property}" style="width: 200px;" type="range" min="${min}" max="${max}"
 							step="${step}" value="${initial}" list="sfsm-${property}-markers" />
-						<datalist id="sfsm-${property}-markers"> <option value="${initial}"></option> </datalist>
+						${initial !== undefined ?
+							`<datalist id="sfsm-${property}-markers"> <option value="${initial}"></option> </datalist>`
+							: ''}
 						<input id="sfsm-${property}-display" class="text-center form-control" style="border: none; \
-							width: 45px; margin: 0 15px;" />
+							width: 50px; margin: 0 15px;" />
 					</span>
 				</div>
 			`);
@@ -1367,7 +1371,7 @@
 			'visible.');
 		checkbox('cellOutlines', 'Cell outlines', 'Whether the subtle dark outlines around cells (including skins) ' +
 			'should draw.');
-		slider('cellOpacity', 'Cell opacity', 1, 0, 1, 0.01, 2, false,
+		slider('cellOpacity', 'Cell opacity', undefined, 0.5, 1, 0.005, 3, false,
 			'How opaque cells should be. 1 = fully visible, 0 = invisible. It can be helpful to see the size of a ' +
 			'smaller cell under a big cell.');
 		input('selfSkin', 'Self skin URL (not synced)', 'https://i.imgur.com/...', false,
