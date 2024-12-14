@@ -598,7 +598,14 @@
 
 			let statsLastUpdated = performance.now();
 			const update = () => {
-				ui.stats.matchTheme();
+				let color = aux.settings.darkTheme ? '#fff' : '#000';
+				score.style.color = color;
+				measures.style.color = color;
+				misc.style.color = color;
+
+				score.style.fontWeight = measures.style.fontWeight = settings.boldUi ? 'bold' : 'normal';
+				measures.style.opacity = settings.showStats ? '1' : '0.5';
+				misc.style.opacity = settings.showStats ? '0.5' : '0';
 
 				statsLastUpdated = performance.now();
 				if ((aux.sigmodSettings?.showNames ?? true) && world.leaderboard.length > 0)
@@ -607,32 +614,32 @@
 					ui.leaderboard.container.style.display = 'none';
 				}
 
-				let score = 0;
+				let scoreVal = 0;
 				for (const id of world.mine) {
 					const cell = world.cells.get(id);
 					if (cell) {
 						// we use nr because this is what the server sees; interpolated mass is irrelevant
 						// we also floor every cell individually, so the score matches what you could count yourself
-						score += Math.floor(cell.nr * cell.nr / 100);
+						scoreVal += Math.floor(cell.nr * cell.nr / 100);
 					}
 				}
 				if (typeof aux.userData?.boost === 'number' && aux.userData.boost > Date.now())
-					score *= 2;
-				if (score > world.stats.highestScore) {
-					world.stats.highestScore = score;
+					scoreVal *= 2;
+				if (scoreVal > world.stats.highestScore) {
+					world.stats.highestScore = scoreVal;
 				}
 
-				ui.stats.score.textContent = score > 0 ? ('Score: ' + Math.floor(score)) : '';
+				score.textContent = scoreVal > 0 ? ('Score: ' + Math.floor(scoreVal)) : '';
 
-				let measures = `${Math.floor(render.fps)} FPS`;
+				let measuresText = `${Math.floor(render.fps)} FPS`;
 				if (net.latency !== undefined) {
 					if (net.latency === -1)
-						measures += ' ????ms ping';
+						measuresText += ' ????ms ping';
 					else
-						measures += ` ${Math.floor(net.latency)}ms ping`;
+						measuresText += ` ${Math.floor(net.latency)}ms ping`;
 				}
 
-				ui.stats.measures.textContent = measures;
+				measures.textContent = measuresText;
 			};
 			// if the player starts lagging, we still need to update the stats
 			setInterval(() => {
@@ -716,6 +723,8 @@
 
 				for (let i = world.leaderboard.length; i < lines.length; ++i)
 					lines[i].style.display = 'none';
+
+				container.style.fontWeight = settings.boldUi ? 'bold' : 'normal';
 			}
 
 			return { container, title, linesContainer, lines, update };
@@ -1048,6 +1057,7 @@
 			background: '',
 			blockBrowserKeybinds: false,
 			blockNearbyRespawns: false,
+			boldUi: false,
 			cellGlow: false,
 			cellOpacity: 1,
 			cellOutlines: true,
@@ -1068,6 +1078,7 @@
 			pelletGlow: false,
 			scrollFactor: 1,
 			selfSkin: '',
+			showStats: true,
 			syncSkin: true,
 			tracer: false,
 			unsplittableOpacity: 1,
@@ -1425,6 +1436,10 @@
 			'satisfying. If you have a skin that looks weird only with jelly physics, try turning this off.');
 		checkbox('cellGlow', 'Cell glow', 'When enabled, makes cells have a slight glow.');
 		checkbox('pelletGlow', 'Pellet glow', 'When enabled, gives pellets a slight glow.');
+		checkbox('boldUi', 'Top UI uses bold text', 'When enabled, the top-left score and stats UI and the ' +
+			'leaderboard will use the bold Ubuntu font.');
+		checkbox('showStats', 'Show server stats', 'When disabled, hides the top-left server stats including the ' +
+			'player count and server uptime.');
 
 		// #3 : create options for sigmod
 		let sigmodInjection;
