@@ -172,7 +172,7 @@
 			}
 
 			return [aux.textDecoder.decode(new DataView(dat.buffer, startOff, off - startOff)), off + 1];
-		}
+		};
 
 		/** @type {{
 		 * 	cellColor?: [number, number, number, number],
@@ -271,14 +271,14 @@
 			aux.settings.darkTheme = aux.setting('input#darkTheme', true) || !!aux.sigmodSettings;
 			aux.settings.jellyPhysics = aux.setting('input#jellyPhysics', false);
 			aux.settings.showBorder = aux.setting('input#showBorder', true);
-			aux.settings.showClanmates = aux.setting('input#showClanmates', true)
+			aux.settings.showClanmates = aux.setting('input#showClanmates', true);
 			aux.settings.showGrid = aux.setting('input#showGrid', true);
 			aux.settings.showMass = aux.setting('input#showMass', false);
 			aux.settings.showMinimap = aux.setting('input#showMinimap', true);
 			aux.settings.showSkins = aux.setting('input#showSkins', true);
 			aux.settings.zoomout = aux.setting('input#moreZoom', true);
 			return aux.settings;
-		}
+		};
 
 		/** @type {{ darkTheme: boolean, jellyPhysics: boolean, showBorder: boolean, showClanmates: boolean,
 		 showGrid: boolean, showMass: boolean, showMinimap: boolean, showSkins: boolean, zoomout: boolean,
@@ -1029,7 +1029,8 @@
 
 			chat.matchTheme = () => {
 				list.style.color = aux.settings.darkTheme ? '#fffc' : '#000c';
-				list.style.filter = aux.settings.darkTheme ? '' : 'brightness(75%)'; // make author names darker in light theme
+				// make author names darker in light theme
+				list.style.filter = aux.settings.darkTheme ? '' : 'brightness(75%)';
 			};
 
 			return chat;
@@ -1190,6 +1191,7 @@
 				});
 			};
 
+			const datalist = `<datalist id="sf-${property}-markers"> <option value="${initial}"></option> </datalist>`;
 			const vanilla = fromHTML(`
 				<div style="height: ${double ? '50' : '25'}px; position: relative;" title="${help}">
 					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">${title}</div>
@@ -1197,9 +1199,7 @@
 						<input id="sf-${property}" style="display: block; float: left; height: 25px; line-height: 25px;\
 							margin-left: 5px;" min="${min}" max="${max}" step="${step}" value="${initial}"
 							list="sf-${property}-markers" type="range" />
-						${initial !== undefined
-							? `<datalist id="sf-${property}-markers"> <option value="${initial}"></option> </datalist>`
-							: ''}
+						${initial !== undefined ? datalist : ''}
 						<input id="sf-${property}-display" style="display: block; float: left; height: 25px; \
 							line-height: 25px; width: 50px; text-align: right;" />
 					</div>
@@ -1210,15 +1210,15 @@
 				/** @type {HTMLInputElement} */(vanilla.querySelector(`input#sf-${property}-display`)));
 			vanillaContainer.appendChild(vanilla);
 
+			const datalistSm
+				= `<datalist id="sfsm-${property}-markers"> <option value="${initial}"></option> </datalist>`;
 			const sigmod = fromHTML(`
 				<div class="modRowItems justify-sb" style="padding: 5px 10px;" title="${help}">
 					<span>${title}</span>
 					<span class="justify-sb">
 						<input id="sfsm-${property}" style="width: 200px;" type="range" min="${min}" max="${max}"
 							step="${step}" value="${initial}" list="sfsm-${property}-markers" />
-						${initial !== undefined ?
-							`<datalist id="sfsm-${property}-markers"> <option value="${initial}"></option> </datalist>`
-							: ''}
+						${initial !== undefined ? datalistSm : ''}
 						<input id="sfsm-${property}-display" class="text-center form-control" style="border: none; \
 							width: 50px; margin: 0 15px;" />
 					</span>
@@ -1802,7 +1802,7 @@
 							if (map === world) world.mineDead.delete(id);
 						}
 					}
-		
+
 					for (const [id, cell] of map.pellets) {
 						if (cell.deadAt === undefined) continue;
 						if (now - cell.deadAt >= 100)
@@ -3165,7 +3165,7 @@
 				if (binding === undefined)
 					uboBindings.set(tag, binding = uboBindings.size);
 				gl.uniformBlockBinding(p, index, binding);
-				
+
 				const size = gl.getActiveUniformBlockParameter(p, index, gl.UNIFORM_BLOCK_DATA_SIZE);
 				const ubo = uniforms[tag] = gl.createBuffer();
 				gl.bindBuffer(gl.UNIFORM_BUFFER, ubo);
@@ -3185,7 +3185,7 @@
 		}
 
 		const parts = {
-			boilerplate: `#version 300 es\nprecision highp float; precision highp int;`,
+			boilerplate: '#version 300 es\nprecision highp float; precision highp int;',
 			borderUbo: `layout(std140) uniform Border { // size = 0x24
 				vec4 u_border_color; // @ 0x00, i = 0
 				vec4 u_border_xyzw_lrtb; // @ 0x10, i = 4
@@ -3332,7 +3332,8 @@
 					f_subtle_radius = 1.0 - (subtle_thickness / u_cell_radius);
 					if ((u_cell_flags & 0x02) != 0) {
 						f_subtle_outline = u_cell_color * 0.9; // darker outline by default
-						f_subtle_outline.rgb += (u_cell_subtle_outline_override.rgb - f_subtle_outline.rgb) * u_cell_subtle_outline_override.a;
+						f_subtle_outline.rgb += (u_cell_subtle_outline_override.rgb - f_subtle_outline.rgb)
+							* u_cell_subtle_outline_override.a;
 					} else {
 						f_subtle_outline = vec4(0, 0, 0, 0);
 					}
@@ -3548,7 +3549,7 @@
 
 				// square (location = 0), used for all instances
 				gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
-				gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([ -1, -1,   1, -1,   -1, 1,   1, 1, ]), gl.STATIC_DRAW);
+				gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([ -1, -1,   1, -1,   -1, 1,   1, 1 ]), gl.STATIC_DRAW);
 				gl.enableVertexAttribArray(0);
 				gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
 
@@ -3580,7 +3581,7 @@
 			}
 
 			gl.bindVertexArray(glconf.vao[0].vao);
-		}
+		};
 
 		glconf.init();
 		return glconf;
@@ -3848,7 +3849,8 @@
 		 * @param {number=} now
 		 */
 		render.upload = (key, now) => {
-			if ((key === 'pellets' && aux.sigmodSettings?.hidePellets) || performance.now() - render.lastFrame > 45_000) {
+			if ((key === 'pellets' && aux.sigmodSettings?.hidePellets)
+				|| performance.now() - render.lastFrame > 45_000) {
 				// do not render pellets on inactive windows (very laggy!)
 				uploadedPellets = 0;
 				return;
@@ -4001,7 +4003,7 @@
 				gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Camera);
 				gl.bufferSubData(gl.UNIFORM_BUFFER, 0, new Float32Array([
 					ui.game.canvas.width / ui.game.canvas.height, world.camera.scale / 540,
-					world.camera.x, world.camera.y
+					world.camera.x, world.camera.y,
 				]));
 				gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 
@@ -4237,7 +4239,8 @@
 						const { aspectRatio, text, silhouette } = textFromCache(clan, useSilhouette);
 						if (text) {
 							textUboFloats[9] = aspectRatio; // text_aspect_ratio
-							textUboFloats[10] = showThisName ? settings.clanScaleFactor * 0.5 : settings.nameScaleFactor;
+							textUboFloats[10]
+								= showThisName ? settings.clanScaleFactor * 0.5 : settings.nameScaleFactor;
 							textUboInts[11] = Number(useSilhouette); // text_silhouette_enabled
 							textUboFloats[12] = 0; // text_offset.x
 							textUboFloats[13] = showThisName
@@ -4452,7 +4455,7 @@
 
 					minimapCache = {
 						bg: ctx.getImageData(0, 0, canvas.width, canvas.height),
-						darkTheme: aux.settings.darkTheme
+						darkTheme: aux.settings.darkTheme,
 					};
 				}
 
@@ -4564,7 +4567,7 @@
 					// if no cells were drawn, draw our spectate pos instead
 					drawCell({
 						nx: world.camera.x, ny: world.camera.y, nr: gameWidth / canvas.width * 5,
-						Rgb: 1, rGb: 0.6, rgB: 0.6
+						Rgb: 1, rGb: 0.6, rgB: 0.6,
 					});
 				} else {
 					ownX /= ownN;
