@@ -431,6 +431,7 @@
 			},
 		}));
 
+		const cmdRepresentation = new TextEncoder().encode('/leaveworld').toString();
 		/** @type {WeakSet<WebSocket>} */
 		const safeWebSockets = new WeakSet();
 		let realWsSend = WebSocket.prototype.send;
@@ -445,9 +446,9 @@
 				let matched = false;
 				if (x instanceof ArrayBuffer) {
 					matched = x.byteLength === '/leaveworld'.length + 3
-						&& new Uint8Array(x).toString().includes('/leaveworld');
+						&& new Uint8Array(x).toString().includes(cmdRepresentation);
 				} else if (x instanceof Uint8Array) {
-					matched = x.byteLength === '/leaveworld'.length + 3 && x.toString().includes('/leaveworld');
+					matched = x.byteLength === '/leaveworld'.length + 3 && x.toString().includes(cmdRepresentation);
 				}
 
 				if (matched) {
@@ -1896,8 +1897,9 @@
 				// only update the threshold every few seconds, otherwise pellets may rapidly flicker in and out
 				if (now - lastUpdatedThreshold > 1000) {
 					lastUpdatedThreshold = now;
+					pelletThreshold = -1; // TODO
 
-					let totalPellets = world.pellets.size;
+					/*let totalPellets = world.pellets.size;
 					for (const key of sync.others.keys()) {
 						const map = sync.maps.get(key);
 						if (!map) continue;
@@ -1908,7 +1910,7 @@
 					// totalPellets = 200 => pelletThreshold = 50%
 					// totalPellets = 400 => pelletThreshold = 25%
 					// reciprocal function
-					pelletThreshold = Math.max(100 / totalPellets, 0) * 50;
+					pelletThreshold = Math.max(100 / totalPellets, 0) * 50;*/
 				}
 			} else {
 				pelletThreshold = Infinity;
@@ -2156,8 +2158,9 @@
 						const thisX = thisDesc.weightedX / thisDesc.totalWeight;
 						const thisY = thisDesc.weightedY / thisDesc.totalWeight;
 
-						if (Math.abs(thisX - localX) < localDesc.width + thisDesc.width + 1000
-							&& Math.abs(thisY - localY) < localDesc.height + thisDesc.height + 1000) {
+						const threshold = 1000 + localDesc.totalWeight / 100 + thisDesc.totalWeight / 100;
+						if (Math.abs(thisX - localX) < localDesc.width + thisDesc.width + threshold
+							&& Math.abs(thisY - localY) < localDesc.height + thisDesc.height + threshold) {
 							weightedX += thisDesc.weightedX;
 							weightedY += thisDesc.weightedY;
 							totalWeight += thisDesc.totalWeight;
