@@ -443,18 +443,16 @@
 			}
 
 			if (settings.blockNearbyRespawns) {
-				let matched = false;
-				if (x instanceof ArrayBuffer) {
-					matched = x.byteLength === '/leaveworld'.length + 3
-						&& new Uint8Array(x).toString().includes(cmdRepresentation);
-				} else if (x instanceof Uint8Array) {
-					matched = x.byteLength === '/leaveworld'.length + 3 && x.toString().includes(cmdRepresentation);
-				}
+				let buf;
+				if (x instanceof ArrayBuffer) buf = x;
+				else if (x instanceof DataView) buf = x.buffer;
+				else if (x instanceof Uint8Array) buf = x.buffer;
 
-				if (matched) {
+				if (buf && buf.byteLength === '/leaveworld'.length + 3
+					&& new Uint8Array(buf).toString().includes(cmdRepresentation)) {
 					// trying to respawn; see if we are nearby an alive multi-tab
 					if (world.mine.length > 0) {
-						for (const [_, data] of sync.others) {
+						for (const data of sync.others.values()) {
 							const d = Math.hypot(data.camera.tx - world.camera.tx, data.camera.ty - world.camera.ty);
 							if (data.owned.size > 0 && d <= 7500)
 								return;
@@ -1066,7 +1064,6 @@
 			clans: false,
 			clanScaleFactor: 1,
 			drawDelay: 120,
-			dynamicPelletCount: false,
 			jellySkinLag: true,
 			massBold: false,
 			massOpacity: 1,
@@ -1404,10 +1401,6 @@
 		checkbox('mergeViewArea', 'Combine visible cells between tabs',
 			'When enabled, *all* tabs will share what cells they see between each other. Sigmally Fixes puts a lot ' +
 			'of effort into making this as seamless as possible, so it can be laggy on lower-end devices.');
-		checkbox('dynamicPelletCount', 'Dynamically reduce pellets when big',
-			'When enabled with \'Combine visible cells between tabs\', Sigmally Fixes will try to keep the total ' +
-			'number of visible pellets at around 100. You should try this if you find \'one-tab\' multiboxing too ' +
-			'laggy.');
 		slider('outlineMulti', 'Current tab cell outline thickness', 0.2, 0, 1, 0.01, 2, true,
 			'Draws an inverse outline on your cells, the thickness being a % of your cell radius. This only shows ' +
 			'when \'merge camera between tabs\' is enabled and when you\'re near one of your tabs.');
@@ -1815,8 +1808,6 @@
 
 		/** @type {Map<number, Cell>} */
 		const all = new Map();
-		let pelletThreshold = Infinity;
-		let lastUpdatedThreshold = 0;
 
 		sync.tryMerge = () => {
 			// for camera merging to look extremely smooth, we need to merge packets and apply them *ONLY* when all
@@ -1893,29 +1884,6 @@
 				return true;
 			};
 
-			if (settings.dynamicPelletCount) {
-				// only update the threshold every few seconds, otherwise pellets may rapidly flicker in and out
-				if (now - lastUpdatedThreshold > 1000) {
-					lastUpdatedThreshold = now;
-					pelletThreshold = -1; // TODO
-
-					/*let totalPellets = world.pellets.size;
-					for (const key of sync.others.keys()) {
-						const map = sync.maps.get(key);
-						if (!map) continue;
-						totalPellets += map.pellets.size;
-					}
-
-					// totalPellets = 100 => pelletThreshold = 100%
-					// totalPellets = 200 => pelletThreshold = 50%
-					// totalPellets = 400 => pelletThreshold = 25%
-					// reciprocal function
-					pelletThreshold = Math.max(100 / totalPellets, 0) * 50;*/
-				}
-			} else {
-				pelletThreshold = Infinity;
-			}
-
 			/**
 			 * @param {'cells' | 'pellets'} mapKey
 			 * @returns {boolean}
@@ -1928,9 +1896,7 @@
 					// disregard tabs not updated in 250ms, they may have lagged out
 					if (now - localized(data, data.updated.now) > 250) continue;
 					for (const cell of map[mapKey].values()) {
-						if (!cell.pellet || cell.id % 50 <= pelletThreshold) {
-							if (!check(cell)) return false;
-						}
+						if (!check(cell)) return false;
 					}
 				}
 
@@ -1941,10 +1907,8 @@
 				return;
 
 			// #3 : then, check if all the pellets are synced
-			for (const [id, cell] of world.pellets) {
-				if (id % 50 <= pelletThreshold)
-					all.set(id, cell);
-			}
+			for (const [id, cell] of world.pellets)
+				all.set(id, cell);
 			if (!iterate('pellets'))
 				return;
 
@@ -2158,7 +2122,8 @@
 						const thisX = thisDesc.weightedX / thisDesc.totalWeight;
 						const thisY = thisDesc.weightedY / thisDesc.totalWeight;
 
-						const threshold = 1000 + localDesc.totalWeight / 100 + thisDesc.totalWeight / 100;
+						const threshold = 1000
+							+ Math.min(localDesc.totalWeight / 100 / 100, thisDesc.totalWeight / 100 / 100);
 						if (Math.abs(thisX - localX) < localDesc.width + thisDesc.width + threshold
 							&& Math.abs(thisY - localY) < localDesc.height + thisDesc.height + threshold) {
 							weightedX += thisDesc.weightedX;
