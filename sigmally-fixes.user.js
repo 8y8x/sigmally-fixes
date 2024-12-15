@@ -403,7 +403,8 @@
 	////////////////////////
 	// Destroy Old Client //
 	////////////////////////
-	const destructor = await (async () => {
+	const destructor = (() => {
+		const destructor = {};
 		// #1 : kill the rendering process
 		const oldRQA = requestAnimationFrame;
 		window.requestAnimationFrame = function (fn) {
@@ -419,7 +420,7 @@
 		};
 
 		// #2 : kill access to using a WebSocket
-		const realWebSocket = WebSocket;
+		destructor.realWebSocket = WebSocket;
 		Object.defineProperty(window, 'WebSocket', new Proxy(WebSocket, {
 			construct(_target, argArray, _newTarget) {
 				if (argArray[0]?.includes('sigmally.com')) {
@@ -431,12 +432,15 @@
 			},
 		}));
 
+		/** @type {{ status: 'left' | 'pending', started: number } | undefined} */
+		destructor.respawnBlock = undefined;
+
 		const cmdRepresentation = new TextEncoder().encode('/leaveworld').toString();
 		/** @type {WeakSet<WebSocket>} */
-		const safeWebSockets = new WeakSet();
-		let realWsSend = WebSocket.prototype.send;
+		destructor.safeWebSockets = new WeakSet();
+		destructor.realWsSend = WebSocket.prototype.send;
 		WebSocket.prototype.send = function (x) {
-			if (!safeWebSockets.has(this) && this.url.includes('sigmally.com')) {
+			if (!destructor.safeWebSockets.has(this) && this.url.includes('sigmally.com')) {
 				this.onclose = null;
 				this.close();
 				throw new Error('Nope :) - hooked by Sigmally Fixes');
@@ -450,18 +454,25 @@
 
 				if (buf && buf.byteLength === '/leaveworld'.length + 3
 					&& new Uint8Array(buf).toString().includes(cmdRepresentation)) {
+					// block respawns if we haven't actually respawned yet (with a 500ms max in case something fails)
+					if (performance.now() - (destructor.respawnBlock?.started ?? 0) < 500) return;
+					destructor.respawnBlock = undefined;
 					// trying to respawn; see if we are nearby an alive multi-tab
 					if (world.mine.length > 0) {
+						world.moveCamera();
 						for (const data of sync.others.values()) {
 							const d = Math.hypot(data.camera.tx - world.camera.tx, data.camera.ty - world.camera.ty);
 							if (data.owned.size > 0 && d <= 7500)
 								return;
 						}
 					}
+
+					// we are allowing a respawn, take note
+					destructor.respawnBlock = { status: 'pending', started: performance.now() };
 				}
 			}
 
-			return realWsSend.apply(this, arguments);
+			return destructor.realWsSend.apply(this, arguments);
 		};
 
 		// #3 : prevent keys from being registered by the game
@@ -470,7 +481,7 @@
 			onkeyup = null;
 		}, 50);
 
-		return { realWebSocket, safeWebSockets };
+		return destructor;
 	})();
 
 
@@ -2386,6 +2397,10 @@
 			let off = 1;
 			switch (opcode) {
 				case 0x10: { // world update
+					if (destructor.respawnBlock?.status === 'left') {
+						destructor.respawnBlock = undefined;
+					}
+
 					sync.readWorldUpdate(world, dat);
 					sync.tryMerge();
 
@@ -2408,6 +2423,10 @@
 				}
 
 				case 0x12: // delete all cells
+					// happens every time you respawn
+					if (destructor.respawnBlock?.status === 'pending') {
+						destructor.respawnBlock.status = 'left';
+					}
 					sync.readWorldUpdate(world, dat);
 					sync.tryMerge();
 					world.clanmates.clear();
