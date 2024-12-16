@@ -268,7 +268,14 @@
 			}
 
 			// sigmod forces dark theme to be enabled
-			aux.settings.darkTheme = aux.setting('input#darkTheme', true) || !!aux.sigmodSettings;
+			if (aux.sigmodSettings) {
+				// sigmod doesn't have a checkbox for dark theme, so we infer it from the custom map color
+				const { mapColor } = aux.sigmodSettings;
+				aux.settings.darkTheme
+					= mapColor ? (mapColor[0] < 0.6 && mapColor[1] < 0.6 && mapColor[2] < 0.6) : true;
+			} else {
+				aux.settings.darkTheme = aux.setting('input#darkTheme', true);
+			}
 			aux.settings.jellyPhysics = aux.setting('input#jellyPhysics', false);
 			aux.settings.showBorder = aux.setting('input#showBorder', true);
 			aux.settings.showClanmates = aux.setting('input#showClanmates', true);
@@ -421,16 +428,18 @@
 
 		// #2 : kill access to using a WebSocket
 		destructor.realWebSocket = WebSocket;
-		Object.defineProperty(window, 'WebSocket', new Proxy(WebSocket, {
-			construct(_target, argArray, _newTarget) {
-				if (argArray[0]?.includes('sigmally.com')) {
-					throw new Error('Nope :) - hooked by Sigmally Fixes');
-				}
+		Object.defineProperty(window, 'WebSocket', {
+			value: new Proxy(WebSocket, {
+				construct(_target, argArray, _newTarget) {
+					if (argArray[0]?.includes('sigmally.com')) {
+						throw new Error('Nope :) - hooked by Sigmally Fixes');
+					}
 
-				// @ts-expect-error
-				return new oldWS(...argArray);
-			},
-		}));
+					// @ts-expect-error
+					return new destructor.realWebSocket(...argArray);
+				},
+			}),
+		});
 
 		/** @type {{ status: 'left' | 'pending', started: number } | undefined} */
 		destructor.respawnBlock = undefined;
