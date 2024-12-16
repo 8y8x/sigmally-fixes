@@ -2022,7 +2022,11 @@
 			for (const map of [sync.merge.cells, sync.merge.pellets]) {
 				for (const [id, collection] of map) {
 					const merged = collection.merged;
-					const model = /** @type {Cell} */ (collection.model);
+					const model = collection.model;
+					if (!model) {
+						collection.merged = undefined;
+						continue;
+					}
 					if (!merged) {
 						collection.merged = {
 							id,
