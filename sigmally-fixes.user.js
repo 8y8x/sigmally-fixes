@@ -1082,6 +1082,8 @@
 	/////////////////////////
 	const settings = (() => {
 		const settings = {
+			/** @type {'auto' | 'always' | 'never'} */
+			autoZoom: 'auto',
 			background: '',
 			blockBrowserKeybinds: false,
 			blockNearbyRespawns: false,
@@ -1261,13 +1263,13 @@
 				let oldValue = input.value = settings[property];
 
 				input.addEventListener('input', () => {
-					oldValue = settings[property] = input.value;
+					oldValue = settings[property] = /** @type {any} */ (input.value);
 					save();
 				});
 
 				onSaves.add(() => {
 					if (sync) input.value = settings[property];
-					else input.value = settings[property] = oldValue;
+					else input.value = settings[property] = /** @type {any} */ (oldValue);
 				});
 			};
 
@@ -1397,6 +1399,55 @@
 			sigmodContainer.appendChild(sigmod);
 		}
 
+		/**
+		 * @param {PropertyOfType<typeof settings, string>} property
+		 * @param {string} title
+		 * @param {[string, string][]} options
+		 * @param {string} help
+		 */
+		function dropdown(property, title, options, help) {
+			/**
+			 * @param {HTMLSelectElement} input
+			 */
+			const listen = input => {
+				input.value = settings[property];
+
+				const changed = () => {
+					settings[property] = /** @type {any} */ (input.value);
+					save();
+				};
+				input.addEventListener('input', changed);
+
+				onSaves.add(() => {
+					input.value = settings[property];
+				});
+			};
+
+			const vanilla = fromHTML(`
+				<div style="height: 25px; position: relative;" title="${help}">
+					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">${title}</div>
+					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
+						<select id="sf-${property}">
+							${options.map(([value, name]) => `<option value="${value}">${name}</option>`).join('\n')}
+						</select>
+					</div>
+				</div>
+			`);
+			listen(/** @type {HTMLSelectElement} */(vanilla.querySelector(`select#sf-${property}`)));
+			vanillaContainer.appendChild(vanilla);
+
+			const sigmod = fromHTML(`
+				<div class="modRowItems justify-sb" style="padding: 5px 10px;" title="${help}">
+					<span>${title}</span>
+					<select class="form-control" id="sfsm-${property}" style="width: 250px;">
+						${options.map(([value, name]) => `<option value="${value}">${name}</option>`).join('\n')}
+					</select>
+				</div>
+			`);
+			listen(/** @type {HTMLSelectElement} */(sigmod.querySelector(`select#sfsm-${property}`)));
+			sigmodContainer.appendChild(sigmod);
+		}
+
 		function separator(text = '•') {
 			vanillaContainer.appendChild(fromHTML(`<div style="text-align: center; width: 100%;">${text}</div>`));
 			sigmodContainer.appendChild(fromHTML(`<span class="text-center">${text}</span>`));
@@ -1438,6 +1489,8 @@
 		separator('• inputs •');
 		slider('scrollFactor', 'Zoom speed', 1, 0.05, 1, 0.05, 2, false,
 			'A smaller zoom speed lets you fine-tune your zoom.');
+		dropdown('autoZoom', 'Auto-zoom', [['auto', 'When not multiboxing'], ['always', 'Always'], ['never', 'Never']],
+			'When enabled, automatically zooms in/out for you based on how big you are. ');
 		checkbox('blockBrowserKeybinds', 'Block all browser keybinds',
 			'When enabled, only Ctrl+Tab and F11 are allowed to be pressed. You must be in fullscreen, and ' +
 			'non-Chrome browsers probably won\'t respect this setting. Doesn\'t work for Ctrl+W anymore: get a ' +
@@ -1522,7 +1575,7 @@
 	/** @typedef {{
 	 * 	self: string,
 	 * 	camera: { tx: number, ty: number },
-	 * 	owned: Map<number, { x: number, y: number, r: number, jr: number } | false>,
+	 * 	owned: Map<number, { x: number, y: number, nr: number, jr: number } | false>,
 	 * 	skin: string,
 	 * 	updated: { now: number, timeOrigin: number },
 	 * }} TabData
@@ -1577,7 +1630,7 @@
 				const cell = world.cells.get(id);
 				if (!cell) continue;
 
-				owned.set(id, world.xyr(cell, undefined, now));
+				owned.set(id, { ...world.xyr(cell, undefined, now), nr: cell.nr });
 			}
 			for (const id of world.mineDead)
 				owned.set(id, false);
@@ -1971,7 +2024,6 @@
 					const merged = collection.merged;
 					const model = /** @type {Cell} */ (collection.model);
 					if (!merged) {
-						if (model.Rgb === model.rGb && model.rGb === model.rgB && model.rgB === 1) console.log('new cell', model.Rgb, model.rGb, model.rgB, model);
 						collection.merged = {
 							id,
 							ox: model.nx, nx: model.nx,
@@ -2143,7 +2195,7 @@
 
 			/**
 			 * @param {Iterable<number>} owned
-			 * @param {Map<number, { x: number, y: number, r: number, jr: number } | false> | undefined} fallback
+			 * @param {Map<number, { x: number, y: number, nr: number, jr: number } | false> | undefined} fallback
 			 * @returns {{
 			 * 	weightedX: number, weightedY: number, totalWeight: number,
 			 * 	scale: number, width: number, height: number
@@ -2156,8 +2208,9 @@
 				let totalR = 0;
 
 				for (const id of owned) {
-					/** @type {{ x: number, y: number, r: number, jr: number }} */
+					/** @type {{ x: number, y: number, jr: number }} */
 					let xyr;
+					let nr;
 
 					let cell;
 					if (settings.mergeViewArea && sync.merge) {
@@ -2169,14 +2222,18 @@
 						const partial = fallback?.get(id);
 						if (!partial) continue;
 						xyr = partial;
+						nr = partial.nr;
 					} else if (cell.deadAt !== undefined) continue;
-					else xyr = world.xyr(cell, undefined, now);
+					else {
+						xyr = world.xyr(cell, undefined, now);
+						nr = cell.nr;
+					}
 
-					const weighted = xyr.r ** weight;
+					const weighted = nr ** weight;
 					weightedX += xyr.x * weighted;
 					weightedY += xyr.y * weighted;
 					totalWeight += weighted;
-					totalR += xyr.r;
+					totalR += nr;
 				}
 
 				const scale = Math.min(64 / totalR, 1) ** 0.4;
@@ -2190,32 +2247,43 @@
 			let { weightedX, weightedY, totalWeight } = localDesc;
 			const localX = weightedX / totalWeight;
 			const localY = weightedY / totalWeight;
-			/** @type {number} */
-			let zoomout;
 
 			world.camera.merged = false;
-			if (settings.mergeCamera) {
-				zoomout = 0.25;
-				if (localDesc.totalWeight > 0) {
-					for (const data of sync.others.values()) {
-						const thisDesc = cameraDesc(data.owned.keys(), data.owned);
-						if (thisDesc.totalWeight <= 0) continue;
-						const thisX = thisDesc.weightedX / thisDesc.totalWeight;
-						const thisY = thisDesc.weightedY / thisDesc.totalWeight;
+			if (settings.mergeCamera && localDesc.totalWeight > 0) {
+				for (const data of sync.others.values()) {
+					const thisDesc = cameraDesc(data.owned.keys(), data.owned);
+					if (thisDesc.totalWeight <= 0) continue;
+					const thisX = thisDesc.weightedX / thisDesc.totalWeight;
+					const thisY = thisDesc.weightedY / thisDesc.totalWeight;
 
-						const threshold = 1000
-							+ Math.min(localDesc.totalWeight / 100 / 100, thisDesc.totalWeight / 100 / 100);
-						if (Math.abs(thisX - localX) < localDesc.width + thisDesc.width + threshold
-							&& Math.abs(thisY - localY) < localDesc.height + thisDesc.height + threshold) {
-							weightedX += thisDesc.weightedX;
-							weightedY += thisDesc.weightedY;
-							totalWeight += thisDesc.totalWeight;
-							world.camera.merged = true;
-						}
+					const threshold = 1000
+						+ Math.min(localDesc.totalWeight / 100 / 100, thisDesc.totalWeight / 100 / 100);
+					if (Math.abs(thisX - localX) < localDesc.width + thisDesc.width + threshold
+						&& Math.abs(thisY - localY) < localDesc.height + thisDesc.height + threshold) {
+						weightedX += thisDesc.weightedX;
+						weightedY += thisDesc.weightedY;
+						totalWeight += thisDesc.totalWeight;
+						world.camera.merged = true;
 					}
 				}
-			} else {
+			}
+
+			// auto + merge => 0.25
+			// auto + -merge => localDesc.scale
+			// always + merge => custom scale
+			// always + -merge => localDesc.scale
+			// never + merge => 0.25
+			// never + -merge => 0.25
+			/** @type {number} */
+			let zoomout;
+			if (settings.autoZoom === 'never' || (settings.autoZoom === 'auto' && settings.mergeCamera)) {
+				zoomout = 0.25;
+			} else if ((settings.autoZoom === 'auto' || settings.autoZoom === 'always') && !settings.mergeCamera) {
 				zoomout = localDesc.scale;
+			} else {
+				// 'always' auto zoom + merging; use your current mass for zoom, because by radius is really jarring
+				// to look at
+				zoomout = Math.min(64 / Math.sqrt(totalWeight), 1) ** 0.4;
 			}
 
 			let xyEaseFactor;
@@ -4736,6 +4804,6 @@
 
 	// @ts-expect-error for debugging purposes. dm me on discord @8y8x to work out stability if you need something
 	window.sigfix = {
-		destructor, aux, ui, settings, sync, world, net, glconf, render,
+		destructor, aux, ui, settings, sync, world, net, input, glconf, render,
 	};
 })();
