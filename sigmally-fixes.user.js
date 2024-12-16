@@ -4613,7 +4613,7 @@
 						sigmodMinimap.style.width = sigmodMinimap.style.height = '200px';
 
 					if (sigmodMinimap.width !== canvas.width || sigmodMinimap.height !== canvas.height)
-						sigmodMinimap.width = sigmodMinimap.height = 200 * devicePixelRatio;
+						sigmodMinimap.width = sigmodMinimap.height = canvas.width;
 				}
 
 				const gameWidth = (border.r - border.l);
