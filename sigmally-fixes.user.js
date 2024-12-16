@@ -1669,7 +1669,10 @@
 					if (cell.deadAt !== undefined) cell.deadAt = localized(tab, cell.deadAt);
 
 					let collection = sync.merge[key].get(cell.id);
-					if (!collection) sync.merge[key].set(cell.id, collection = { merged: undefined, model: undefined, tabs: new Map() });
+					if (!collection) {
+						collection = { merged: undefined, model: undefined, tabs: new Map() };
+						sync.merge[key].set(cell.id, collection);
+					}
 					collection.tabs.set(data.self, cell);
 				}
 			}
@@ -1803,7 +1806,8 @@
 							// prefer accessing the local map
 							cell = world.cells.get(id) ?? world.pellets.get(id);
 						} else {
-							cell = sync.merge?.cells.get(id)?.tabs.get(tab) ?? sync.merge?.pellets.get(id)?.tabs.get(tab);
+							cell = sync.merge?.cells.get(id)?.tabs.get(tab)
+								?? sync.merge?.pellets.get(id)?.tabs.get(tab);
 						}
 						if (cell && cell.deadAt === undefined) {
 							const { x: ix, y: iy, r: ir, jr } = world.xyr(cell, undefined, now);
@@ -1848,20 +1852,15 @@
 								name, skin, sub, clan,
 							};
 
-							if (ncell.pellet) {
-								if (tab === self) world.pellets.set(id, ncell);
-								if (sync.merge) {
-									let collection = sync.merge.pellets.get(id);
-									if (!collection) sync.merge.pellets.set(id, collection = { merged: undefined, model: undefined, tabs: new Map() });
-									collection.tabs.set(tab, ncell);
+							const key = ncell.pellet ? 'pellets' : 'cells';
+							if (tab === self) world[key].set(id, ncell);
+							if (sync.merge) {
+								let collection = sync.merge[key].get(id);
+								if (!collection) {
+									collection = { merged: undefined, model: undefined, tabs: new Map() };
+									sync.merge[key].set(id, collection);
 								}
-							} else {
-								if (tab === self) world.cells.set(id, ncell);
-								if (sync.merge) {
-									let collection = sync.merge.cells.get(id);
-									if (!collection) sync.merge.cells.set(id, collection = { merged: undefined, model: undefined, tabs: new Map() });
-									collection.tabs.set(tab, ncell);
-								}
+								collection.tabs.set(tab, ncell);
 							}
 
 							if (tab === self && clan === aux.userData?.clan)
@@ -1972,14 +1971,15 @@
 				sync.merge = { cells: new Map(), pellets: new Map() };
 
 				// copy all local cells into here
-				/** @type {const} */ ([[world.cells, sync.merge.cells], [world.pellets, sync.merge.pellets]]).forEach(([map, to]) => {
+				for (const [map, to]
+					of /** @type {const} */ ([[world.cells, sync.merge.cells], [world.pellets, sync.merge.pellets]])) {
 					for (const [id, cell] of map) {
 						/** @type {Map<string, Cell>} */
 						const tabs = new Map();
 						tabs.set(self, cell);
 						to.set(id, { merged: undefined, model: undefined, tabs });
 					}
-				});
+				}
 			}
 
 			// #2 : ensure all important cells are synced
@@ -2106,7 +2106,7 @@
 							collection.tabs.delete(key);
 						}
 					}
-					
+
 					if (collection.tabs.size === 0) sync.merge.pellets.delete(id);
 				}
 			}
@@ -2166,13 +2166,11 @@
 			a = a < 0 ? 0 : a > 1 ? 1 : a;
 			let nx = cell.nx;
 			let ny = cell.ny;
-			//if (map && cell.deadAt !== undefined && cell.deadTo !== -1) {
-			//	const killer = map.cells.get(cell.deadTo) ?? map.pellets.get(cell.deadTo);
-				if (killer && cell.deadAt !== undefined && (killer.deadAt === undefined || cell.deadAt <= killer.deadAt)) {
-					// do not animate death towards a cell that died already (went offscreen)
-					nx = killer.nx;
-					ny = killer.ny;
-				}
+			if (killer && cell.deadAt !== undefined && (killer.deadAt === undefined || cell.deadAt <= killer.deadAt)) {
+				// do not animate death towards a cell that died already (went offscreen)
+				nx = killer.nx;
+				ny = killer.ny;
+			}
 
 			const x = cell.ox + (nx - cell.ox) * a;
 			const y = cell.oy + (ny - cell.oy) * a;
@@ -4229,7 +4227,12 @@
 				// for white cell outlines
 				let nextCellIdx = world.mine.length;
 				const canSplit = world.mine.map(id => {
-					const cell = world.cells.get(id); // TODO: should use sync.merge map if activated (what if on lag spike?)
+					let cell;
+					if (sync.merge) {
+						cell = sync.merge.cells.get(id)?.merged;
+					} else {
+						cell = world.cells.get(id);
+					}
 					if (!cell) {
 						--nextCellIdx;
 						return false;
