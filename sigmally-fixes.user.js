@@ -1410,7 +1410,7 @@
 			'for different tabs.');
 		input('background', 'Map background image', 'https://i.imgur.com/...', true,
 			'A square background image to use within the entire map border. Images under 1024x1024 will be treated ' +
-			'as a repeating pattern, where 32 pixels = 1 grid square.');
+			'as a repeating pattern, where 50 pixels = 1 grid square.');
 		checkbox('tracer', 'Lines between cells and mouse', 'If enabled, draws a line between all of the cells you ' +
 			'control and your mouse. Useful as a hint to your subconscious about which tab you\'re currently on.');
 		separator('• multibox •');
