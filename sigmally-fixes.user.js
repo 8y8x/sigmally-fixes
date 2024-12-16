@@ -7,7 +7,10 @@
 // @license      MIT
 // @grant        none
 // @namespace    https://8y8x.dev/sigmally-fixes
+// @icon         https://raw.githubusercontent.com/8y8x/sigmally-fixes/refs/heads/main/icon.png
 // @compatible   chrome Recommended for all users, works perfectly out of the box
+// @compatible   opera Works fine, multiboxers may need to change some browser keybinds
+// @compatible   edge Works fine, multiboxers may need to change some browser keybinds
 // ==/UserScript==
 
 // @ts-check
