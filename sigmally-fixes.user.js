@@ -730,6 +730,8 @@
 			}
 
 			function update() {
+				const friends = /** @type {any} */ (window).sigmod?.friend_names;
+				const friendSettings = /** @type {any} */ (window).sigmod?.friends_settings;
 				world.leaderboard.forEach((entry, i) => {
 					const line = lines[i];
 					if (!line) return;
@@ -738,6 +740,8 @@
 					line.textContent = `${entry.place ?? i + 1}. ${entry.name || 'An unnamed cell'}`;
 					if (entry.me)
 						line.style.color = '#faa';
+					else if (friends instanceof Set && friends.has(entry.name) && friendSettings?.highlight_friends)
+						line.style.color = friendSettings.highlight_color;
 					else if (entry.sub)
 						line.style.color = '#ffc826';
 					else
