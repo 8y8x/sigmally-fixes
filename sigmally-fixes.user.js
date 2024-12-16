@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.4.0
+// @version      2.4.1-BETA
 // @description  Easily 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -24,7 +24,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.4.0';
+	const sfVersion = '2.4.1-BETA';
 	// yes, this actually makes a significant difference
 	const undefined = window.undefined;
 
@@ -455,7 +455,7 @@
 				if (buf && buf.byteLength === '/leaveworld'.length + 3
 					&& new Uint8Array(buf).toString().includes(cmdRepresentation)) {
 					// block respawns if we haven't actually respawned yet (with a 500ms max in case something fails)
-					if (performance.now() - (destructor.respawnBlock?.started ?? 0) < 500) return;
+					if (performance.now() - (destructor.respawnBlock?.started ?? -Infinity) < 500) return;
 					destructor.respawnBlock = undefined;
 					// trying to respawn; see if we are nearby an alive multi-tab
 					if (world.mine.length > 0) {
@@ -1513,9 +1513,12 @@
 	 */
 	const sync = (() => {
 		const sync = {};
-		/** @type {Map<string, { cells: Map<number, Cell>, pellets: Map<number, Cell> }>} */
-		sync.maps = new Map();
-		/** @type {{ cells: Map<number, Cell>, pellets: Map<number, Cell> } | undefined} */
+		/** @type {Map<string, number>} */
+		sync.lastPacket = new Map();
+		/** @type {{
+		 * 	cells: Map<number, { merged: Cell | undefined, model: Cell | undefined, tabs: Map<string, Cell> }>,
+		 * 	pellets: Map<number, { merged: Cell | undefined, model: Cell | undefined, tabs: Map<string, Cell> }>,
+		 * } | undefined} */
 		sync.merge = undefined;
 		/** @type {Map<string, TabData>} */
 		sync.others = new Map();
@@ -1526,7 +1529,7 @@
 		const worldsyncRequest = new BroadcastChannel('sigfix-worldsync-request');
 		const worldupdate = new BroadcastChannel('sgifix-worldupdate');
 		const zoom = new BroadcastChannel('sigfix-zoom');
-		const self = Date.now() + '-' + Math.random();
+		const self = sync.self = Date.now() + '-' + Math.random();
 
 		/**
 		 * @param {TabData} data
@@ -1558,7 +1561,7 @@
 				const cell = world.cells.get(id);
 				if (!cell) continue;
 
-				owned.set(id, world.xyr(cell, world, now));
+				owned.set(id, world.xyr(cell, undefined, now));
 			}
 			for (const id of world.mineDead)
 				owned.set(id, false);
@@ -1587,20 +1590,22 @@
 			/** @type {{ cells: Map<number, Cell>, pellets: Map<number, Cell>, self: string }} */
 			const data = e.data;
 			const tab = sync.others.get(data.self);
-			if (!tab) return;
+			if (!tab || !sync.merge) return;
 
-			/** @param {Iterable<Cell>} collection */
-			const localizeMap = collection => {
-				for (const cell of collection) {
+			/** @param {'cells' | 'pellets'} key */
+			for (const key of ['cells', 'pellets']) {
+				for (const cell of data[key].values()) {
 					cell.born = localized(tab, cell.born);
-					cell.updated = localized(tab, cell.born);
+					cell.updated = localized(tab, cell.updated);
 					if (cell.deadAt !== undefined) cell.deadAt = localized(tab, cell.deadAt);
-				}
-			};
-			localizeMap(data.cells.values());
-			localizeMap(data.pellets.values());
 
-			sync.maps.set(data.self, { cells: data.cells, pellets: data.pellets });
+					let collection = sync.merge[key].get(cell.id);
+					if (!collection) sync.merge[key].set(cell.id, collection = { merged: undefined, model: undefined, tabs: new Map() });
+					collection.tabs.set(data.self, cell);
+				}
+			}
+
+			sync.lastPacket.set(data.self, performance.now());
 		});
 		let lastSyncResponse = 0;
 		worldsyncRequest.addEventListener('message', e => {
@@ -1611,20 +1616,22 @@
 			if (now - lastSyncResponse < 1000) return;
 			lastSyncResponse = now;
 
+			sync.tabsync(now);
 			worldsync.postMessage({ cells: world.cells, pellets: world.pellets, self });
 		});
 		worldupdate.addEventListener('message', e => {
 			/** @type {{ self: string, dat: DataView }} */
 			const data = e.data;
-			const map = sync.maps.get(data.self);
-			if (!map) {
+			const now = performance.now();
+			if (now - (sync.lastPacket.get(data.self) ?? -Infinity) > 3000) {
 				// if we don't exactly know what data to build from, request it
 				// there's a chance other tabs might not know either
 				worldsyncRequest.postMessage(data.self);
 				return;
 			}
 
-			sync.readWorldUpdate(map, data.dat);
+			sync.lastPacket.set(data.self, now);
+			sync.readWorldUpdate(data.self, data.dat);
 			sync.tryMerge();
 		});
 
@@ -1632,10 +1639,10 @@
 		zoom.addEventListener('message', e => void (input.zoom = e.data));
 
 		/**
-		 * @param {{ cells: Map<number, Cell>, pellets: Map<number, Cell> }} map
+		 * @param {string} tab
 		 * @param {DataView} dat
 		 */
-		sync.readWorldUpdate = (map, dat) => {
+		sync.readWorldUpdate = (tab, dat) => {
 			let off = 0;
 			const now = performance.now();
 			switch (dat.getUint8(off++)) {
@@ -1649,12 +1656,18 @@
 						const killedId = dat.getUint32(off + 4, true);
 						off += 8;
 
-						const killed = map.pellets.get(killedId) ?? map.cells.get(killedId);
+						let killed;
+						if (tab === self) {
+							killed = world.pellets.get(killedId) ?? world.cells.get(killedId);
+						} else {
+							killed = sync.merge?.pellets.get(killedId)?.tabs.get(tab)
+								?? sync.merge?.cells.get(killedId)?.tabs.get(tab);
+						}
 						if (killed) {
 							killed.deadTo = killerId;
 							killed.deadAt = killed.updated = now;
 
-							if (map === world) {
+							if (tab === self) {
 								world.clanmates.delete(killed);
 
 								if (killed.pellet && world.mine.includes(killerId))
@@ -1715,9 +1728,16 @@
 						const jagged = !!(flags & 0x11);
 						const eject = !!(flags & 0x20);
 
-						const cell = map.pellets.get(id) ?? map.cells.get(id);
+						/** @type {Cell | undefined} */
+						let cell;
+						if (tab === self) {
+							// prefer accessing the local map
+							cell = world.cells.get(id) ?? world.pellets.get(id);
+						} else {
+							cell = sync.merge?.cells.get(id)?.tabs.get(tab) ?? sync.merge?.pellets.get(id)?.tabs.get(tab);
+						}
 						if (cell && cell.deadAt === undefined) {
-							const { x: ix, y: iy, r: ir, jr } = world.xyr(cell, map, now);
+							const { x: ix, y: iy, r: ir, jr } = world.xyr(cell, undefined, now);
 							cell.ox = ix; cell.oy = iy; cell.or = ir;
 							cell.jr = jr;
 							cell.nx = x; cell.ny = y; cell.nr = r;
@@ -1734,7 +1754,7 @@
 							cell.sub = sub;
 
 							cell.clan = clan;
-							if (map === world && clan && clan === aux.userData?.clan)
+							if (tab === self && clan && clan === aux.userData?.clan)
 								world.clanmates.add(cell);
 						} else {
 							if (cell?.deadAt !== undefined) {
@@ -1759,10 +1779,23 @@
 								name, skin, sub, clan,
 							};
 
-							if (ncell.pellet) map.pellets.set(id, ncell);
-							else map.cells.set(id, ncell);
+							if (ncell.pellet) {
+								if (tab === self) world.pellets.set(id, ncell);
+								if (sync.merge) {
+									let collection = sync.merge.pellets.get(id);
+									if (!collection) sync.merge.pellets.set(id, collection = { merged: undefined, model: undefined, tabs: new Map() });
+									collection.tabs.set(tab, ncell);
+								}
+							} else {
+								if (tab === self) world.cells.set(id, ncell);
+								if (sync.merge) {
+									let collection = sync.merge.cells.get(id);
+									if (!collection) sync.merge.cells.set(id, collection = { merged: undefined, model: undefined, tabs: new Map() });
+									collection.tabs.set(tab, ncell);
+								}
+							}
 
-							if (map === world && clan === aux.userData?.clan)
+							if (tab === self && clan === aux.userData?.clan)
 								world.clanmates.add(ncell);
 						}
 					}
@@ -1775,14 +1808,20 @@
 						const deletedId = dat.getUint32(off, true);
 						off += 4;
 
-						const deleted = map.pellets.get(deletedId) ?? map.cells.get(deletedId);
+						let deleted;
+						if (tab === self) {
+							deleted = world.pellets.get(deletedId) ?? world.cells.get(deletedId);
+						} else {
+							deleted = sync.merge?.pellets.get(deletedId)?.tabs.get(tab)
+								?? sync.merge?.cells.get(deletedId)?.tabs.get(tab);
+						}
 						if (deleted) {
 							if (deleted.deadAt === undefined) {
 								deleted.deadAt = now;
 								deleted.deadTo = -1;
 							}
 
-							if (map === world) {
+							if (tab === self) {
 								world.clanmates.delete(deleted);
 
 								const myIdx = world.mine.indexOf(deletedId);
@@ -1795,30 +1834,49 @@
 					}
 
 					// #4 : clean all cells
-					for (const [id, cell] of map.cells) {
-						if (cell.deadAt === undefined) continue;
-						if (now - cell.deadAt >= 100) {
-							map.cells.delete(id);
-							if (map === world) world.mineDead.delete(id);
+					sync.clean();
+					if (tab === self) {
+						for (const [id, cell] of world.cells) {
+							if (cell.deadAt === undefined) continue;
+							if (now - cell.deadAt >= 100) {
+								world.cells.delete(id);
+								world.mineDead.delete(id);
+							}
 						}
-					}
 
-					for (const [id, cell] of map.pellets) {
-						if (cell.deadAt === undefined) continue;
-						if (now - cell.deadAt >= 100)
-							map.pellets.delete(id);
+						for (const [id, cell] of world.pellets) {
+							if (cell.deadAt === undefined) continue;
+							if (now - cell.deadAt >= 100) {
+								world.pellets.delete(id);
+							}
+						}
 					}
 					break;
 
 				case 0x12: // delete all cells
-					map.cells.clear();
-					map.pellets.clear();
+					if (tab === self) {
+						world.cells.clear();
+						world.pellets.clear();
+					}
+
+					if (sync.merge) {
+						for (const [id, collection] of sync.merge.cells) {
+							const deleted = collection.tabs.delete(tab);
+							if (deleted && collection.tabs.size === 0) {
+								sync.merge.cells.delete(id);
+							}
+						}
+
+						for (const [id, collection] of sync.merge.pellets) {
+							const deleted = collection.tabs.delete(tab);
+							if (deleted && collection.tabs.size === 0) {
+								sync.merge.cells.delete(id);
+							}
+						}
+					}
 					break;
 			}
 		};
-
-		/** @type {Map<number, Cell>} */
-		const all = new Map();
 
 		sync.tryMerge = () => {
 			// for camera merging to look extremely smooth, we need to merge packets and apply them *ONLY* when all
@@ -1832,174 +1890,167 @@
 			// if the view areas are disjoint, then there's nothing we can do but this should never happen when
 			// splitrunning
 
-			if (!settings.mergeViewArea || performance.now() - render.lastFrame > 45_000) {
+			if (!settings.mergeViewArea || performance.now() - render.lastFrame > 45_000 || sync.others.size === 0) {
 				// very performance-intensive; don't update if not rendering
 				sync.merge = undefined;
 				render.upload('pellets');
 				return;
 			}
 
-			if (sync.others.size === 0) {
-				// save on performance if people leave the mergeViewArea setting on
-				sync.merge = world;
-				render.upload('pellets');
-				return;
-			} else if (sync.merge === world) {
-				sync.merge = undefined;
-			}
-
-			/** @type {Map<number, Cell>} */
-			const cells = sync.merge?.cells ?? new Map();
 			const now = performance.now();
-			/** @type {Map<number, Cell>} */
-			const pellets = sync.merge?.pellets ?? new Map();
-			if (!sync.merge) sync.merge = { cells, pellets };
 
-			// #1 : collect local changes
-			all.clear();
-			for (const [id, cell] of world.cells)
-				all.set(id, cell);
+			if (!sync.merge) {
+				sync.merge = { cells: new Map(), pellets: new Map() };
 
-			// #2 : check if all the important cells are synced
-			/**
-			 * @param {Cell} cell
-			 * @returns {boolean}
-			 */
-			const check = cell => {
-				const current = all.get(cell.id);
-				if (!current) {
-					all.set(cell.id, cell);
-					return true;
-				}
-
-				const currentDisappearedAt = (current.deadAt !== undefined && current.deadTo === -1)
-					? current.deadAt : undefined;
-				const cellDisappearedAt
-					= (cell.deadAt !== undefined && cell.deadTo === -1) ? cell.deadAt : undefined;
-
-				if (currentDisappearedAt === undefined && cellDisappearedAt === undefined) {
-					// if *neither* cell has disappeared, check for desync
-					if (current.nx !== cell.nx || current.ny !== cell.ny || current.nr !== cell.nr)
-						return false;
-				} else if (currentDisappearedAt === undefined && cellDisappearedAt !== undefined) {
-					// other disappeared; prefer the current one
-				} else if (currentDisappearedAt !== undefined && cellDisappearedAt === undefined) {
-					// current disappeared; prefer the other one
-					all.set(cell.id, cell);
-				} else {
-					// both have disappeared, prefer the one that disappeared later
-					if (/** @type {number} */(currentDisappearedAt) < /** @type {number} */(cellDisappearedAt))
-						all.set(cell.id, cell);
-				}
-
-				return true;
-			};
-
-			/**
-			 * @param {'cells' | 'pellets'} mapKey
-			 * @returns {boolean}
-			 */
-			const iterate = mapKey => {
-				for (const [key, data] of sync.others.entries()) {
-					const map = sync.maps.get(key);
-					if (!map) continue;
-
-					// disregard tabs not updated in 250ms, they may have lagged out
-					if (now - localized(data, data.updated.now) > 250) continue;
-					for (const cell of map[mapKey].values()) {
-						if (!check(cell)) return false;
+				// copy all local cells into here
+				/** @type {const} */ ([[world.cells, sync.merge.cells], [world.pellets, sync.merge.pellets]]).forEach(([map, to]) => {
+					for (const [id, cell] of map) {
+						/** @type {Map<string, Cell>} */
+						const tabs = new Map();
+						tabs.set(self, cell);
+						to.set(id, { merged: undefined, model: undefined, tabs });
 					}
-				}
+				});
+			}
 
-				return true;
-			};
-
-			if (!iterate('cells'))
-				return;
-
-			// #3 : then, check if all the pellets are synced
-			for (const [id, cell] of world.pellets)
-				all.set(id, cell);
-			if (!iterate('pellets'))
-				return;
-
-			// #4 : all tabs are synced, we can update the cells
-			for (const cell of all.values()) {
-				const old = pellets.get(cell.id) ?? cells.get(cell.id);
-				if (old) {
-					const { x, y, r, jr } = world.xyr(old, undefined, now);
-					old.ox = x; old.oy = y; old.or = r;
-					old.jr = jr;
-					old.nx = cell.nx; old.ny = cell.ny; old.nr = cell.nr;
-
-					if (cell.deadAt !== undefined) {
-						if (old.deadAt === undefined) {
-							old.deadAt = now;
-							old.deadTo = cell.deadTo;
+			// #2 : ensure all important cells are synced
+			for (const map of [sync.merge.cells, sync.merge.pellets]) {
+				for (const [id, collection] of map) {
+					/** @type {Cell | undefined} */
+					let model;
+					for (const [key, cell] of collection.tabs) {
+						if (!model) {
+							model = cell;
+							continue;
 						}
-					} else if (old.deadAt !== undefined) {
-						old.ox = old.nx;
-						old.oy = old.ny;
-						old.or = old.jr = old.nr;
-						old.deadTo = -1;
-						old.deadAt = undefined;
-					}
-					old.updated = now;
-				} else {
-					/** @type {Cell} */
-					const ncell = {
-						id: cell.id,
-						ox: cell.ox, nx: cell.nx,
-						oy: cell.oy, ny: cell.ny,
-						or: cell.or, nr: cell.nr, jr: cell.jr,
-						Rgb: cell.Rgb, rGb: cell.rGb, rgB: cell.rgB,
-						jagged: cell.jagged, pellet: cell.pellet,
-						name: cell.name, skin: cell.skin, sub: cell.sub, clan: cell.clan,
-						born: cell.born, updated: now,
-						deadTo: cell.deadTo,
-						deadAt: cell.deadAt !== undefined ? now : undefined,
-					};
 
-					if (ncell.pellet) pellets.set(cell.id, ncell);
-					else cells.set(cell.id, ncell);
+						const modelDisappeared = model.deadAt !== undefined && model.deadTo === -1;
+						const cellDisappeared = cell.deadAt !== undefined && cell.deadTo === -1;
+
+						if (!modelDisappeared && !cellDisappeared) {
+							// both cells are visible; are they going to the same place?
+							if (model.nx !== cell.nx || model.ny !== cell.ny || model.nr !== cell.nr) {
+								return; // outta here
+							}
+						} else if (modelDisappeared && !cellDisappeared) {
+							// model went out of view; prefer the visible cell
+							model = cell;
+						} else if (!modelDisappeared && cellDisappeared) {
+							// cell went out of view; prefer model
+						} else {
+							// both cells went out of view; prefer the one that disappeared latest
+							if (/** @type {number} */ (cell.deadAt) > /** @type {number} */ (model.deadAt)) {
+								model = cell;
+							}
+						}
+					}
+
+					collection.model = model;
 				}
 			}
 
-			// #5 : kill cells that aren't seen anymore
-			/**
-			 * @param {Map<number, Cell>} map
-			 * @param {number} id
-			 * @param {Cell} cell
-			 */
-			const clean = (map, id, cell) => {
-				if (all.has(id)) return;
-				if (cell.deadAt !== undefined) {
-					if (now - cell.deadAt > 1000) map.delete(id);
-				} else {
-					cell.deadAt = now;
-					cell.deadTo = -1;
-					cell.updated = now;
-				}
-			};
+			// #3 : tabs are all synced; merge changes
+			for (const map of [sync.merge.cells, sync.merge.pellets]) {
+				for (const [id, collection] of map) {
+					const merged = collection.merged;
+					const model = /** @type {Cell} */ (collection.model);
+					if (!merged) {
+						if (model.Rgb === model.rGb && model.rGb === model.rgB && model.rgB === 1) console.log('new cell', model.Rgb, model.rGb, model.rgB, model);
+						collection.merged = {
+							id,
+							ox: model.nx, nx: model.nx,
+							oy: model.ny, ny: model.ny,
+							or: model.nr, nr: model.nr, jr: model.nr,
+							Rgb: model.Rgb, rGb: model.rGb, rgB: model.rgB,
+							jagged: model.jagged, pellet: model.pellet,
+							name: model.name, skin: model.skin, sub: model.sub, clan: model.clan,
+							born: now, updated: now,
+							deadTo: model.deadTo,
+							deadAt: model.deadAt !== undefined ? now : undefined,
+						};
+					} else {
+						const { x, y, r, jr } = world.xyr(merged, undefined, now);
+						merged.ox = x;
+						merged.oy = y;
+						merged.or = r;
+						merged.jr = jr;
+						merged.nx = model.nx;
+						merged.ny = model.ny;
+						merged.nr = model.nr;
 
-			for (const [id, cell] of cells) clean(cells, id, cell);
-			for (const [id, cell] of pellets) clean(pellets, id, cell);
+						if (model.deadAt !== undefined) {
+							if (merged.deadAt === undefined) {
+								// merged is finally dying
+								merged.deadAt = now;
+								merged.deadTo = model.deadTo;
+							}
+						} else if (merged.deadAt !== undefined) {
+							// cell is no longer dead (probably came back into view)
+							merged.ox = model.nx;
+							merged.oy = model.ny;
+							merged.or = model.nr;
+							merged.deadAt = undefined;
+							merged.deadTo = -1;
+						}
+						merged.updated = now;
+					}
+				}
+			}
+
 			sync.clean();
 			render.upload('pellets');
 		};
 
+		let lastClean = 0;
 		sync.clean = () => {
 			const now = performance.now();
+			if (now - lastClean < 500) return; // sync.clean is a huge bottleneck
+			lastClean = now;
+
+			if (sync.merge) {
+				// don't do array unpacking if not necessary
+				let idIterator = sync.merge.cells.keys();
+				for (const collection of sync.merge.cells.values()) {
+					const id = idIterator.next().value;
+					const cellIterator = collection.tabs.values();
+
+					for (const key of collection.tabs.keys()) {
+						const cell = cellIterator.next().value;
+						if (cell.deadAt === undefined) continue;
+						if (now - cell.deadAt >= 100) {
+							collection.tabs.delete(key);
+							if (key === self) world.mineDead.delete(id);
+						}
+					}
+
+					if (collection.tabs.size === 0) sync.merge.cells.delete(id);
+				}
+
+				idIterator = sync.merge.pellets.keys();
+				for (const collection of sync.merge.pellets.values()) {
+					const id = idIterator.next().value;
+					const cellIterator = collection.tabs.values();
+
+					for (const key of collection.tabs.keys()) {
+						const cell = cellIterator.next().value;
+						if (cell.deadAt === undefined) continue;
+						if (now - cell.deadAt >= 100) {
+							collection.tabs.delete(key);
+						}
+					}
+					
+					if (collection.tabs.size === 0) sync.merge.pellets.delete(id);
+				}
+			}
+
 			sync.others.forEach((data, key) => {
 				// when in laggy circumstances, it might take over 250ms to update, which could cause a snowball effect
 				// if worldsync needs to keep getting fired
 				if (now - localized(data, data.updated.now) > 500) {
 					sync.others.delete(key);
-					sync.maps.delete(key);
+					sync.lastPacket.delete(key);
 				}
 			});
-
-			if (!settings.mergeViewArea) sync.maps.clear();
 		};
 		setInterval(() => sync.clean(), 250);
 
@@ -2038,23 +2089,22 @@
 
 		/**
 		 * @param {Cell} cell
-		 * @param {{ cells: Map<number, Cell>, pellets: Map<number, Cell> } | undefined} map
+		 * @param {Cell | undefined} killer
 		 * @param {number} now
 		 * @returns {{ x: number, y: number, r: number, jr: number }}
 		 */
-		world.xyr = (cell, map, now) => {
+		world.xyr = (cell, killer, now) => {
 			let a = (now - cell.updated) / settings.drawDelay;
 			a = a < 0 ? 0 : a > 1 ? 1 : a;
 			let nx = cell.nx;
 			let ny = cell.ny;
-			if (map && cell.deadAt !== undefined && cell.deadTo !== -1) {
-				const killer = map.cells.get(cell.deadTo) ?? map.pellets.get(cell.deadTo);
-				if (killer && (killer.deadAt === undefined || cell.deadAt <= killer.deadAt)) {
+			//if (map && cell.deadAt !== undefined && cell.deadTo !== -1) {
+			//	const killer = map.cells.get(cell.deadTo) ?? map.pellets.get(cell.deadTo);
+				if (killer && cell.deadAt !== undefined && (killer.deadAt === undefined || cell.deadAt <= killer.deadAt)) {
 					// do not animate death towards a cell that died already (went offscreen)
 					nx = killer.nx;
 					ny = killer.ny;
 				}
-			}
 
 			const x = cell.ox + (nx - cell.ox) * a;
 			const y = cell.oy + (ny - cell.oy) * a;
@@ -2073,7 +2123,6 @@
 			const dt = (now - last) / 1000;
 			last = now;
 
-			const map = (settings.mergeViewArea && sync.merge) ? sync.merge : world;
 			const weight = settings.mergeCamera ? 2 : 0;
 
 			/**
@@ -2094,13 +2143,18 @@
 					/** @type {{ x: number, y: number, r: number, jr: number }} */
 					let xyr;
 
-					const cell = map.cells.get(id);
+					let cell;
+					if (settings.mergeViewArea && sync.merge) {
+						cell = sync.merge.cells.get(id)?.merged;
+					} else {
+						cell = world.cells.get(id);
+					}
 					if (!cell) {
 						const partial = fallback?.get(id);
 						if (!partial) continue;
 						xyr = partial;
 					} else if (cell.deadAt !== undefined) continue;
-					else xyr = world.xyr(cell, map, now);
+					else xyr = world.xyr(cell, undefined, now);
 
 					const weighted = xyr.r ** weight;
 					weightedX += xyr.x * weighted;
@@ -2401,17 +2455,18 @@
 						destructor.respawnBlock = undefined;
 					}
 
-					sync.readWorldUpdate(world, dat);
+					// start ASAP!
+					sync.tabsync(now);
+					if (settings.mergeViewArea) sync.worldupdate(dat);
+
+					sync.readWorldUpdate(sync.self, dat);
 					sync.tryMerge();
 
 					if (world.mine.length === 0 && world.stats.spawnedAt !== undefined) {
 						ui.deathScreen.show(world.stats);
 					}
 
-					sync.tabsync(now);
 					ui.stats.update();
-
-					if (settings.mergeViewArea) sync.worldupdate(dat);
 					break;
 				}
 
@@ -2427,7 +2482,7 @@
 					if (destructor.respawnBlock?.status === 'pending') {
 						destructor.respawnBlock.status = 'left';
 					}
-					sync.readWorldUpdate(world, dat);
+					sync.readWorldUpdate(sync.self, dat);
 					sync.tryMerge();
 					world.clanmates.clear();
 					if (settings.mergeViewArea) sync.worldupdate(dat);
@@ -3864,8 +3919,14 @@
 			// find expected # of pellets (exclude any that are being *animated*)
 			let expected = 0;
 			if (key === 'pellets') {
-				for (const pellet of map.pellets.values()) {
-					if (pellet.deadTo === -1) ++expected;
+				if (sync.merge) {
+					for (const [id, collection] of sync.merge.pellets) {
+						if (collection.merged?.deadTo === -1) ++expected;
+					}
+				} else {
+					for (const pellet of world.pellets.values()) {
+						if (pellet.deadTo === -1) ++expected;
+					}
 				}
 			} else {
 				expected = map.cells.size;
@@ -3894,15 +3955,16 @@
 			const foodBlank = key === 'pellets' && color?.[0] === 0 && color?.[1] === 0 && color?.[2] === 0;
 
 			let i = 0;
-			for (const cell of map[key].values()) {
+			/** @param {Cell} cell */
+			const iterate = cell => {
 				/** @type {number} */
 				let nx, ny, nr;
 				if (key !== 'cells') {
-					if (cell.deadTo !== -1) continue;
+					if (cell.deadTo !== -1) return;
 					nx = cell.nx; ny = cell.ny; nr = cell.nr;
 				} else {
 					let jr;
-					({ x: nx, y: ny, r: nr, jr } = world.xyr(cell, map, now));
+					({ x: nx, y: ny, r: nr, jr } = world.xyr(cell, undefined, now));
 					if (aux.settings.jellyPhysics) nr = jr;
 				}
 
@@ -3917,6 +3979,17 @@
 					objBuffer[i * 7 + 5] = cell.rgB; objBuffer[i * 7 + 6] = foodBlank ? color[3] : 1;
 				}
 				++i;
+			};
+			if (sync.merge) {
+				for (const [id, collection] of sync.merge[key]) {
+					if (collection.merged) {
+						iterate(collection.merged);
+					}
+				}
+			} else {
+				for (const cell of world[key].values()) {
+					iterate(cell);
+				}
 			}
 
 			// now, upload data
@@ -4069,12 +4142,10 @@
 			})();
 
 			(function cells() {
-				const map = (settings.mergeViewArea && sync.merge) ? sync.merge : world;
-
 				// for white cell outlines
 				let nextCellIdx = world.mine.length;
 				const canSplit = world.mine.map(id => {
-					const cell = map.cells.get(id);
+					const cell = world.cells.get(id); // TODO: should use sync.merge map if activated (what if on lag spike?)
 					if (!cell) {
 						--nextCellIdx;
 						return false;
@@ -4110,7 +4181,16 @@
 					const alpha = calcAlpha(cell);
 					cellUboFloats[8] = alpha * settings.cellOpacity;
 
-					const { x, y, r, jr } = world.xyr(cell, map, now);
+					/** @type {Cell | undefined} */
+					let killer;
+					if (cell.deadTo !== -1) {
+						if (sync.merge) {
+							killer = sync.merge.cells.get(cell.deadTo)?.merged;
+						} else {
+							killer = world.cells.get(cell.deadTo);
+						}
+					}
+					const { x, y, r, jr } = world.xyr(cell, killer, now);
 					// without jelly physics, the radius of cells is adjusted such that its subtle outline doesn't go
 					// past its original radius.
 					// jelly physics does not do this, so colliding cells need to look kinda 'joined' together,
@@ -4319,10 +4399,20 @@
 
 				// draw static pellets first
 				let i = 0;
-				for (const pellet of map.pellets.values()) {
+				/** @param {Cell} pellet */
+				const iterateStaticPellet = pellet => {
 					// deadTo property should never change in between upload('pellets') calls
-					if (pellet.deadTo !== -1) continue;
+					if (pellet.deadTo !== -1) return;
 					pelletAlpha[i++] = calcAlpha(pellet);
+				};
+				if (sync.merge) {
+					for (const collection of sync.merge.pellets.values()) {
+						if (collection.merged) iterateStaticPellet(collection.merged);
+					}
+				} else {
+					for (const pellet of world.pellets.values()) {
+						iterateStaticPellet(pellet);
+					}
 				}
 				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao[0].alphaBuffer);
 				gl.bufferSubData(gl.ARRAY_BUFFER, 0, pelletAlpha);
@@ -4347,18 +4437,38 @@
 				}
 
 				// then draw *animated* pellets
-				for (const pellet of map.pellets.values()) {
-					if (pellet.deadTo !== -1)
-						draw(pellet); // no rtx glow is fine here
+				/** @param {Cell} pellet */
+				const iterateAnimatedPellet = pellet => {
+					if (pellet.deadTo !== -1) draw(pellet); // no rtx glow is fine here
+				};
+				if (sync.merge) {
+					for (const collection of sync.merge.pellets.values()) {
+						if (collection.merged) iterateAnimatedPellet(collection.merged);
+					}
+				} else {
+					for (const pellet of world.pellets.values()) {
+						iterateAnimatedPellet(pellet);
+					}
 				}
 
 				/** @type {[Cell, number][]} */
 				const sorted = [];
-				for (const cell of map.cells.values()) {
+				/** @param {Cell} cell */
+				const iterateSortableCell = cell => {
 					const rAlpha = Math.min(Math.max((now - cell.updated) / settings.drawDelay, 0), 1);
 					const computedR = cell.or + (cell.nr - cell.or) * rAlpha;
 					sorted.push([cell, computedR]);
+				};
+				if (sync.merge) {
+					for (const collection of sync.merge.cells.values()) {
+						if (collection.merged) iterateSortableCell(collection.merged);
+					}
+				} else {
+					for (const cell of world.cells.values()) {
+						iterateSortableCell(cell);
+					}
 				}
+
 				// sort by smallest to biggest
 				sorted.sort(([_a, ar], [_b, br]) => ar - br);
 				for (const [cell] of sorted)
@@ -4367,13 +4477,23 @@
 				if (settings.cellGlow) {
 					render.upload('cells', now);
 					let i = 0;
-					for (const cell of map.cells.values()) {
+					/** @param {Cell} cell */
+					const iterateCellGlow = cell => {
 						if (cell.jagged) cellAlpha[i++] = 0;
 						else {
 							let alpha = calcAlpha(cell);
 							// it looks kinda weird when cells get sucked in when being eaten
 							if (cell.deadTo !== -1) alpha *= 0.25;
 							cellAlpha[i++] = alpha;
+						}
+					};
+					if (sync.merge) {
+						for (const collection of sync.merge.cells.values()) {
+							if (collection.merged) iterateCellGlow(collection.merged);
+						}
+					} else {
+						for (const cell of world.cells.values()) {
+							iterateCellGlow(cell);
 						}
 					}
 
@@ -4389,7 +4509,7 @@
 					gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([ 0.33, 1.5 ]), gl.STATIC_DRAW);
 					gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 
-					gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, map.cells.size);
+					gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, i);
 					gl.bindVertexArray(glconf.vao[0].vao);
 					gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 				}
@@ -4403,10 +4523,16 @@
 					tracerUboFloats[3] = y; // tracer_pos2.y
 
 					world.mine.forEach(id => {
-						const cell = map.cells.get(id);
-						if (!cell) return;
+						/** @type {Cell | undefined} */
+						let cell;
+						if (sync.merge) {
+							cell = sync.merge.cells.get(id)?.merged;
+						} else {
+							cell = world.cells.get(id);
+						}
+						if (!cell || cell.deadAt !== undefined) return;
 
-						let { x, y } = world.xyr(cell, map, now);
+						let { x, y } = world.xyr(cell, undefined, now);
 						tracerUboFloats[0] = x; // tracer_pos1.x
 						tracerUboFloats[1] = y; // tracer_pos1.y
 						gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Tracer);
