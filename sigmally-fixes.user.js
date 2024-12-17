@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.4.1-BETA
+// @version      2.4.1
 // @description  Easily 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.4.1-BETA';
+	const sfVersion = '2.4.1';
 	// yes, this actually makes a significant difference
 	const undefined = window.undefined;
 
@@ -1659,73 +1659,69 @@
 		let lastSyncResponse = 0;
 		worldsync.addEventListener('message', e => {
 			switch (e.data.type) {
-			case 'update': {
-				/** @type {{ self: string, dat: DataView }} */
-				const data = e.data;
-				const now = performance.now();
-				if (now - (sync.lastPacket.get(data.self) ?? -Infinity) > 3000) {
-					// if we don't exactly know what data to build from, request it
-					// there's a chance other tabs might not know either
-					console.log('worldsyncRequesting', data.self);
-					worldsync.postMessage({ type: 'sync-request', self: data.self });
-					return;
-				}
-
-				sync.lastPacket.set(data.self, now);
-				sync.readWorldUpdate(data.self, data.dat);
-				sync.tryMerge();
-				break;
-			}
-
-			case 'sync-request': {
-				if (self !== /** @type {string} */ (e.data.self)) return;
-				// do NOT tolerate spamming worldsyncRequests. let the other tabs suffer for a second, rather than resending
-				// like 50 times on a lag spike
-				const now = performance.now();
-				if (now - lastSyncResponse < 1000) return;
-				lastSyncResponse = now;
-				console.log('worldsyncRequest');
-
-				sync.tabsync(now);
-				sync.worldsync();
-				break;
-			}
-
-			case 'sync-response': {
-				/** @type {{ cells: Map<number, Cell>, pellets: Map<number, Cell>, self: string }} */
-				const data = e.data;
-				const tab = sync.others.get(data.self);
-				if (!tab || !sync.merge) return;
-
-				console.log('worldsync response', data.self);
-
-				// first, clear all previously known cells
-				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-					for (const [id, collection] of sync.merge[key]) {
-						collection.tabs.delete(data.self);
-						if (collection.tabs.size === 0) sync.merge[key].delete(id);
+				case 'update': {
+					/** @type {{ self: string, dat: DataView }} */
+					const data = e.data;
+					const now = performance.now();
+					if (now - (sync.lastPacket.get(data.self) ?? -Infinity) > 3000) {
+						// if we don't exactly know what data to build from, request it
+						// there's a chance other tabs might not know either
+						worldsync.postMessage({ type: 'sync-request', self: data.self });
+						return;
 					}
+
+					sync.lastPacket.set(data.self, now);
+					sync.readWorldUpdate(data.self, data.dat);
+					sync.tryMerge();
+					break;
 				}
 
-				// then add new ones
-				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-					for (const cell of data[key].values()) {
-						cell.born = localized(tab, cell.born);
-						cell.updated = localized(tab, cell.updated);
-						if (cell.deadAt !== undefined) cell.deadAt = localized(tab, cell.deadAt);
+				case 'sync-request': {
+					if (self !== /** @type {string} */ (e.data.self)) return;
+					// do NOT tolerate spamming worldsyncRequests. let the other tabs suffer for a second, rather than
+					// resending like 50 times on a lag spike
+					const now = performance.now();
+					if (now - lastSyncResponse < 1000) return;
+					lastSyncResponse = now;
 
-						let collection = sync.merge[key].get(cell.id);
-						if (!collection) {
-							collection = { merged: undefined, model: undefined, tabs: new Map() };
-							sync.merge[key].set(cell.id, collection);
+					sync.tabsync(now);
+					sync.worldsync();
+					break;
+				}
+
+				case 'sync-response': {
+					/** @type {{ cells: Map<number, Cell>, pellets: Map<number, Cell>, self: string }} */
+					const data = e.data;
+					const tab = sync.others.get(data.self);
+					if (!tab || !sync.merge) return;
+
+					// first, clear all previously known cells
+					for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+						for (const [id, collection] of sync.merge[key]) {
+							collection.tabs.delete(data.self);
+							if (collection.tabs.size === 0) sync.merge[key].delete(id);
 						}
-						collection.tabs.set(data.self, cell);
 					}
-				}
 
-				sync.lastPacket.set(data.self, performance.now());
-				break;
-			}
+					// then add new ones
+					for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+						for (const cell of data[key].values()) {
+							cell.born = localized(tab, cell.born);
+							cell.updated = localized(tab, cell.updated);
+							if (cell.deadAt !== undefined) cell.deadAt = localized(tab, cell.deadAt);
+
+							let collection = sync.merge[key].get(cell.id);
+							if (!collection) {
+								collection = { merged: undefined, model: undefined, tabs: new Map() };
+								sync.merge[key].set(cell.id, collection);
+							}
+							collection.tabs.set(data.self, cell);
+						}
+					}
+
+					sync.lastPacket.set(data.self, performance.now());
+					break;
+				}
 			}
 		});
 
