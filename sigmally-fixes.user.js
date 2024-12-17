@@ -2426,10 +2426,16 @@
 			if (!wasOpen) net.rejected = true;
 			wasOpen = false;
 
-			// hide/clear UI
+			// hide/clear UI and show death screen if necessary
 			ui.stats.misc.textContent = '';
 			world.leaderboard = [];
 			ui.leaderboard.update();
+			if (world.stats.spawnedAt !== undefined) {
+				ui.deathScreen.show(world.stats);
+				ui.stats.update();
+			} else {
+				ui.toggleEscOverlay(true);
+			}
 
 			// clear world
 			world.border = undefined;
