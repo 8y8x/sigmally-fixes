@@ -1109,6 +1109,7 @@
 			pelletGlow: false,
 			scrollFactor: 1,
 			selfSkin: '',
+			showOwnName: true,
 			showStats: true,
 			syncSkin: true,
 			textOutlinesFactor: 1,
@@ -1514,6 +1515,8 @@
 		slider('textOutlinesFactor', 'Text outline thickness factor', 1, 0, 2, 0.01, 2, false,
 			'The multiplier of the thickness of the black stroke around names, mass, and clans on cells. You can set ' +
 			'this to 0 to disable outlines AND text shadows.');
+		checkbox('showOwnName', 'Show own name', 'When disabled, your name and clan won\'t be shown on your cells ' +
+			'and your multibox tabs.');
 		separator('• other •');
 		slider('unsplittableOpacity', 'Unsplittable cell outline opacity', 1, 0, 1, 0.01, 2, true,
 			'How visible the white outline around cells that can\'t split should be. 0 = not visible, 1 = fully ' +
@@ -4395,9 +4398,21 @@
 					// #2 : draw text
 					if (cell.pellet) return;
 					const name = cell.name || 'An unnamed cell';
-					const showThisName = showNames && cell.nr > 75;
+					let canShow = true;
+					if (!settings.showOwnName) {
+						canShow = !world.mine.includes(cell.id);
+						if (canShow) {
+							for (const tab of sync.others.values()) {
+								if (tab.owned.has(cell.id)) {
+									canShow = false;
+									break;
+								}
+							}
+						}
+					}
+					let showThisName = canShow && showNames && cell.nr > 75;
 					const showThisMass = aux.settings.showMass && cell.nr > 75;
-					const clan = (settings.clans && aux.clans.get(cell.clan)) || '';
+					const clan = (canShow && settings.clans && aux.clans.get(cell.clan)) || '';
 					if (!showThisName && !showThisMass && !clan) return;
 
 					gl.useProgram(glconf.programs.text);
