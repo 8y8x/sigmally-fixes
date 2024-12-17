@@ -2157,7 +2157,7 @@
 				}
 			});
 		};
-		setInterval(() => sync.clean(), 250);
+		setInterval(() => sync.clean(), 500);
 
 		return sync;
 	})();
@@ -4221,8 +4221,12 @@
 
 				gl.useProgram(glconf.programs.bg);
 
-				const texture
-					= textureFromCache(settings.background || (aux.settings.darkTheme ? darkGridSrc : lightGridSrc));
+				let texture;
+				if (settings.background) {
+					texture = textureFromCache(settings.background);
+				} else if (aux.settings.showGrid) {
+					texture = textureFromCache(aux.settings.darkTheme ? darkGridSrc : lightGridSrc);
+				}
 				gl.bindTexture(gl.TEXTURE_2D, texture?.texture ?? null);
 				const repeating = texture && texture.width <= 1024 && texture.height <= 1024;
 
@@ -4246,8 +4250,7 @@
 				borderUboFloats[7] = borderLrtb.b;
 
 				// flags
-				borderUboInts[8] = ((aux.settings.showGrid && texture) ? 0x01 : 0)
-					| (aux.settings.darkTheme ? 0x02 : 0) | (repeating ? 0x04 : 0);
+				borderUboInts[8] = (texture ? 0x01 : 0) | (aux.settings.darkTheme ? 0x02 : 0) | (repeating ? 0x04 : 0);
 
 				// u_background_width and u_background_height
 				borderUboFloats[9] = texture?.width ?? 1;
