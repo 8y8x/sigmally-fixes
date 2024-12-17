@@ -1819,7 +1819,7 @@
 							// update name
 							[name, off] = aux.readZTString(dat, off);
 							name = aux.parseName(name);
-							render.textFromCache(name, sub); // make sure the texture is ready on render
+							if (name) render.textFromCache(name, sub); // make sure the texture is ready on render
 						}
 
 						const jagged = !!(flags & 0x11);
@@ -1947,21 +1947,20 @@
 					break;
 
 				case 0x12: // delete all cells
-					console.log('delete all cells:', tab, tab === self);
+					// DO NOT just clear the maps! when respawning, OgarII will not resend cell data if we spawn nearby.
 					if (tab === self) {
-						world.cells.clear();
-						world.pellets.clear();
-					}
-
-					if (sync.merge) {
-						for (const [id, collection] of sync.merge.cells) {
-							collection.tabs.delete(tab);
-							if (collection.tabs.size === 0) sync.merge.cells.delete(id);
+						// self cells are linked to those in sync.merge, this should be faster
+						for (const map of [world.cells, world.pellets]) {
+							for (const cell of map.values()) {
+								if (cell.deadAt === undefined) cell.deadAt = now;
+							}
 						}
-
-						for (const [id, collection] of sync.merge.pellets) {
-							collection.tabs.delete(tab);
-							if (collection.tabs.size === 0) sync.merge.pellets.delete(id);
+					} else if (sync.merge) {
+						for (const map of [sync.merge.cells, sync.merge.pellets]) {
+							for (const collection of map.values()) {
+								const cell = collection.tabs.get(tab);
+								if (cell && cell.deadAt === undefined) cell.deadAt = now;
+							}
 						}
 					}
 					break;
@@ -3250,10 +3249,27 @@
 
 			/** @param {MouseEvent} e */
 			async function clickHandler(e) {
-				if (net.connection() && !net.rejected) {
-					ui.toggleEscOverlay(false);
-					net.play(playData(e.currentTarget === spectate));
+				if (!net.connection() || net.rejected) return;
+				ui.toggleEscOverlay(false);
+				if (e.currentTarget === spectate) {
+					// you should be able to escape sigmod auto-respawn and spectate as long as you don't have mass
+					let score = 0;
+					for (const id of world.mine) {
+						const cell = world.cells.get(id);
+						if (!cell) continue;
+						score += cell.nr * cell.nr / 100;
+					}
+
+					if (0 < score && score < 1000) {
+						world.stats.spawnedAt = undefined; // prevent death screen from appearing
+						net.play(playData(true));
+						net.chat('/leaveworld'); // instant respawn
+						net.play(playData(true));
+						net.chat('/joinworld 1');
+					}
 				}
+
+				net.play(playData(e.currentTarget === spectate));
 			}
 
 			play.addEventListener('click', clickHandler);
