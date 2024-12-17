@@ -1082,7 +1082,7 @@
 	/////////////////////////
 	const settings = (() => {
 		const settings = {
-			/** @type {'auto' | 'always' | 'never'} */
+			/** @type {'auto' | 'never'} */
 			autoZoom: 'auto',
 			background: '',
 			blockBrowserKeybinds: false,
@@ -1489,7 +1489,7 @@
 		separator('• inputs •');
 		slider('scrollFactor', 'Zoom speed', 1, 0.05, 1, 0.05, 2, false,
 			'A smaller zoom speed lets you fine-tune your zoom.');
-		dropdown('autoZoom', 'Auto-zoom', [['auto', 'When not multiboxing'], ['always', 'Always'], ['never', 'Never']],
+		dropdown('autoZoom', 'Auto-zoom', [['auto', 'When not multiboxing'], ['never', 'Never']],
 			'When enabled, automatically zooms in/out for you based on how big you are. ');
 		checkbox('blockBrowserKeybinds', 'Block all browser keybinds',
 			'When enabled, only Ctrl+Tab and F11 are allowed to be pressed. You must be in fullscreen, and ' +
@@ -1575,7 +1575,7 @@
 	/** @typedef {{
 	 * 	self: string,
 	 * 	camera: { tx: number, ty: number },
-	 * 	owned: Map<number, { x: number, y: number, nr: number, jr: number } | false>,
+	 * 	owned: Map<number, { x: number, y: number, r: number, jr: number } | false>,
 	 * 	skin: string,
 	 * 	updated: { now: number, timeOrigin: number },
 	 * }} TabData
@@ -1595,8 +1595,6 @@
 		const frame = new BroadcastChannel('sigfix-frame');
 		const tabsync = new BroadcastChannel('sigfix-tabsync');
 		const worldsync = new BroadcastChannel('sigfix-worldsync');
-		const worldsyncRequest = new BroadcastChannel('sigfix-worldsync-request');
-		const worldupdate = new BroadcastChannel('sgifix-worldupdate');
 		const zoom = new BroadcastChannel('sigfix-zoom');
 		const self = sync.self = Date.now() + '-' + Math.random();
 
@@ -1630,7 +1628,7 @@
 				const cell = world.cells.get(id);
 				if (!cell) continue;
 
-				owned.set(id, { ...world.xyr(cell, undefined, now), nr: cell.nr });
+				owned.set(id, world.xyr(cell, undefined, now));
 			}
 			for (const id of world.mineDead)
 				owned.set(id, false);
@@ -1651,60 +1649,84 @@
 			sync.others.set(data.self, data);
 		});
 
+		sync.worldsync = () => {
+			worldsync.postMessage({ type: 'sync-response', cells: world.cells, pellets: world.pellets, self });
+		};
 		/** @param {DataView} dat */
 		sync.worldupdate = dat => {
-			worldupdate.postMessage({ self, dat });
+			worldsync.postMessage({ type: 'update', self, dat });
 		};
-		worldsync.addEventListener('message', e => {
-			/** @type {{ cells: Map<number, Cell>, pellets: Map<number, Cell>, self: string }} */
-			const data = e.data;
-			const tab = sync.others.get(data.self);
-			if (!tab || !sync.merge) return;
-
-			/** @param {'cells' | 'pellets'} key */
-			for (const key of ['cells', 'pellets']) {
-				for (const cell of data[key].values()) {
-					cell.born = localized(tab, cell.born);
-					cell.updated = localized(tab, cell.updated);
-					if (cell.deadAt !== undefined) cell.deadAt = localized(tab, cell.deadAt);
-
-					let collection = sync.merge[key].get(cell.id);
-					if (!collection) {
-						collection = { merged: undefined, model: undefined, tabs: new Map() };
-						sync.merge[key].set(cell.id, collection);
-					}
-					collection.tabs.set(data.self, cell);
-				}
-			}
-
-			sync.lastPacket.set(data.self, performance.now());
-		});
 		let lastSyncResponse = 0;
-		worldsyncRequest.addEventListener('message', e => {
-			if (self !== /** @type {string} */ (e.data)) return;
-			// do NOT tolerate spamming worldsyncRequests. let the other tabs suffer for a second, rather than resending
-			// like 50 times on a lag spike
-			const now = performance.now();
-			if (now - lastSyncResponse < 1000) return;
-			lastSyncResponse = now;
+		worldsync.addEventListener('message', e => {
+			switch (e.data.type) {
+			case 'update': {
+				/** @type {{ self: string, dat: DataView }} */
+				const data = e.data;
+				const now = performance.now();
+				if (now - (sync.lastPacket.get(data.self) ?? -Infinity) > 3000) {
+					// if we don't exactly know what data to build from, request it
+					// there's a chance other tabs might not know either
+					console.log('worldsyncRequesting', data.self);
+					worldsync.postMessage({ type: 'sync-request', self: data.self });
+					return;
+				}
 
-			sync.tabsync(now);
-			worldsync.postMessage({ cells: world.cells, pellets: world.pellets, self });
-		});
-		worldupdate.addEventListener('message', e => {
-			/** @type {{ self: string, dat: DataView }} */
-			const data = e.data;
-			const now = performance.now();
-			if (now - (sync.lastPacket.get(data.self) ?? -Infinity) > 3000) {
-				// if we don't exactly know what data to build from, request it
-				// there's a chance other tabs might not know either
-				worldsyncRequest.postMessage(data.self);
-				return;
+				sync.lastPacket.set(data.self, now);
+				sync.readWorldUpdate(data.self, data.dat);
+				sync.tryMerge();
+				break;
 			}
 
-			sync.lastPacket.set(data.self, now);
-			sync.readWorldUpdate(data.self, data.dat);
-			sync.tryMerge();
+			case 'sync-request': {
+				if (self !== /** @type {string} */ (e.data.self)) return;
+				// do NOT tolerate spamming worldsyncRequests. let the other tabs suffer for a second, rather than resending
+				// like 50 times on a lag spike
+				const now = performance.now();
+				if (now - lastSyncResponse < 1000) return;
+				lastSyncResponse = now;
+				console.log('worldsyncRequest');
+
+				sync.tabsync(now);
+				sync.worldsync();
+				break;
+			}
+
+			case 'sync-response': {
+				/** @type {{ cells: Map<number, Cell>, pellets: Map<number, Cell>, self: string }} */
+				const data = e.data;
+				const tab = sync.others.get(data.self);
+				if (!tab || !sync.merge) return;
+
+				console.log('worldsync response', data.self);
+
+				// first, clear all previously known cells
+				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+					for (const [id, collection] of sync.merge[key]) {
+						collection.tabs.delete(data.self);
+						if (collection.tabs.size === 0) sync.merge[key].delete(id);
+					}
+				}
+
+				// then add new ones
+				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+					for (const cell of data[key].values()) {
+						cell.born = localized(tab, cell.born);
+						cell.updated = localized(tab, cell.updated);
+						if (cell.deadAt !== undefined) cell.deadAt = localized(tab, cell.deadAt);
+
+						let collection = sync.merge[key].get(cell.id);
+						if (!collection) {
+							collection = { merged: undefined, model: undefined, tabs: new Map() };
+							sync.merge[key].set(cell.id, collection);
+						}
+						collection.tabs.set(data.self, cell);
+					}
+				}
+
+				sync.lastPacket.set(data.self, performance.now());
+				break;
+			}
+			}
 		});
 
 		sync.zoom = () => zoom.postMessage(input.zoom);
@@ -1906,7 +1928,7 @@
 					if (tab === self) {
 						for (const [id, cell] of world.cells) {
 							if (cell.deadAt === undefined) continue;
-							if (now - cell.deadAt >= 100) {
+							if (now - cell.deadAt >= 200) {
 								world.cells.delete(id);
 								world.mineDead.delete(id);
 							}
@@ -1914,7 +1936,7 @@
 
 						for (const [id, cell] of world.pellets) {
 							if (cell.deadAt === undefined) continue;
-							if (now - cell.deadAt >= 100) {
+							if (now - cell.deadAt >= 200) {
 								world.pellets.delete(id);
 							}
 						}
@@ -1922,6 +1944,7 @@
 					break;
 
 				case 0x12: // delete all cells
+					console.log('delete all cells:', tab, tab === self);
 					if (tab === self) {
 						world.cells.clear();
 						world.pellets.clear();
@@ -1929,17 +1952,13 @@
 
 					if (sync.merge) {
 						for (const [id, collection] of sync.merge.cells) {
-							const deleted = collection.tabs.delete(tab);
-							if (deleted && collection.tabs.size === 0) {
-								sync.merge.cells.delete(id);
-							}
+							collection.tabs.delete(tab);
+							if (collection.tabs.size === 0) sync.merge.cells.delete(id);
 						}
 
 						for (const [id, collection] of sync.merge.pellets) {
-							const deleted = collection.tabs.delete(tab);
-							if (deleted && collection.tabs.size === 0) {
-								sync.merge.cells.delete(id);
-							}
+							collection.tabs.delete(tab);
+							if (collection.tabs.size === 0) sync.merge.pellets.delete(id);
 						}
 					}
 					break;
@@ -1966,9 +1985,11 @@
 			}
 
 			const now = performance.now();
+			let inheritBorn = false; // without, when turning on sync.merge, cells will appear to fade in again
 
 			if (!sync.merge) {
 				sync.merge = { cells: new Map(), pellets: new Map() };
+				inheritBorn = true;
 
 				// copy all local cells into here
 				for (const [map, to]
@@ -1984,10 +2005,10 @@
 
 			// #2 : ensure all important cells are synced
 			for (const map of [sync.merge.cells, sync.merge.pellets]) {
-				for (const [id, collection] of map) {
+				for (const collection of map.values()) {
 					/** @type {Cell | undefined} */
 					let model;
-					for (const [key, cell] of collection.tabs) {
+					for (const cell of collection.tabs.values()) {
 						if (!model) {
 							model = cell;
 							continue;
@@ -2027,28 +2048,34 @@
 						collection.merged = undefined;
 						continue;
 					}
+
 					if (!merged) {
-						collection.merged = {
-							id,
-							ox: model.nx, nx: model.nx,
-							oy: model.ny, ny: model.ny,
-							or: model.nr, nr: model.nr, jr: model.nr,
-							Rgb: model.Rgb, rGb: model.rGb, rgB: model.rgB,
-							jagged: model.jagged, pellet: model.pellet,
-							name: model.name, skin: model.skin, sub: model.sub, clan: model.clan,
-							born: now, updated: now,
-							deadTo: model.deadTo,
-							deadAt: model.deadAt !== undefined ? now : undefined,
-						};
+						if (model.deadAt === undefined) {
+							collection.merged = {
+								id,
+								ox: model.nx, nx: model.nx,
+								oy: model.ny, ny: model.ny,
+								or: model.nr, nr: model.nr, jr: model.nr,
+								Rgb: model.Rgb, rGb: model.rGb, rgB: model.rgB,
+								jagged: model.jagged, pellet: model.pellet,
+								name: model.name, skin: model.skin, sub: model.sub, clan: model.clan,
+								born: inheritBorn ? model.born : now, updated: now,
+								deadTo: -1,
+								deadAt: undefined,
+							};
+						}
 					} else {
-						const { x, y, r, jr } = world.xyr(merged, undefined, now);
-						merged.ox = x;
-						merged.oy = y;
-						merged.or = r;
-						merged.jr = jr;
-						merged.nx = model.nx;
-						merged.ny = model.ny;
-						merged.nr = model.nr;
+						if (merged.deadAt === undefined) {
+							const { x, y, r, jr } = world.xyr(merged, undefined, now);
+							merged.ox = x;
+							merged.oy = y;
+							merged.or = r;
+							merged.jr = jr;
+							merged.nx = model.nx;
+							merged.ny = model.ny;
+							merged.nr = model.nr;
+							merged.updated = now;
+						}
 
 						if (model.deadAt !== undefined) {
 							if (merged.deadAt === undefined) {
@@ -2063,8 +2090,8 @@
 							merged.or = model.nr;
 							merged.deadAt = undefined;
 							merged.deadTo = -1;
+							merged.born = merged.updated = now;
 						}
-						merged.updated = now;
 					}
 				}
 			}
@@ -2087,12 +2114,14 @@
 					const cellIterator = collection.tabs.values();
 
 					for (const key of collection.tabs.keys()) {
-						const cell = cellIterator.next().value;
-						if (cell.deadAt === undefined) continue;
-						if (now - cell.deadAt >= 100) {
-							collection.tabs.delete(key);
-							if (key === self) world.mineDead.delete(id);
+						if (key === self || sync.others.has(key)) {
+							const cell = /** @type {Cell} */ (cellIterator.next().value);
+							if (cell.deadAt === undefined) continue;
+							if (now - cell.deadAt < 500) continue;
 						}
+
+						collection.tabs.delete(key);
+						if (key === self) world.mineDead.delete(id);
 					}
 
 					if (collection.tabs.size === 0) sync.merge.cells.delete(id);
@@ -2104,11 +2133,13 @@
 					const cellIterator = collection.tabs.values();
 
 					for (const key of collection.tabs.keys()) {
-						const cell = cellIterator.next().value;
-						if (cell.deadAt === undefined) continue;
-						if (now - cell.deadAt >= 100) {
-							collection.tabs.delete(key);
+						if (key === self || sync.others.has(key)) {
+							const cell = cellIterator.next().value;
+							if (cell.deadAt === undefined) continue;
+							if (now - cell.deadAt < 500) continue;
 						}
+
+						collection.tabs.delete(key);
 					}
 
 					if (collection.tabs.size === 0) sync.merge.pellets.delete(id);
@@ -2116,9 +2147,8 @@
 			}
 
 			sync.others.forEach((data, key) => {
-				// when in laggy circumstances, it might take over 250ms to update, which could cause a snowball effect
-				// if worldsync needs to keep getting fired
-				if (now - localized(data, data.updated.now) > 500) {
+				// only get rid of a tab if it lags out alone
+				if (net.lastUpdate - localized(data, data.updated.now) > 500) {
 					sync.others.delete(key);
 					sync.lastPacket.delete(key);
 				}
@@ -2197,7 +2227,7 @@
 
 			/**
 			 * @param {Iterable<number>} owned
-			 * @param {Map<number, { x: number, y: number, nr: number, jr: number } | false> | undefined} fallback
+			 * @param {Map<number, { x: number, y: number, r: number, jr: number } | false> | undefined} fallback
 			 * @returns {{
 			 * 	weightedX: number, weightedY: number, totalWeight: number,
 			 * 	scale: number, width: number, height: number
@@ -2210,9 +2240,8 @@
 				let totalR = 0;
 
 				for (const id of owned) {
-					/** @type {{ x: number, y: number, jr: number }} */
+					/** @type {{ x: number, y: number, r: number, jr: number }} */
 					let xyr;
-					let nr;
 
 					let cell;
 					if (settings.mergeViewArea && sync.merge) {
@@ -2224,18 +2253,14 @@
 						const partial = fallback?.get(id);
 						if (!partial) continue;
 						xyr = partial;
-						nr = partial.nr;
 					} else if (cell.deadAt !== undefined) continue;
-					else {
-						xyr = world.xyr(cell, undefined, now);
-						nr = cell.nr;
-					}
+					else xyr = world.xyr(cell, undefined, now);
 
-					const weighted = nr ** weight;
+					const weighted = xyr.r ** weight;
 					weightedX += xyr.x * weighted;
 					weightedY += xyr.y * weighted;
 					totalWeight += weighted;
-					totalR += nr;
+					totalR += xyr.r;
 				}
 
 				const scale = Math.min(64 / totalR, 1) ** 0.4;
@@ -2272,20 +2297,14 @@
 
 			// auto + merge => 0.25
 			// auto + -merge => localDesc.scale
-			// always + merge => custom scale
-			// always + -merge => localDesc.scale
 			// never + merge => 0.25
 			// never + -merge => 0.25
 			/** @type {number} */
 			let zoomout;
 			if (settings.autoZoom === 'never' || (settings.autoZoom === 'auto' && settings.mergeCamera)) {
 				zoomout = 0.25;
-			} else if ((settings.autoZoom === 'auto' || settings.autoZoom === 'always') && !settings.mergeCamera) {
-				zoomout = localDesc.scale;
 			} else {
-				// 'always' auto zoom + merging; use your current mass for zoom, because by radius is really jarring
-				// to look at
-				zoomout = Math.min(64 / Math.sqrt(totalWeight), 1) ** 0.4;
+				zoomout = localDesc.scale;
 			}
 
 			let xyEaseFactor;
@@ -2356,6 +2375,7 @@
 		/** -1 if ping reply took too long @type {number | undefined} */
 		net.latency = undefined;
 		net.ready = false;
+		net.lastUpdate = -Infinity;
 		net.rejected = false;
 
 		// #2 : connecting/reconnecting the websocket
@@ -2398,6 +2418,7 @@
 				clearInterval(pingInterval);
 
 			net.latency = undefined;
+			net.lastUpdate = performance.now();
 			net.ready = false;
 			if (!wasOpen) net.rejected = true;
 			wasOpen = false;
@@ -2537,6 +2558,7 @@
 			let off = 1;
 			switch (opcode) {
 				case 0x10: { // world update
+					net.lastUpdate = now;
 					if (destructor.respawnBlock?.status === 'left') {
 						destructor.respawnBlock = undefined;
 					}
@@ -2564,6 +2586,7 @@
 				}
 
 				case 0x12: // delete all cells
+					net.lastUpdate = now;
 					// happens every time you respawn
 					if (destructor.respawnBlock?.status === 'pending') {
 						destructor.respawnBlock.status = 'left';
@@ -4006,7 +4029,7 @@
 			let expected = 0;
 			if (key === 'pellets') {
 				if (sync.merge) {
-					for (const [id, collection] of sync.merge.pellets) {
+					for (const collection of sync.merge.pellets.values()) {
 						if (collection.merged?.deadTo === -1) ++expected;
 					}
 				} else {
@@ -4067,7 +4090,7 @@
 				++i;
 			};
 			if (sync.merge) {
-				for (const [id, collection] of sync.merge[key]) {
+				for (const collection of sync.merge[key].values()) {
 					if (collection.merged) {
 						iterate(collection.merged);
 					}
@@ -4298,14 +4321,19 @@
 
 					if (cell.jagged) {
 						const virusTexture = textureFromCache(virusSrc);
-						if (!virusTexture)
-							return;
+						if (virusTexture) {
+							gl.bindTexture(gl.TEXTURE_2D, virusTexture.texture);
+							cellUboInts[9] = 0x01; // skin and nothing else
+							// draw a fully transparent cell
+							cellUboFloats[4] = cellUboFloats[5] = cellUboFloats[6] = cellUboFloats[7] = 0;
+						} else {
+							cellUboInts[9] = 0;
+							cellUboFloats[4] = 1;
+							cellUboFloats[5] = 0;
+							cellUboFloats[6] = 0;
+							cellUboFloats[7] = 0.5;
+						}
 
-						// draw a fully transparent cell
-						cellUboFloats[4] = cellUboFloats[5] = cellUboFloats[6] = cellUboFloats[7] = 0;
-						cellUboInts[9] = 0x01; // skin and nothing else
-
-						gl.bindTexture(gl.TEXTURE_2D, virusTexture.texture);
 						gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Cell);
 						gl.bufferSubData(gl.UNIFORM_BUFFER, 0, cellUboBuffer);
 						gl.bindBuffer(gl.UNIFORM_BUFFER, null);
