@@ -1997,11 +1997,11 @@
 				// copy all local cells into here
 				for (const [map, to]
 					of /** @type {const} */ ([[world.cells, sync.merge.cells], [world.pellets, sync.merge.pellets]])) {
-					for (const [id, cell] of map) {
+					for (const cell of map.values()) {
 						/** @type {Map<string, Cell>} */
 						const tabs = new Map();
 						tabs.set(self, cell);
-						to.set(id, { merged: undefined, model: undefined, tabs });
+						to.set(cell.id, { merged: undefined, model: undefined, tabs });
 					}
 				}
 			}
@@ -2044,7 +2044,7 @@
 
 			// #3 : tabs are all synced; merge changes
 			for (const map of [sync.merge.cells, sync.merge.pellets]) {
-				for (const [id, collection] of map) {
+				for (const collection of map.values()) {
 					const merged = collection.merged;
 					const model = collection.model;
 					if (!model) {
@@ -2055,7 +2055,7 @@
 					if (!merged) {
 						if (model.deadAt === undefined) {
 							collection.merged = {
-								id,
+								id: model.id,
 								ox: model.nx, nx: model.nx,
 								oy: model.ny, ny: model.ny,
 								or: model.nr, nr: model.nr, jr: model.nr,
@@ -4371,7 +4371,7 @@
 						}
 
 						let skin = '';
-						for (const [_, data] of sync.others) {
+						for (const data of sync.others.values()) {
 							if (data.owned.has(cell.id)) {
 								if (world.camera.merged) cellUboInts[9] |= 0x08; // inactive multi outline
 								if (settings.syncSkin) skin = data.skin;
@@ -4861,7 +4861,7 @@
 
 
 
-	// @ts-expect-error for debugging purposes. dm me on discord @8y8x to work out stability if you need something
+	// @ts-expect-error for debugging purposes and other scripts. dm me on discord @ 8y8x to guarantee stability
 	window.sigfix = {
 		destructor, aux, ui, settings, sync, world, net, input, glconf, render,
 	};
