@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
 // @version      2.4.1
-// @description  Easily 3X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
+// @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
 // @license      MIT
@@ -28,8 +28,7 @@
 
 (async () => {
 	const sfVersion = '2.4.1';
-	// yes, this actually makes a significant difference
-	const undefined = window.undefined;
+	const undefined = window.undefined; // yes, this actually makes a significant difference
 
 	////////////////////////////////
 	// Define Auxiliary Functions //
