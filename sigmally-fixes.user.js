@@ -3890,7 +3890,7 @@
 				const texture = gl.createTexture();
 				if (!texture) return texture;
 
-				const baseTextSize = devicePixelRatio > 1 ? 96 : 72;
+				const baseTextSize = 96;
 				const textSize = baseTextSize * (mass ? 0.5 * settings.massScaleFactor : settings.nameScaleFactor);
 				const lineWidth = Math.ceil(textSize / 10) * settings.textOutlinesFactor;
 
@@ -4323,7 +4323,7 @@
 					// so we multiply the radius by 1.02 (approximately the size increase from the stroke thickness)
 					cellUboFloats[2] = x;
 					cellUboFloats[3] = y;
-					if (aux.settings.jellyPhysics && !cell.jagged) {
+					if (aux.settings.jellyPhysics && !cell.jagged && !cell.pellet) {
 						const strokeThickness = Math.max(jr * 0.01, 10);
 						cellUboFloats[0] = jr + strokeThickness;
 						cellUboFloats[1] = (settings.jellySkinLag ? r : jr) + strokeThickness;
