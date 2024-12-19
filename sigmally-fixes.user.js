@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.4.1
+// @version      2.4.2-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.4.1';
+	const sfVersion = '2.4.2-BETA';
 	const undefined = window.undefined; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -188,50 +188,52 @@
 		 * 	removeOutlines?: boolean,
 		 * 	showNames?: boolean,
 		 * 	skinReplacement?: { original: string | null, replacement?: string | null, replaceImg?: string | null },
+		 * 	tripleKey?: string,
 		 * 	virusImage?: string,
 		 * } | undefined} */
 		aux.sigmodSettings = undefined;
 		setInterval(() => {
 			// @ts-expect-error
 			const sigmod = window.sigmod?.settings;
-			if (sigmod) {
-				let sigmodSettings = aux.sigmodSettings = {};
-				/**
-				 * @param {'cellColor' | 'foodColor' | 'mapColor' | 'outlineColor' | 'nameColor1' | 'nameColor2'} prop
-				 * @param {any[]} lookups
-				 */
-				const applyColor = (prop, lookups) => {
-					for (const lookup of lookups) {
-						if (lookup) {
-							sigmodSettings[prop] = aux.hex2rgba(lookup);
-							return;
-						}
+			if (!sigmod) return;
+			let sigmodSettings = aux.sigmodSettings = {};
+			/**
+			 * @param {'cellColor' | 'foodColor' | 'mapColor' | 'outlineColor' | 'nameColor1' | 'nameColor2'} prop
+			 * @param {any[]} lookups
+			 */
+			const applyColor = (prop, lookups) => {
+				for (const lookup of lookups) {
+					if (lookup) {
+						sigmodSettings[prop] = aux.hex2rgba(lookup);
+						return;
 					}
-				};
-				applyColor('cellColor', [sigmod.game?.cellColor]);
-				applyColor('foodColor', [sigmod.game?.foodColor]);
-				applyColor('mapColor', [sigmod.game?.map?.color, sigmod.mapColor]);
-				// sigmod treats the map border as cell borders for some reason
-				if (!['#00f', '#00f0', '#0000ff', '#000000ffff'].includes(sigmod.game?.borderColor))
-					applyColor('outlineColor', [sigmod.game?.borderColor]);
-				// note: singular nameColor takes priority
-				applyColor('nameColor1', [
-					sigmod.game?.name?.color,
-					sigmod.game?.name?.gradient?.enabled && sigmod.game.name.gradient.left,
-				]);
-				applyColor('nameColor2', [
-					sigmod.game?.name?.color,
-					sigmod.game?.name?.gradient?.enabled && sigmod.game.name.gradient.right,
-				]);
-				// v10 does not have a 'hide food' setting; check food's transparency
-				aux.sigmodSettings.hidePellets = aux.sigmodSettings.foodColor?.[3] === 0;
-				aux.sigmodSettings.removeOutlines = sigmod.game?.removeOutlines;
-				aux.sigmodSettings.skinReplacement = sigmod.game?.skins;
-				aux.sigmodSettings.virusImage = sigmod.game?.virusImage;
-				aux.sigmodSettings.rapidFeedKey = sigmod.macros?.keys?.rapidFeed;
-				// sigmod's showNames setting is always "true" interally (i think??)
-				aux.sigmodSettings.showNames = aux.setting('input#showNames', true);
-			}
+				}
+			};
+			applyColor('cellColor', [sigmod.game?.cellColor]);
+			applyColor('foodColor', [sigmod.game?.foodColor]);
+			applyColor('mapColor', [sigmod.game?.map?.color, sigmod.mapColor]);
+			// sigmod treats the map border as cell borders for some reason
+			if (!['#00f', '#00f0', '#0000ff', '#000000ffff'].includes(sigmod.game?.borderColor))
+				applyColor('outlineColor', [sigmod.game?.borderColor]);
+			// note: singular nameColor takes priority
+			applyColor('nameColor1', [
+				sigmod.game?.name?.color,
+				sigmod.game?.name?.gradient?.enabled && sigmod.game.name.gradient.left,
+			]);
+			applyColor('nameColor2', [
+				sigmod.game?.name?.color,
+				sigmod.game?.name?.gradient?.enabled && sigmod.game.name.gradient.right,
+			]);
+			// v10 does not have a 'hide food' setting; check food's transparency
+			aux.sigmodSettings.hidePellets = aux.sigmodSettings.foodColor?.[3] === 0;
+			aux.sigmodSettings.removeOutlines = sigmod.game?.removeOutlines;
+			aux.sigmodSettings.skinReplacement = sigmod.game?.skins;
+			aux.sigmodSettings.virusImage = sigmod.game?.virusImage;
+			aux.sigmodSettings.rapidFeedKey = sigmod.macros?.keys?.rapidFeed;
+			// sigmod's showNames setting is always "true" interally (i think??)
+			aux.sigmodSettings.showNames = aux.setting('input#showNames', true);
+
+			aux.sigmodSettings.tripleKey = sigmod.macros?.keys?.splits?.triple;
 		}, 200);
 
 		// patch some sigmod bugs
@@ -2803,6 +2805,8 @@
 		let lastMouseX = undefined;
 		/** @type {number | undefined} */
 		let lastMouseY = undefined;
+		/** @type {{ mouseX: number, mouseY: number, x: number, y: number, from: number } | undefined} */
+		let mouseLock; // when tripling, lock the mouse for 650ms to make sure it goes as straight as possible
 		let mouseX = 0; // -1 <= mouseX <= 1
 		let mouseY = 0; // -1 <= mouseY <= 1
 		let forceW = false;
@@ -2810,12 +2814,23 @@
 
 		input.zoom = 1;
 
+		const realMouse = () => [
+			world.camera.x + mouseX * (innerWidth / innerHeight) * 540 / world.camera.scale,
+			world.camera.y + mouseY * 540 / world.camera.scale,
+		];
+
 		/** @returns [number, number] */
 		input.mouse = () => {
-			return [
-				world.camera.x + mouseX * (innerWidth / innerHeight) * 540 / world.camera.scale,
-				world.camera.y + mouseY * 540 / world.camera.scale,
-			];
+			// inject mouse lock NOT on input.move; we want the tracers to show the mouse lock
+			if (mouseLock) {
+				if (performance.now() - mouseLock.from > 650) mouseLock = undefined;
+				// if you move the mouse by more than 10% of your screen in any direction, cancel the freeze
+				// 10% should be enough so that if you want it to go straight, it will, and if you want it to not, then
+				// it also will.
+				else if (Math.hypot(mouseX - mouseLock.mouseX, mouseY - mouseLock.mouseY) > 0.2) mouseLock = undefined;
+				else return [mouseLock.x, mouseLock.y];
+			}
+			return realMouse();
 		};
 
 		function mouse() {
@@ -2936,13 +2951,18 @@
 				}
 			}
 
+			if (e.key === aux.sigmodSettings?.tripleKey) {
+				const [x, y] = realMouse(); // if you triple twice for some reason, it should use the new mouse position
+				mouseLock = { mouseX, mouseY, x, y, from: performance.now() };
+			}
+
 			if (e.ctrlKey && e.code === 'Tab') {
 				e.returnValue = true; // undo e.preventDefault() by SigMod
 				e.stopImmediatePropagation(); // prevent SigMod from calling e.preventDefault() afterwards
 			} else if (settings.blockBrowserKeybinds && e.code !== 'F11')
 				e.preventDefault();
-			else if ((e.ctrlKey && e.code === 'KeyW') || e.code === 'Tab')
-				e.preventDefault();
+			else if ((e.ctrlKey && e.code === 'KeyW') || e.code === 'Tab') // doesn't work anymore but i'll leave it
+				e.preventDefault(); // because chrome devs are stubborn
 		});
 
 		addEventListener('keyup', e => {
