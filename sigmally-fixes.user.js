@@ -2110,8 +2110,9 @@
 					const cellIterator = collection.tabs.values();
 
 					for (const key of collection.tabs.keys()) {
+						const cell = /** @type {Cell} */ (cellIterator.next().value);
 						if (key === self || sync.others.has(key)) {
-							const cell = /** @type {Cell} */ (cellIterator.next().value);
+							// if this tab doesn't update anymore, skip this and kill that entry immediately
 							if (cell.deadAt === undefined) continue;
 							if (now - cell.deadAt < 500) continue;
 						}
@@ -2129,8 +2130,8 @@
 					const cellIterator = collection.tabs.values();
 
 					for (const key of collection.tabs.keys()) {
+						const cell = cellIterator.next().value;
 						if (key === self || sync.others.has(key)) {
-							const cell = cellIterator.next().value;
 							if (cell.deadAt === undefined) continue;
 							if (now - cell.deadAt < 500) continue;
 						}
@@ -2437,8 +2438,12 @@
 			world.clanmates.clear();
 			while (world.mine.length) world.mine.pop();
 			world.mineDead.clear();
+
+			// broadcast a "delete all cells" packet
 			sync.tabsync(performance.now());
-			sync.worldupdate(new DataView(new Uint8Array([ 0x12 ]).buffer)); // broadcast a "delete all cells" packet
+			const clearPacket = new DataView(new Uint8Array([ 0x12 ]).buffer);
+			sync.worldupdate(clearPacket);
+			sync.readWorldUpdate(sync.self, clearPacket);
 			sync.tryMerge();
 		}
 
@@ -2593,10 +2598,12 @@
 					if (destructor.respawnBlock?.status === 'pending') {
 						destructor.respawnBlock.status = 'left';
 					}
+
+					if (settings.mergeViewArea) sync.worldupdate(dat);
+
 					sync.readWorldUpdate(sync.self, dat);
 					sync.tryMerge();
 					world.clanmates.clear();
-					if (settings.mergeViewArea) sync.worldupdate(dat);
 				// passthrough
 				case 0x14: // delete my cells
 					while (world.mine.length) world.mine.pop();
