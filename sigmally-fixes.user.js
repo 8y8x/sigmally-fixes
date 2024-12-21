@@ -1981,11 +1981,9 @@
 			}
 
 			const now = performance.now();
-			let inheritBorn = false; // without, when turning on sync.merge, cells will appear to fade in again
 
 			if (!sync.merge) {
 				sync.merge = { cells: new Map(), pellets: new Map() };
-				inheritBorn = true;
 
 				// copy all local cells into here
 				for (const [map, to]
@@ -2046,6 +2044,8 @@
 					}
 
 					if (!merged) {
+						// merged cell doesn't exist; only make it if the cell didn't immediately die
+						// otherwise, it would just stay transparent
 						if (model.deadAt === undefined) {
 							collection.merged = {
 								id: model.id,
@@ -2055,51 +2055,54 @@
 								Rgb: model.Rgb, rGb: model.rGb, rgB: model.rgB,
 								jagged: model.jagged, pellet: model.pellet,
 								name: model.name, skin: model.skin, sub: model.sub, clan: model.clan,
-								born: inheritBorn ? model.born : now, updated: now,
+								born: model.born, updated: now,
 								deadTo: -1,
 								deadAt: undefined,
 							};
 						}
 					} else {
-						if (merged.deadAt === undefined) {
-							const { x, y, r, jr } = world.xyr(merged, undefined, now);
-							merged.ox = x;
-							merged.oy = y;
-							merged.or = r;
-							merged.jr = jr;
+						// merged cell *does* exist, move it if it's no longer dead
+						if (model.deadAt === undefined) {
+							if (merged.deadAt === undefined) {
+								const { x, y, r, jr } = world.xyr(merged, undefined, now);
+								merged.ox = x;
+								merged.oy = y;
+								merged.or = r;
+								merged.jr = jr;
+							} else {
+								// came back to life (probably back into view)
+								merged.ox = model.nx;
+								merged.oy = model.ny;
+								merged.or = model.nr;
+								merged.jr = model.jr;
+								merged.deadAt = undefined;
+								merged.deadTo = -1;
+								merged.born = now;
+							}
 							merged.nx = model.nx;
 							merged.ny = model.ny;
 							merged.nr = model.nr;
 							merged.updated = now;
-						}
-
-						if (model.deadAt !== undefined) {
+						} else {
+							// model died; only kill the merged cell once
 							if (merged.deadAt === undefined) {
-								// merged is finally dying
 								merged.deadAt = now;
 								merged.deadTo = model.deadTo;
+								merged.updated = now;
 							}
-						} else if (merged.deadAt !== undefined) {
-							// cell is no longer dead (probably came back into view)
-							merged.ox = model.nx;
-							merged.oy = model.ny;
-							merged.or = model.nr;
-							merged.deadAt = undefined;
-							merged.deadTo = -1;
-							merged.born = merged.updated = now;
 						}
 					}
 				}
 			}
 
-			sync.clean();
-			render.upload('pellets');
+			const uploaded = sync.clean();
+			if (!uploaded) render.upload('pellets');
 		};
 
 		let lastClean = 0;
 		sync.clean = () => {
 			const now = performance.now();
-			if (now - lastClean < 500) return; // sync.clean is a huge bottleneck
+			if (now - lastClean < 500) return false; // sync.clean is a huge bottleneck
 			lastClean = now;
 
 			if (sync.merge) {
@@ -2143,13 +2146,18 @@
 				}
 			}
 
+			// every time we delete some pellets, we need to reupload the pellet data to avoid flickering
+			render.upload('pellets');
+
 			sync.others.forEach((data, key) => {
 				// only get rid of a tab if it lags out alone
-				if (net.lastUpdate - localized(data, data.updated.now) > 500) {
+				if (net.lastUpdate - localized(data, data.updated.now) > 1000) {
 					sync.others.delete(key);
 					sync.lastPacket.delete(key);
 				}
 			});
+
+			return true;
 		};
 		setInterval(() => sync.clean(), 500);
 
