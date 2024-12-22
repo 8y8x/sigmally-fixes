@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.4.2
+// @version      2.4.3-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -11,6 +11,8 @@
 // @compatible   chrome Recommended for all users, works perfectly out of the box
 // @compatible   opera Works fine, multiboxers may need to change some browser keybinds
 // @compatible   edge Works fine, multiboxers may need to change some browser keybinds
+// @downloadURL https://update.greasyfork.org/scripts/483587/Sigmally%20Fixes%20V2.user.js
+// @updateURL https://update.greasyfork.org/scripts/483587/Sigmally%20Fixes%20V2.meta.js
 // ==/UserScript==
 
 // @ts-check
@@ -27,7 +29,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.4.2';
+	const sfVersion = '2.4.3-BETA';
 	const undefined = window.undefined; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -1576,7 +1578,7 @@
 	/** @typedef {{
 	 * 	self: string,
 	 * 	camera: { tx: number, ty: number },
-	 * 	owned: Map<number, { x: number, y: number, r: number, jr: number } | false>,
+	 * 	owned: Map<number, { x: number, y: number, r: number, nr: number } | false>,
 	 * 	skin: string,
 	 * 	updated: { now: number, timeOrigin: number },
 	 * }} TabData
@@ -1629,7 +1631,7 @@
 				const cell = world.cells.get(id);
 				if (!cell) continue;
 
-				owned.set(id, world.xyr(cell, undefined, now));
+				owned.set(id, { ...world.xyr(cell, undefined, now), nr: cell.nr });
 			}
 			for (const id of world.mineDead)
 				owned.set(id, false);
@@ -2232,7 +2234,7 @@
 
 			/**
 			 * @param {Iterable<number>} owned
-			 * @param {Map<number, { x: number, y: number, r: number, jr: number } | false> | undefined} fallback
+			 * @param {Map<number, { x: number, y: number, r: number, nr: number } | false> | undefined} fallback
 			 * @returns {{
 			 * 	weightedX: number, weightedY: number, totalWeight: number,
 			 * 	scale: number, width: number, height: number
@@ -2245,27 +2247,31 @@
 				let totalR = 0;
 
 				for (const id of owned) {
-					/** @type {{ x: number, y: number, r: number, jr: number }} */
+					/** @type {{ x: number, y: number, r: number }} */
 					let xyr;
+                    /** @type {number} */
+                    let nr;
 
 					let cell;
-					if (settings.mergeViewArea && sync.merge) {
-						cell = sync.merge.cells.get(id)?.merged;
-					} else {
-						cell = world.cells.get(id);
-					}
+					if (settings.mergeViewArea && sync.merge) cell = sync.merge.cells.get(id)?.merged;
+					else cell = world.cells.get(id);
+
 					if (!cell) {
 						const partial = fallback?.get(id);
 						if (!partial) continue;
 						xyr = partial;
+                        nr = partial.nr;
 					} else if (cell.deadAt !== undefined) continue;
-					else xyr = world.xyr(cell, undefined, now);
+					else {
+                        xyr = world.xyr(cell, undefined, now);
+                        nr = cell.nr;
+                    }
 
-					const weighted = xyr.r ** weight;
+					const weighted = nr ** weight;
 					weightedX += xyr.x * weighted;
 					weightedY += xyr.y * weighted;
 					totalWeight += weighted;
-					totalR += xyr.r;
+					totalR += nr;
 				}
 
 				const scale = Math.min(64 / totalR, 1) ** 0.4;
