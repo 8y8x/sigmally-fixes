@@ -9,22 +9,27 @@
 		"Keep the alert short and unintrusive, as it shifts all the buttons down and out of the main UI.",
 		"No HTML; the < and > characters are stripped."
 	],
-	"2.4.1": {
+	"2.4.2": {
 		"ok": true
+	},
+	"2.4.1": {
+		"ok": false,
+		"alert": "Sigmally Fixes v2.4.2 multiboxing should be better. Update: {autolink}",
+		"color": "#f90"
 	},
 	"2.4.0": {
 		"ok": false,
-		"alert": "Sigmally Fixes v2.4.0 is known to be buggy. Update to v2.4.1: {autolink}",
+		"alert": "Sigmally Fixes v2.4.0 is known to be buggy. Update to v2.4.2: {autolink}",
 		"color": "#f90"
 	},
 	"2.3.19": {
 		"ok": false,
-		"alert": "Check out Sigmally Fixes v2.4.1 for huge performance improvements: {autolink}",
+		"alert": "Check out Sigmally Fixes v2.4.2 for huge performance improvements: {autolink}",
 		"color": "#09f"
 	},
 	"2.3.18": {
 		"ok": false,
-		"alert": "Check out Sigmally Fixes v2.4.1 for huge performance improvements: {autolink}",
+		"alert": "Check out Sigmally Fixes v2.4.2 for huge performance improvements: {autolink}",
 		"color": "#09f"
 	},
 	"2.3.17": {
