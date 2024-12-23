@@ -3373,12 +3373,13 @@
 
 		const parts = {
 			boilerplate: '#version 300 es\nprecision highp float; precision highp int;',
-			borderUbo: `layout(std140) uniform Border { // size = 0x24
+			borderUbo: `layout(std140) uniform Border { // size = 0x28
 				vec4 u_border_color; // @ 0x00, i = 0
 				vec4 u_border_xyzw_lrtb; // @ 0x10, i = 4
 				int u_border_flags; // @ 0x20, i = 8
 				float u_background_width; // @ 0x24, i = 9
 				float u_background_height; // @ 0x28, i = 10
+				float u_border_time; // @ 0x2c, i = 11
 			};`,
 			cameraUbo: `layout(std140) uniform Camera { // size = 0x10
 				float u_camera_ratio; // @ 0x00
@@ -3487,7 +3488,18 @@
 					);
 					float alpha = clamp(f_blur * min(inner_alpha, outer_alpha), 0.0, 1.0);
 
-					out_color = out_color * (1.0 - alpha) + u_border_color * alpha;
+					vec4 border_color;
+					if ((u_border_flags & 0x08) != 0) { // rainbow border
+						float angle = atan(v_world_pos.y, v_world_pos.x) + u_border_time;
+						float red = (2.0/3.0) * cos(6.0 * angle) + 1.0/3.0;
+						float green = (2.0/3.0) * cos(6.0 * angle - 2.0 * 3.1415926535 / 3.0) + 1.0/3.0;
+						float blue = (2.0/3.0) * cos(6.0 * angle - 4.0 * 3.1415926535 / 3.0) + 1.0/3.0;
+						border_color = vec4(red, green, blue, 1.0);
+					} else {
+						border_color = u_border_color;
+					}
+
+					out_color = out_color * (1.0 - alpha) + border_color * alpha;
 				}
 			`, ['Border', 'Camera'], ['u_texture']);
 
@@ -4167,6 +4179,7 @@
 
 
 		// #4 : define the render function
+		const start = performance.now();
 		render.fps = 0;
 		render.lastFrame = performance.now();
 		function renderGame() {
@@ -4264,11 +4277,13 @@
 				borderUboFloats[7] = borderLrtb.b;
 
 				// flags
-				borderUboInts[8] = (texture ? 0x01 : 0) | (aux.settings.darkTheme ? 0x02 : 0) | (repeating ? 0x04 : 0);
+				borderUboInts[8] = (texture ? 0x01 : 0) | (aux.settings.darkTheme ? 0x02 : 0) | (repeating ? 0x04 : 0)
+					| (true ? 0x08 : 0);
 
 				// u_background_width and u_background_height
 				borderUboFloats[9] = texture?.width ?? 1;
 				borderUboFloats[10] = texture?.height ?? 1;
+				borderUboFloats[11] = (now - start) / 1000 * 0.2 % (Math.PI * 2);
 
 				gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Border);
 				gl.bufferSubData(gl.UNIFORM_BUFFER, 0, borderUboFloats);
