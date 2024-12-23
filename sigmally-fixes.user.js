@@ -1586,19 +1586,21 @@
 	const sync = (() => {
 		const sync = {};
 		/** @type {Map<string, number>} */
-		sync.lastPacket = new Map();
+		sync.pulses = new Map();
 		/** @type {{
 		 * 	cells: Map<number, { merged: Cell | undefined, model: Cell | undefined, tabs: Map<string, Cell> }>,
+		 * 	known: Set<string>,
 		 * 	pellets: Map<number, { merged: Cell | undefined, model: Cell | undefined, tabs: Map<string, Cell> }>,
 		 * } | undefined} */
 		sync.merge = undefined;
 		/** @type {Map<string, TabData>} */
 		sync.others = new Map();
 
-		const frame = new BroadcastChannel('sigfix-frame');
-		const tabsync = new BroadcastChannel('sigfix-tabsync');
-		const worldsync = new BroadcastChannel('sigfix-worldsync');
-		const zoom = new BroadcastChannel('sigfix-zoom');
+		const frame = new BroadcastChannel('sigfix-frame'); // executes every time any frame renders
+		const heartbeat = new BroadcastChannel('sigfix-heartbeat'); // checks if tabs are still open
+		const merge = new BroadcastChannel('sigfix-merge'); // sync.merge, heavy sharing when enabled
+		const tabsync = new BroadcastChannel('sigfix-tabsync'); // lightweight data sharing, not part of sync.merge
+		const zoom = new BroadcastChannel('sigfix-zoom'); // lightweight zoom changes
 		const self = sync.self = Date.now() + '-' + Math.random();
 
 		/**
@@ -1621,6 +1623,72 @@
 			// might be preferable over document.visibilityState
 			if (!document.hasFocus())
 				input.antiAfk();
+		});
+
+		heartbeat.addEventListener('message', e => {
+			sync.pulses.set(e.data, performance.now());
+		});
+		setInterval(() => heartbeat.postMessage(self), 1000);
+
+		let lastSyncRequest = -Infinity;
+		/** @param {DataView} dat */
+		sync.update = dat => merge.postMessage({ type: 'update', self, dat });
+		merge.addEventListener('message', e => {
+			if (!sync.merge) return;
+
+			const now = performance.now();
+			switch (e.data.type) {
+				case 'update': {
+					const tab = e.data.self;
+					if (!sync.merge.known.has(tab)) {
+						merge.postMessage({ type: 'sync-request', for: tab });
+						return;
+					}
+
+					sync.readWorldUpdate(tab, e.data.dat);
+					sync.tryMerge();
+					break;
+				}
+
+				case 'sync-request': {
+					if (now - lastSyncRequest < 1000) return; // don't allow sync spam, it's very heavy
+					merge.postMessage({ type: 'sync-response', self, cells: world.cells, pellets: world.pellets });
+					break;
+				}
+
+				case 'sync-response': {
+					const tab = e.data.self;
+					const tabData = sync.others.get(tab);
+					if (!tabData) return;
+					sync.merge.known.add(tab);
+
+					if (sync.merge.known.has(tab)) {
+						// clean up all old cells
+						for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+							for (const [id, collection] of sync.merge[key]) {
+								collection.tabs.delete(tab);
+								if (collection.tabs.size === 0) sync.merge[key].delete(id);
+							}
+						}
+					}
+
+					// localize all new cells
+					for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+						for (const cell of e.data[key].values()) {
+							cell.born = localized(tabData, cell.born);
+							cell.updated = localized(tabData, cell.updated);
+							if (cell.deadAt !== undefined) cell.deadAt = localized(tabData, cell.deadAt);
+
+							let collection = sync.merge[key].get(cell.id);
+							if (!collection) {
+								collection = { merged: undefined, model: undefined, tabs: new Map() };
+								sync.merge[key].set(cell.id, collection);
+							}
+							collection.tabs.set(tab, cell);
+						}
+					}
+				}
+			}
 		});
 
 		/** @param {number} now */
@@ -1650,82 +1718,6 @@
 			/** @type {TabData} */
 			const data = e.data;
 			sync.others.set(data.self, data);
-		});
-
-		sync.worldsync = () => {
-			worldsync.postMessage({ type: 'sync-response', cells: world.cells, pellets: world.pellets, self });
-		};
-		/** @param {DataView} dat */
-		sync.worldupdate = dat => {
-			worldsync.postMessage({ type: 'update', self, dat });
-		};
-		let lastSyncResponse = 0;
-		worldsync.addEventListener('message', e => {
-			switch (e.data.type) {
-				case 'update': {
-					/** @type {{ self: string, dat: DataView }} */
-					const data = e.data;
-					const now = performance.now();
-					if (now - (sync.lastPacket.get(data.self) ?? -Infinity) > 3000) {
-						// if we don't exactly know what data to build from, request it
-						// there's a chance other tabs might not know either
-						worldsync.postMessage({ type: 'sync-request', self: data.self });
-						return;
-					}
-
-					sync.lastPacket.set(data.self, now);
-					sync.readWorldUpdate(data.self, data.dat);
-					sync.tryMerge();
-					break;
-				}
-
-				case 'sync-request': {
-					if (self !== /** @type {string} */ (e.data.self)) return;
-					// do NOT tolerate spamming worldsyncRequests. let the other tabs suffer for a second, rather than
-					// resending like 50 times on a lag spike
-					const now = performance.now();
-					if (now - lastSyncResponse < 1000) return;
-					lastSyncResponse = now;
-
-					sync.tabsync(now);
-					sync.worldsync();
-					break;
-				}
-
-				case 'sync-response': {
-					/** @type {{ cells: Map<number, Cell>, pellets: Map<number, Cell>, self: string }} */
-					const data = e.data;
-					const tab = sync.others.get(data.self);
-					if (!tab || !sync.merge) return;
-
-					// first, clear all previously known cells
-					for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-						for (const [id, collection] of sync.merge[key]) {
-							collection.tabs.delete(data.self);
-							if (collection.tabs.size === 0) sync.merge[key].delete(id);
-						}
-					}
-
-					// then add new ones
-					for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-						for (const cell of data[key].values()) {
-							cell.born = localized(tab, cell.born);
-							cell.updated = localized(tab, cell.updated);
-							if (cell.deadAt !== undefined) cell.deadAt = localized(tab, cell.deadAt);
-
-							let collection = sync.merge[key].get(cell.id);
-							if (!collection) {
-								collection = { merged: undefined, model: undefined, tabs: new Map() };
-								sync.merge[key].set(cell.id, collection);
-							}
-							collection.tabs.set(data.self, cell);
-						}
-					}
-
-					sync.lastPacket.set(data.self, performance.now());
-					break;
-				}
-			}
 		});
 
 		sync.zoom = () => zoom.postMessage(input.zoom);
@@ -1923,7 +1915,6 @@
 					}
 
 					// #4 : clean all cells
-					sync.clean();
 					if (tab === self) {
 						for (const [id, cell] of world.cells) {
 							if (cell.deadAt === undefined) continue;
@@ -1963,6 +1954,7 @@
 			}
 		};
 
+		let lastClean = 0;
 		sync.tryMerge = () => {
 			// for camera merging to look extremely smooth, we need to merge packets and apply them *ONLY* when all
 			// tabs are synchronized.
@@ -1985,7 +1977,7 @@
 			const now = performance.now();
 
 			if (!sync.merge) {
-				sync.merge = { cells: new Map(), pellets: new Map() };
+				sync.merge = { cells: new Map(), known: new Set(), pellets: new Map() };
 
 				// copy all local cells into here
 				for (const [map, to]
@@ -2097,71 +2089,45 @@
 				}
 			}
 
-			const uploaded = sync.clean();
-			if (!uploaded) render.upload('pellets');
-		};
-
-		let lastClean = 0;
-		sync.clean = () => {
-			const now = performance.now();
-			if (now - lastClean < 500) return false; // sync.clean is a huge bottleneck
-			lastClean = now;
-
-			if (sync.merge) {
-				// don't do array unpacking if not necessary
-				let idIterator = sync.merge.cells.keys();
-				for (const collection of sync.merge.cells.values()) {
-					const id = idIterator.next().value;
-					const cellIterator = collection.tabs.values();
-
-					for (const key of collection.tabs.keys()) {
-						const cell = /** @type {Cell} */ (cellIterator.next().value);
-						if (key === self || sync.others.has(key)) {
-							// if this tab doesn't update anymore, skip this and kill that entry immediately
+			// #4 : delete really old, dead cells *once in a while*
+			if (now - lastClean > 500) {
+				lastClean = now;
+				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+					for (const [id, collection] of sync.merge[key]) {
+						for (const [tab, cell] of collection.tabs) {
 							if (cell.deadAt === undefined) continue;
 							if (now - cell.deadAt < 500) continue;
+							collection.tabs.delete(tab);
 						}
 
-						collection.tabs.delete(key);
-						if (key === self) world.mineDead.delete(id);
+						if (collection.tabs.size === 0) sync.merge[key].delete(id);
 					}
-
-					if (collection.tabs.size === 0) sync.merge.cells.delete(id);
-				}
-
-				idIterator = sync.merge.pellets.keys();
-				for (const collection of sync.merge.pellets.values()) {
-					const id = idIterator.next().value;
-					const cellIterator = collection.tabs.values();
-
-					for (const key of collection.tabs.keys()) {
-						const cell = cellIterator.next().value;
-						if (key === self || sync.others.has(key)) {
-							if (cell.deadAt === undefined) continue;
-							if (now - cell.deadAt < 500) continue;
-						}
-
-						collection.tabs.delete(key);
-					}
-
-					if (collection.tabs.size === 0) sync.merge.pellets.delete(id);
 				}
 			}
 
-			// every time we delete some pellets, we need to reupload the pellet data to avoid flickering
 			render.upload('pellets');
+		};
 
-			sync.others.forEach((data, key) => {
-				// only get rid of a tab if it lags out alone
-				if (net.lastUpdate - localized(data, data.updated.now) > 1000) {
-					sync.others.delete(key);
-					sync.lastPacket.delete(key);
+		setInterval(() => {
+			const now = performance.now();
+			sync.pulses.forEach((last, tab) => {
+				if (now - last > 2000) {
+					// tab stopped pulsing, probably dead
+					sync.pulses.delete(tab);
+					sync.others.delete(tab);
+					
+					if (sync.merge) {
+						sync.merge.known.delete(tab);
+						for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+							for (const [id, collection] of sync.merge[key]) {
+								collection.tabs.delete(tab);
+								if (collection.tabs.size === 0) sync.merge[key].delete(id);
+							}
+						}
+					}
 				}
 			});
-
-			return true;
-		};
-		setInterval(() => sync.clean(), 500);
+		}, 1000);
 
 		return sync;
 	})();
@@ -2456,7 +2422,7 @@
 			// broadcast a "delete all cells" packet
 			sync.tabsync(performance.now());
 			const clearPacket = new DataView(new Uint8Array([ 0x12 ]).buffer);
-			sync.worldupdate(clearPacket);
+			sync.update(clearPacket);
 			sync.readWorldUpdate(sync.self, clearPacket);
 			sync.tryMerge();
 		}
@@ -2586,7 +2552,7 @@
 
 					// start ASAP!
 					sync.tabsync(now);
-					if (settings.mergeViewArea) sync.worldupdate(dat);
+					if (settings.mergeViewArea) sync.update(dat);
 
 					sync.readWorldUpdate(sync.self, dat);
 					sync.tryMerge();
@@ -2613,7 +2579,7 @@
 						destructor.respawnBlock.status = 'left';
 					}
 
-					if (settings.mergeViewArea) sync.worldupdate(dat);
+					if (settings.mergeViewArea) sync.update(dat);
 
 					sync.readWorldUpdate(sync.self, dat);
 					sync.tryMerge();
