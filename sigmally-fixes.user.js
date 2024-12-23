@@ -2510,6 +2510,7 @@
 				pendingPingFrom = performance.now();
 			}
 
+			ping();
 			pingInterval = setInterval(ping, 2_000);
 		}
 
@@ -3487,6 +3488,7 @@
 						max(u_border_xyzw_lrtb.z - v_world_pos.y, v_world_pos.y - u_border_xyzw_lrtb.w)
 					);
 					float alpha = clamp(f_blur * min(inner_alpha, outer_alpha), 0.0, 1.0);
+					if (u_border_color.a == 0.0) alpha = 0.0;
 
 					vec4 border_color;
 					if ((u_border_flags & 0x08) != 0) { // rainbow border
