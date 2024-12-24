@@ -10,27 +10,25 @@
 		"No HTML; the < and > characters are stripped."
 	],
 	"2.4.2": {
-		"ok": true
+		"ok": false,
+		"alert": "Downgrade to Sigmally Fixes v2.3.19 (or use v2.4.2.1, they're the same). {autolink}",
+		"color": "#09f"
 	},
 	"2.4.1": {
 		"ok": false,
-		"alert": "Sigmally Fixes v2.4.2 multiboxing should be better. Update: {autolink}",
+		"alert": "Downgrade to Sigmally Fixes v2.3.19 (or use v2.4.2.1, they're the same). {autolink}",
 		"color": "#f90"
 	},
 	"2.4.0": {
 		"ok": false,
-		"alert": "Sigmally Fixes v2.4.0 is known to be buggy. Update to v2.4.2: {autolink}",
+		"alert": "SDowngrade to Sigmally Fixes v2.3.19 (or use v2.4.2.1, they're the same). {autolink}",
 		"color": "#f90"
 	},
 	"2.3.19": {
-		"ok": false,
-		"alert": "Check out Sigmally Fixes v2.4.2 for huge performance improvements: {autolink}",
-		"color": "#09f"
+		"ok": true
 	},
 	"2.3.18": {
-		"ok": false,
-		"alert": "Check out Sigmally Fixes v2.4.2 for huge performance improvements: {autolink}",
-		"color": "#09f"
+		"ok": false
 	},
 	"2.3.17": {
 		"ok": false,
