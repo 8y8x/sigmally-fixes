@@ -11,17 +11,17 @@
 	],
 	"2.4.2": {
 		"ok": false,
-		"alert": "Downgrade to Sigmally Fixes v2.3.19 (or use v2.4.2.1, they're the same). {autolink}",
+		"alert": "v2.4.2 is known to be bad for multiboxers. Try downgrading to v2.3.19 or using v2.4.2.1: {autolink}",
 		"color": "#09f"
 	},
 	"2.4.1": {
 		"ok": false,
-		"alert": "Downgrade to Sigmally Fixes v2.3.19 (or use v2.4.2.1, they're the same). {autolink}",
+		"alert": "v2.4.2 is known to be bad for multiboxers. Try downgrading to v2.3.19 or using v2.4.2.1: {autolink}",
 		"color": "#f90"
 	},
 	"2.4.0": {
 		"ok": false,
-		"alert": "SDowngrade to Sigmally Fixes v2.3.19 (or use v2.4.2.1, they're the same). {autolink}",
+		"alert": "v2.4.2 is known to be bad for multiboxers. Try downgrading to v2.3.19 or using v2.4.2.1: {autolink}",
 		"color": "#f90"
 	},
 	"2.3.19": {
