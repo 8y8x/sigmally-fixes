@@ -11,8 +11,6 @@
 // @compatible   chrome Recommended for all users, works perfectly out of the box
 // @compatible   opera Works fine, multiboxers may need to change some browser keybinds
 // @compatible   edge Works fine, multiboxers may need to change some browser keybinds
-// @downloadURL https://update.greasyfork.org/scripts/483587/Sigmally%20Fixes%20V2.user.js
-// @updateURL https://update.greasyfork.org/scripts/483587/Sigmally%20Fixes%20V2.meta.js
 // ==/UserScript==
 
 // @ts-check
