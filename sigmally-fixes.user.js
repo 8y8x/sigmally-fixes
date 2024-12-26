@@ -324,22 +324,8 @@
 			return text;
 		};
 
-		/*
-			If you have Sigmally open in two tabs and you're playing with an account, one has an outdated token while
-			the other has the latest one. This causes problems because the tab with the old token does not work properly
-			during the game (skin, XP) To fix this, the latest token is sent to the previously opened tab. This way you
-			can collect XP in both tabs and use your selected skin.
-			@czrsd
-		*/
 		/** @type {{ token: string, updated: number } | undefined} */
 		aux.token = undefined;
-		const tokenChannel = new BroadcastChannel('sigfix-token');
-		tokenChannel.addEventListener('message', msg => {
-			/** @type {{ token: string, updated: number }} */
-			const token = msg.data;
-			if (!aux.token || aux.token.updated < token.updated)
-				aux.token = token;
-		});
 
 		/** @type {object | undefined} */
 		aux.userData = undefined;
@@ -391,7 +377,6 @@
 
 									if (!aux.token || updated >= aux.token.updated) {
 										aux.token = { token: aux.userData.token, updated };
-										tokenChannel.postMessage(aux.token);
 									}
 								}
 
