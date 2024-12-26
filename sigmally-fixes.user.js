@@ -1108,6 +1108,7 @@
 			outlineMultiColor: /** @type {[number, number, number, number]} */ ([1, 0, 2/3, 1]),
 			outlineMultiInactiveColor: /** @type {[number, number, number, number]} */ ([1, 1, 1, 1]),
 			pelletGlow: false,
+			rainbowBorder: false,
 			scrollFactor: 1,
 			selfSkin: '',
 			showStats: true,
@@ -1526,6 +1527,7 @@
 			'affect performance.');
 		checkbox('pelletGlow', 'Pellet glow', 'When enabled, gives pellets a slight glow. This should not affect ' +
 			'performance.');
+		checkbox('rainbowBorder', 'Rainbow border', 'Rainbow border');
 		checkbox('boldUi', 'Top UI uses bold text', 'When enabled, the top-left score and stats UI and the ' +
 			'leaderboard will use the bold Ubuntu font.');
 		checkbox('showStats', 'Show server stats', 'When disabled, hides the top-left server stats including the ' +
@@ -4278,7 +4280,7 @@
 
 				// flags
 				borderUboInts[8] = (texture ? 0x01 : 0) | (aux.settings.darkTheme ? 0x02 : 0) | (repeating ? 0x04 : 0)
-					| (true ? 0x08 : 0);
+					| (settings.rainbowBorder ? 0x08 : 0);
 
 				// u_background_width and u_background_height
 				borderUboFloats[9] = texture?.width ?? 1;
