@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.4.3-BETA
+// @version      2.5.0-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -471,14 +471,7 @@
 					if (performance.now() - (destructor.respawnBlock?.started ?? -Infinity) < 500) return;
 					destructor.respawnBlock = undefined;
 					// trying to respawn; see if we are nearby an alive multi-tab
-					if (world.mine.length > 0) {
-						world.moveCamera();
-						for (const data of sync.others.values()) {
-							const d = Math.hypot(data.camera.tx - world.camera.tx, data.camera.ty - world.camera.ty);
-							if (data.owned.size > 0 && d <= 7500)
-								return;
-						}
-					}
+					if (false/*if shouldBlockRespawn == true*/) return;
 
 					// we are allowing a respawn, take note
 					destructor.respawnBlock = { status: 'pending', started: performance.now() };
@@ -1099,8 +1092,6 @@
 			massBold: false,
 			massOpacity: 1,
 			massScaleFactor: 1,
-			mergeCamera: false,
-			mergeViewArea: false,
 			nameBold: false,
 			nameScaleFactor: 1,
 			outlineMulti: 0.2,
@@ -1474,13 +1465,6 @@
 		checkbox('tracer', 'Lines between cells and mouse', 'If enabled, draws a line between all of the cells you ' +
 			'control and your mouse. Useful as a hint to your subconscious about which tab you\'re currently on.');
 		separator('• multibox •');
-		checkbox('mergeCamera', 'Merge camera between tabs',
-			'Whether to place the camera in between your nearby tabs. This makes tab changes while multiboxing ' +
-			'completely seamless (a sort of \'one-tab\'). This setting uses a weighted camera, which focuses the ' +
-			'camera at your center of mass (i.e. your tiny cells won\'t mess up your aim).');
-		checkbox('mergeViewArea', 'Combine visible cells between tabs',
-			'When enabled, *all* tabs will share what cells they see between each other. Sigmally Fixes puts a lot ' +
-			'of effort into making this as seamless as possible, so it can be laggy on lower-end devices.');
 		slider('outlineMulti', 'Current tab cell outline thickness', 0.2, 0, 1, 0.01, 2, true,
 			'Draws an inverse outline on your cells, the thickness being a % of your cell radius. This only shows ' +
 			'when \'merge camera between tabs\' is enabled and when you\'re near one of your tabs.');
@@ -1572,568 +1556,6 @@
 
 
 
-	////////////////////////////////
-	// Setup Multi-tab World Sync //
-	////////////////////////////////
-	/** @typedef {{
-	 * 	self: string,
-	 * 	camera: { tx: number, ty: number },
-	 * 	owned: Map<number, { x: number, y: number, r: number, nr: number } | false>,
-	 * 	skin: string,
-	 * 	updated: { now: number, timeOrigin: number },
-	 * }} TabData
-	 */
-	const sync = (() => {
-		const sync = {};
-		/** @type {Map<string, number>} */
-		sync.pulses = new Map();
-		/** @type {{
-		 * 	cells: Map<number, { merged: Cell | undefined, model: Cell | undefined, tabs: Map<string, Cell> }>,
-		 * 	known: Set<string>,
-		 * 	pellets: Map<number, { merged: Cell | undefined, model: Cell | undefined, tabs: Map<string, Cell> }>,
-		 * } | undefined} */
-		sync.merge = undefined;
-		/** @type {Map<string, TabData>} */
-		sync.others = new Map();
-
-		const frame = new BroadcastChannel('sigfix-frame'); // executes every time any frame renders
-		const heartbeat = new BroadcastChannel('sigfix-heartbeat'); // checks if tabs are still open
-		const merge = new BroadcastChannel('sigfix-merge'); // sync.merge, heavy sharing when enabled
-		const tabsync = new BroadcastChannel('sigfix-tabsync'); // lightweight data sharing, not part of sync.merge
-		const zoom = new BroadcastChannel('sigfix-zoom'); // lightweight zoom changes
-		const self = sync.self = Date.now() + '-' + Math.random();
-
-		/**
-		 * @param {TabData} data
-		 * @param {number} foreignNow
-		 */
-		const localized = (data, foreignNow) => (data.updated.timeOrigin - performance.timeOrigin) + foreignNow;
-		// foreignNow + data.updated.timeOrigin - performance.timeOrigin; different order so maybe better precision?
-
-		sync.frame = () => {
-			frame.postMessage(undefined);
-		};
-		frame.addEventListener('message', () => {
-			// only update the world if we aren't rendering ourselves (example case: games open on two monitors)
-			if (document.visibilityState === 'hidden') {
-				world.moveCamera();
-				input.move();
-			}
-
-			// might be preferable over document.visibilityState
-			if (!document.hasFocus())
-				input.antiAfk();
-		});
-
-		heartbeat.addEventListener('message', e => {
-			sync.pulses.set(e.data, performance.now());
-		});
-		setInterval(() => heartbeat.postMessage(self), 1000);
-
-		let lastSyncRequest = -Infinity;
-		/** @param {DataView} dat */
-		sync.update = dat => merge.postMessage({ type: 'update', self, dat });
-		merge.addEventListener('message', e => {
-			if (!sync.merge) return;
-
-			const now = performance.now();
-			switch (e.data.type) {
-				case 'update': {
-					const tab = e.data.self;
-					if (!sync.merge.known.has(tab)) {
-						merge.postMessage({ type: 'sync-request', for: tab });
-						return;
-					}
-
-					sync.readWorldUpdate(tab, e.data.dat);
-					sync.tryMerge();
-					break;
-				}
-
-				case 'sync-request': {
-					if (now - lastSyncRequest < 1000) return; // don't allow sync spam, it's very heavy
-					merge.postMessage({ type: 'sync-response', self, cells: world.cells, pellets: world.pellets });
-					break;
-				}
-
-				case 'sync-response': {
-					const tab = e.data.self;
-					const tabData = sync.others.get(tab);
-					if (!tabData) return;
-					sync.merge.known.add(tab);
-
-					if (sync.merge.known.has(tab)) {
-						// clean up all old cells
-						for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-							for (const [id, collection] of sync.merge[key]) {
-								collection.tabs.delete(tab);
-								if (collection.tabs.size === 0) sync.merge[key].delete(id);
-							}
-						}
-					}
-
-					// localize all new cells
-					for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-						for (const cell of e.data[key].values()) {
-							cell.born = localized(tabData, cell.born);
-							cell.updated = localized(tabData, cell.updated);
-							if (cell.deadAt !== undefined) cell.deadAt = localized(tabData, cell.deadAt);
-
-							let collection = sync.merge[key].get(cell.id);
-							if (!collection) {
-								collection = { merged: undefined, model: undefined, tabs: new Map() };
-								sync.merge[key].set(cell.id, collection);
-							}
-							collection.tabs.set(tab, cell);
-						}
-					}
-				}
-			}
-		});
-
-		/** @param {number} now */
-		sync.tabsync = now => {
-			/** @type {TabData['owned']} */
-			const owned = new Map();
-			for (const id of world.mine) {
-				const cell = world.cells.get(id);
-				if (!cell) continue;
-
-				owned.set(id, { ...world.xyr(cell, undefined, now), nr: cell.nr });
-			}
-			for (const id of world.mineDead)
-				owned.set(id, false);
-
-			/** @type {TabData} */
-			const syncData = {
-				self,
-				camera: world.camera,
-				owned,
-				skin: settings.selfSkin,
-				updated: { now, timeOrigin: performance.timeOrigin },
-			};
-			tabsync.postMessage(syncData);
-		};
-		tabsync.addEventListener('message', e => {
-			/** @type {TabData} */
-			const data = e.data;
-			sync.others.set(data.self, data);
-		});
-
-		sync.zoom = () => zoom.postMessage(input.zoom);
-		zoom.addEventListener('message', e => void (input.zoom = e.data));
-
-		/**
-		 * @param {string} tab
-		 * @param {DataView} dat
-		 */
-		sync.readWorldUpdate = (tab, dat) => {
-			let off = 0;
-			const now = performance.now();
-			switch (dat.getUint8(off++)) {
-				case 0x10: // world updates
-					// #a : kills / consumes
-					const killCount = dat.getUint16(off, true);
-					off += 2;
-
-					for (let i = 0; i < killCount; ++i) {
-						const killerId = dat.getUint32(off, true);
-						const killedId = dat.getUint32(off + 4, true);
-						off += 8;
-
-						let killed;
-						if (tab === self) {
-							killed = world.pellets.get(killedId) ?? world.cells.get(killedId);
-						} else {
-							killed = sync.merge?.pellets.get(killedId)?.tabs.get(tab)
-								?? sync.merge?.cells.get(killedId)?.tabs.get(tab);
-						}
-						if (killed) {
-							killed.deadTo = killerId;
-							killed.deadAt = killed.updated = now;
-
-							if (tab === self) {
-								world.clanmates.delete(killed);
-
-								if (killed.pellet && world.mine.includes(killerId))
-									++world.stats.foodEaten;
-
-								const myIdx = world.mine.indexOf(killedId);
-								if (myIdx !== -1) {
-									world.mine.splice(myIdx, 1);
-									world.mineDead.add(killedId);
-								}
-							}
-						}
-					}
-
-					// #b : updates
-					while (true) {
-						const id = dat.getUint32(off, true);
-						off += 4;
-						if (id === 0) break;
-
-						const x = dat.getInt16(off, true);
-						const y = dat.getInt16(off + 2, true);
-						const r = dat.getUint16(off + 4, true);
-						const flags = dat.getUint8(off + 6);
-						// (void 1 byte, "isUpdate")
-						// (void 1 byte, "isPlayer")
-						const sub = !!dat.getUint8(off + 9);
-						off += 10;
-
-						let clan;
-						[clan, off] = aux.readZTString(dat, off);
-
-						/** @type {number | undefined} */
-						let Rgb, rGb, rgB;
-						if (flags & 0x02) {
-							// update color
-							Rgb = dat.getUint8(off) / 255;
-							rGb = dat.getUint8(off + 1) / 255;
-							rgB = dat.getUint8(off + 2) / 255;
-							off += 3;
-						}
-
-						let skin = '';
-						if (flags & 0x04) {
-							// update skin
-							[skin, off] = aux.readZTString(dat, off);
-							skin = aux.parseSkin(skin);
-						}
-
-						let name = '';
-						if (flags & 0x08) {
-							// update name
-							[name, off] = aux.readZTString(dat, off);
-							name = aux.parseName(name);
-							if (name) render.textFromCache(name, sub); // make sure the texture is ready on render
-						}
-
-						const jagged = !!(flags & 0x11);
-						const eject = !!(flags & 0x20);
-
-						/** @type {Cell | undefined} */
-						let cell;
-						if (tab === self) {
-							// prefer accessing the local map
-							cell = world.cells.get(id) ?? world.pellets.get(id);
-						} else {
-							cell = sync.merge?.cells.get(id)?.tabs.get(tab)
-								?? sync.merge?.pellets.get(id)?.tabs.get(tab);
-						}
-						if (cell && cell.deadAt === undefined) {
-							const { x: ix, y: iy, r: ir, jr } = world.xyr(cell, undefined, now);
-							cell.ox = ix; cell.oy = iy; cell.or = ir;
-							cell.jr = jr;
-							cell.nx = x; cell.ny = y; cell.nr = r;
-							cell.jagged = jagged;
-							cell.updated = now;
-
-							if (Rgb !== undefined) {
-								cell.Rgb = Rgb;
-								cell.rGb = /** @type {number} */ (rGb);
-								cell.rgB = /** @type {number} */ (rgB);
-							}
-							if (skin) cell.skin = skin;
-							if (name) cell.name = name;
-							cell.sub = sub;
-
-							cell.clan = clan;
-							if (tab === self && clan && clan === aux.userData?.clan)
-								world.clanmates.add(cell);
-						} else {
-							if (cell?.deadAt !== undefined) {
-								// when respawning, OgarII does not send the description of cells if you spawn in the
-								// same area, despite those cells being deleted from your view area
-								if (Rgb === undefined)
-									({ Rgb, rGb, rgB } = cell);
-								name ||= cell.name;
-								skin ||= cell.skin;
-							}
-
-							/** @type {Cell} */
-							const ncell = {
-								id,
-								ox: x, nx: x,
-								oy: y, ny: y,
-								or: r, nr: r, jr: r,
-								Rgb: Rgb ?? 1, rGb: rGb ?? 1, rgB: rgB ?? 1,
-								jagged, pellet: r < 75 && !eject, // tourney servers have bigger pellets
-								updated: now, born: now,
-								deadAt: undefined, deadTo: -1,
-								name, skin, sub, clan,
-							};
-
-							const key = ncell.pellet ? 'pellets' : 'cells';
-							if (tab === self) world[key].set(id, ncell);
-							if (sync.merge) {
-								let collection = sync.merge[key].get(id);
-								if (!collection) {
-									collection = { merged: undefined, model: undefined, tabs: new Map() };
-									sync.merge[key].set(id, collection);
-								}
-								collection.tabs.set(tab, ncell);
-							}
-
-							if (tab === self && clan === aux.userData?.clan)
-								world.clanmates.add(ncell);
-						}
-					}
-
-					// #c : deletes
-					const deleteCount = dat.getUint16(off, true);
-					off += 2;
-
-					for (let i = 0; i < deleteCount; ++i) {
-						const deletedId = dat.getUint32(off, true);
-						off += 4;
-
-						let deleted;
-						if (tab === self) {
-							deleted = world.pellets.get(deletedId) ?? world.cells.get(deletedId);
-						} else {
-							deleted = sync.merge?.pellets.get(deletedId)?.tabs.get(tab)
-								?? sync.merge?.cells.get(deletedId)?.tabs.get(tab);
-						}
-						if (deleted) {
-							if (deleted.deadAt === undefined) {
-								deleted.deadAt = now;
-								deleted.deadTo = -1;
-							}
-
-							if (tab === self) {
-								world.clanmates.delete(deleted);
-
-								const myIdx = world.mine.indexOf(deletedId);
-								if (myIdx !== -1) {
-									world.mine.splice(myIdx, 1);
-									world.mineDead.add(myIdx);
-								}
-							}
-						}
-					}
-
-					// #4 : clean all cells
-					if (tab === self) {
-						for (const [id, cell] of world.cells) {
-							if (cell.deadAt === undefined) continue;
-							if (now - cell.deadAt >= 200) {
-								world.cells.delete(id);
-								world.mineDead.delete(id);
-							}
-						}
-
-						for (const [id, cell] of world.pellets) {
-							if (cell.deadAt === undefined) continue;
-							if (now - cell.deadAt >= 200) {
-								world.pellets.delete(id);
-							}
-						}
-					}
-					break;
-
-				case 0x12: // delete all cells
-					// DO NOT just clear the maps! when respawning, OgarII will not resend cell data if we spawn nearby.
-					if (tab === self) {
-						// self cells are linked to those in sync.merge, this should be faster
-						for (const map of [world.cells, world.pellets]) {
-							for (const cell of map.values()) {
-								if (cell.deadAt === undefined) cell.deadAt = now;
-							}
-						}
-					} else if (sync.merge) {
-						for (const map of [sync.merge.cells, sync.merge.pellets]) {
-							for (const collection of map.values()) {
-								const cell = collection.tabs.get(tab);
-								if (cell && cell.deadAt === undefined) cell.deadAt = now;
-							}
-						}
-					}
-					break;
-			}
-		};
-
-		let lastClean = 0;
-		sync.tryMerge = () => {
-			// for camera merging to look extremely smooth, we need to merge packets and apply them *ONLY* when all
-			// tabs are synchronized.
-			// if you simply fall back to what the other tabs see, you will get lots of flickering and warping (what
-			// delta suffers from).
-			// threfore, we make sure that all tabs that share visible cells see them in the same spots, to make sure
-			// they are all on the same tick
-			// it's also not sufficient to simply count how many update (0x10) packets we get, as /leaveworld (part of
-			// respawn functionality) stops those packets from coming in
-			// if the view areas are disjoint, then there's nothing we can do but this should never happen when
-			// splitrunning
-
-			if (!settings.mergeViewArea || performance.now() - render.lastFrame > 45_000 || sync.others.size === 0) {
-				// very performance-intensive; don't update if not rendering
-				sync.merge = undefined;
-				render.upload('pellets');
-				return;
-			}
-
-			const now = performance.now();
-
-			if (!sync.merge) {
-				sync.merge = { cells: new Map(), known: new Set(), pellets: new Map() };
-
-				// copy all local cells into here
-				for (const [map, to]
-					of /** @type {const} */ ([[world.cells, sync.merge.cells], [world.pellets, sync.merge.pellets]])) {
-					for (const cell of map.values()) {
-						/** @type {Map<string, Cell>} */
-						const tabs = new Map();
-						tabs.set(self, cell);
-						to.set(cell.id, { merged: undefined, model: undefined, tabs });
-					}
-				}
-			}
-
-			// #2 : ensure all important cells are synced
-			for (const map of [sync.merge.cells, sync.merge.pellets]) {
-				for (const collection of map.values()) {
-					/** @type {Cell | undefined} */
-					let model;
-					for (const cell of collection.tabs.values()) {
-						if (!model) {
-							model = cell;
-							continue;
-						}
-
-						const modelDisappeared = model.deadAt !== undefined && model.deadTo === -1;
-						const cellDisappeared = cell.deadAt !== undefined && cell.deadTo === -1;
-
-						if (!modelDisappeared && !cellDisappeared) {
-							// both cells are visible; are they going to the same place?
-							if (model.nx !== cell.nx || model.ny !== cell.ny || model.nr !== cell.nr) {
-								return; // outta here
-							}
-						} else if (modelDisappeared && !cellDisappeared) {
-							// model went out of view; prefer the visible cell
-							model = cell;
-						} else if (!modelDisappeared && cellDisappeared) {
-							// cell went out of view; prefer model
-						} else {
-							// both cells went out of view; prefer the one that disappeared latest
-							if (/** @type {number} */ (cell.deadAt) > /** @type {number} */ (model.deadAt)) {
-								model = cell;
-							}
-						}
-					}
-
-					collection.model = model;
-				}
-			}
-
-			// #3 : tabs are all synced; merge changes
-			for (const map of [sync.merge.cells, sync.merge.pellets]) {
-				for (const collection of map.values()) {
-					const merged = collection.merged;
-					const model = collection.model;
-					if (!model) {
-						collection.merged = undefined;
-						continue;
-					}
-
-					if (!merged) {
-						// merged cell doesn't exist; only make it if the cell didn't immediately die
-						// otherwise, it would just stay transparent
-						if (model.deadAt === undefined) {
-							collection.merged = {
-								id: model.id,
-								ox: model.nx, nx: model.nx,
-								oy: model.ny, ny: model.ny,
-								or: model.nr, nr: model.nr, jr: model.nr,
-								Rgb: model.Rgb, rGb: model.rGb, rgB: model.rgB,
-								jagged: model.jagged, pellet: model.pellet,
-								name: model.name, skin: model.skin, sub: model.sub, clan: model.clan,
-								born: model.born, updated: now,
-								deadTo: -1,
-								deadAt: undefined,
-							};
-						}
-					} else {
-						// merged cell *does* exist, move it if it's no longer dead
-						if (model.deadAt === undefined) {
-							if (merged.deadAt === undefined) {
-								const { x, y, r, jr } = world.xyr(merged, undefined, now);
-								merged.ox = x;
-								merged.oy = y;
-								merged.or = r;
-								merged.jr = jr;
-							} else {
-								// came back to life (probably back into view)
-								merged.ox = model.nx;
-								merged.oy = model.ny;
-								merged.or = model.nr;
-								merged.jr = model.jr;
-								merged.deadAt = undefined;
-								merged.deadTo = -1;
-								merged.born = now;
-							}
-							merged.nx = model.nx;
-							merged.ny = model.ny;
-							merged.nr = model.nr;
-							merged.updated = now;
-						} else {
-							// model died; only kill the merged cell once
-							if (merged.deadAt === undefined) {
-								merged.deadAt = now;
-								merged.deadTo = model.deadTo;
-								merged.updated = now;
-							}
-						}
-					}
-				}
-			}
-
-			// #4 : delete really old, dead cells *once in a while*
-			if (now - lastClean > 500) {
-				lastClean = now;
-				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-					for (const [id, collection] of sync.merge[key]) {
-						for (const [tab, cell] of collection.tabs) {
-							if (cell.deadAt === undefined) continue;
-							if (now - cell.deadAt < 500) continue;
-							collection.tabs.delete(tab);
-						}
-
-						if (collection.tabs.size === 0) sync.merge[key].delete(id);
-					}
-				}
-			}
-
-			render.upload('pellets');
-		};
-
-		setInterval(() => {
-			const now = performance.now();
-			sync.pulses.forEach((last, tab) => {
-				if (now - last > 2000) {
-					// tab stopped pulsing, probably dead
-					sync.pulses.delete(tab);
-					sync.others.delete(tab);
-					
-					if (sync.merge) {
-						sync.merge.known.delete(tab);
-						for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-							for (const [id, collection] of sync.merge[key]) {
-								collection.tabs.delete(tab);
-								if (collection.tabs.size === 0) sync.merge[key].delete(id);
-							}
-						}
-					}
-				}
-			});
-		}, 1000);
-
-		return sync;
-	})();
-
-
-
 	///////////////////////////
 	// Setup World Variables //
 	///////////////////////////
@@ -2196,7 +1618,7 @@
 			const dt = (now - last) / 1000;
 			last = now;
 
-			const weight = settings.mergeCamera ? 2 : 0;
+			const weight = 0;
 
 			/**
 			 * @param {Iterable<number>} owned
@@ -2218,10 +1640,7 @@
                     /** @type {number} */
                     let nr;
 
-					let cell;
-					if (settings.mergeViewArea && sync.merge) cell = sync.merge.cells.get(id)?.merged;
-					else cell = world.cells.get(id);
-
+					let cell = world.cells.get(id);
 					if (!cell) {
 						const partial = fallback?.get(id);
 						if (!partial) continue;
@@ -2254,7 +1673,7 @@
 
 			world.camera.merged = false;
 			if (settings.mergeCamera && localDesc.totalWeight > 0) {
-				for (const data of sync.others.values()) {
+				/*for (const data of sync.others.values()) {
 					const thisDesc = cameraDesc(data.owned.keys(), data.owned);
 					if (thisDesc.totalWeight <= 0) continue;
 					const thisX = thisDesc.weightedX / thisDesc.totalWeight;
@@ -2269,7 +1688,7 @@
 						totalWeight += thisDesc.totalWeight;
 						world.camera.merged = true;
 					}
-				}
+				}*/
 			}
 
 			// auto + merge => 0.25
@@ -2418,13 +1837,6 @@
 			world.clanmates.clear();
 			while (world.mine.length) world.mine.pop();
 			world.mineDead.clear();
-
-			// broadcast a "delete all cells" packet
-			sync.tabsync(performance.now());
-			const clearPacket = new DataView(new Uint8Array([ 0x12 ]).buffer);
-			sync.update(clearPacket);
-			sync.readWorldUpdate(sync.self, clearPacket);
-			sync.tryMerge();
 		}
 
 		let reconnectAttempts = 0;
@@ -2551,12 +1963,174 @@
 						destructor.respawnBlock = undefined;
 					}
 
-					// start ASAP!
-					sync.tabsync(now);
-					if (settings.mergeViewArea) sync.update(dat);
+					// #a : kills / consumes
+					const killCount = dat.getUint16(off, true);
+					off += 2;
 
-					sync.readWorldUpdate(sync.self, dat);
-					sync.tryMerge();
+					for (let i = 0; i < killCount; ++i) {
+						const killerId = dat.getUint32(off, true);
+						const killedId = dat.getUint32(off + 4, true);
+						off += 8;
+
+						const killed = world.pellets.get(killedId) ?? world.cells.get(killedId);
+						if (killed) {
+							killed.deadTo = killerId;
+							killed.deadAt = killed.updated = now;
+
+							world.clanmates.delete(killed);
+
+							if (killed.pellet && world.mine.includes(killerId))
+								++world.stats.foodEaten;
+
+							const myIdx = world.mine.indexOf(killedId);
+							if (myIdx !== -1) {
+								world.mine.splice(myIdx, 1);
+								world.mineDead.add(killedId);
+							}
+						}
+					}
+
+					// #b : updates
+					while (true) {
+						const id = dat.getUint32(off, true);
+						off += 4;
+						if (id === 0) break;
+
+						const x = dat.getInt16(off, true);
+						const y = dat.getInt16(off + 2, true);
+						const r = dat.getUint16(off + 4, true);
+						const flags = dat.getUint8(off + 6);
+						// (void 1 byte, "isUpdate")
+						// (void 1 byte, "isPlayer")
+						const sub = !!dat.getUint8(off + 9);
+						off += 10;
+
+						let clan;
+						[clan, off] = aux.readZTString(dat, off);
+
+						/** @type {number | undefined} */
+						let Rgb, rGb, rgB;
+						if (flags & 0x02) {
+							// update color
+							Rgb = dat.getUint8(off) / 255;
+							rGb = dat.getUint8(off + 1) / 255;
+							rgB = dat.getUint8(off + 2) / 255;
+							off += 3;
+						}
+
+						let skin = '';
+						if (flags & 0x04) {
+							// update skin
+							[skin, off] = aux.readZTString(dat, off);
+							skin = aux.parseSkin(skin);
+						}
+
+						let name = '';
+						if (flags & 0x08) {
+							// update name
+							[name, off] = aux.readZTString(dat, off);
+							name = aux.parseName(name);
+							if (name) render.textFromCache(name, sub); // make sure the texture is ready on render
+						}
+
+						const jagged = !!(flags & 0x11);
+						const eject = !!(flags & 0x20);
+
+						/** @type {Cell | undefined} */
+						const cell = world.cells.get(id) ?? world.pellets.get(id);
+						if (cell && cell.deadAt === undefined) {
+							const { x: ix, y: iy, r: ir, jr } = world.xyr(cell, undefined, now);
+							cell.ox = ix; cell.oy = iy; cell.or = ir;
+							cell.jr = jr;
+							cell.nx = x; cell.ny = y; cell.nr = r;
+							cell.jagged = jagged;
+							cell.updated = now;
+
+							if (Rgb !== undefined) {
+								cell.Rgb = Rgb;
+								cell.rGb = /** @type {number} */ (rGb);
+								cell.rgB = /** @type {number} */ (rgB);
+							}
+							if (skin) cell.skin = skin;
+							if (name) cell.name = name;
+							cell.sub = sub;
+
+							cell.clan = clan;
+							if (clan && clan === aux.userData?.clan)
+								world.clanmates.add(cell);
+						} else {
+							if (cell?.deadAt !== undefined) {
+								// when respawning, OgarII does not send the description of cells if you spawn in the
+								// same area, despite those cells being deleted from your view area
+								if (Rgb === undefined)
+									({ Rgb, rGb, rgB } = cell);
+								name ||= cell.name;
+								skin ||= cell.skin;
+							}
+
+							/** @type {Cell} */
+							const ncell = {
+								id,
+								ox: x, nx: x,
+								oy: y, ny: y,
+								or: r, nr: r, jr: r,
+								Rgb: Rgb ?? 1, rGb: rGb ?? 1, rgB: rgB ?? 1,
+								jagged, pellet: r < 75 && !eject, // tourney servers have bigger pellets
+								updated: now, born: now,
+								deadAt: undefined, deadTo: -1,
+								name, skin, sub, clan,
+							};
+
+							const key = ncell.pellet ? 'pellets' : 'cells';
+							world[key].set(id, ncell);
+							if (clan === aux.userData?.clan)
+								world.clanmates.add(ncell);
+						}
+					}
+
+					// #c : deletes
+					const deleteCount = dat.getUint16(off, true);
+					off += 2;
+
+					for (let i = 0; i < deleteCount; ++i) {
+						const deletedId = dat.getUint32(off, true);
+						off += 4;
+
+						const deleted = world.pellets.get(deletedId) ?? world.cells.get(deletedId);
+						if (deleted) {
+							if (deleted.deadAt === undefined) {
+								deleted.deadAt = now;
+								deleted.deadTo = -1;
+							}
+
+							world.clanmates.delete(deleted);
+
+							const myIdx = world.mine.indexOf(deletedId);
+							if (myIdx !== -1) {
+								world.mine.splice(myIdx, 1);
+								world.mineDead.add(myIdx);
+							}
+						}
+					}
+
+					// #4 : clean all cells
+					for (const [id, cell] of world.cells) {
+						if (cell.deadAt === undefined) continue;
+						if (now - cell.deadAt >= 200) {
+							world.cells.delete(id);
+							world.mineDead.delete(id);
+						}
+					}
+
+					for (const [id, cell] of world.pellets) {
+						if (cell.deadAt === undefined) continue;
+						if (now - cell.deadAt >= 200) {
+							world.pellets.delete(id);
+						}
+					}
+
+					// #5: extra
+					render.upload('pellets');
 
 					if (world.mine.length === 0 && world.stats.spawnedAt !== undefined) {
 						ui.deathScreen.show(world.stats);
@@ -2580,10 +2154,12 @@
 						destructor.respawnBlock.status = 'left';
 					}
 
-					if (settings.mergeViewArea) sync.update(dat);
-
-					sync.readWorldUpdate(sync.self, dat);
-					sync.tryMerge();
+					// DO NOT just clear the maps! when respawning, OgarII will not resend cell data if we spawn nearby.
+					for (const map of [world.cells, world.pellets]) {
+						for (const cell of map.values()) {
+							if (cell.deadAt === undefined) cell.deadAt = now;
+						}
+					}
 					world.clanmates.clear();
 				// passthrough
 				case 0x14: // delete my cells
@@ -2850,23 +2426,6 @@
 			if (consumedForceW || w) net.w();
 		};
 
-		// anti-afk when another tab is playing
-		let lastCheck = performance.now();
-		input.antiAfk = () => {
-			const now = performance.now();
-			// only check every 10s, don't want to spam packets but don't want to miss resetting the afk timer
-			if (now - lastCheck < 10_000) return;
-			lastCheck = now;
-
-			// check if any other tabs are *alive*
-			for (const tab of sync.others.values()) {
-				if (tab.owned.size > 0) {
-					net.qup(); // send literally any packet at all
-					break;
-				}
-			}
-		};
-
 		// sigmod freezes the player by overlaying an invisible div, so we just listen for canvas movements instead
 		addEventListener('mousemove', e => {
 			if (ui.escOverlayVisible()) return;
@@ -2890,7 +2449,6 @@
 			input.zoom *= 0.8 ** (deltaY * settings.scrollFactor);
 			const minZoom = (!settings.mergeCamera && !aux.settings.zoomout) ? 1 : 0.8 ** 10;
 			input.zoom = Math.min(Math.max(input.zoom, minZoom), 0.8 ** -11);
-			sync.zoom();
 		});
 
 		addEventListener('keydown', e => {
@@ -4060,22 +3618,14 @@
 			now ??= performance.now(); // the result will never actually be used, just for type checking
 			const vao = glconf.vao[key === 'pellets' ? 0 : 1];
 
-			const map = (settings.mergeViewArea && sync.merge) ? sync.merge : world;
-
 			// find expected # of pellets (exclude any that are being *animated*)
 			let expected = 0;
 			if (key === 'pellets') {
-				if (sync.merge) {
-					for (const collection of sync.merge.pellets.values()) {
-						if (collection.merged?.deadTo === -1) ++expected;
-					}
-				} else {
-					for (const pellet of world.pellets.values()) {
-						if (pellet.deadTo === -1) ++expected;
-					}
+				for (const pellet of world.pellets.values()) {
+					if (pellet.deadTo === -1) ++expected;
 				}
 			} else {
-				expected = map.cells.size;
+				expected = world.cells.size;
 			}
 
 			// grow the pellet buffer by 2x multiples if necessary
@@ -4126,16 +3676,8 @@
 				}
 				++i;
 			};
-			if (sync.merge) {
-				for (const collection of sync.merge[key].values()) {
-					if (collection.merged) {
-						iterate(collection.merged);
-					}
-				}
-			} else {
-				for (const cell of world[key].values()) {
-					iterate(cell);
-				}
+			for (const cell of world[key].values()) {
+				iterate(cell);
 			}
 
 			// now, upload data
@@ -4213,7 +3755,6 @@
 			(function updateGame() {
 				world.moveCamera();
 				input.move();
-				sync.frame();
 			})();
 
 			(function setGlobalUniforms() {
@@ -4297,12 +3838,7 @@
 				// for white cell outlines
 				let nextCellIdx = world.mine.length;
 				const canSplit = world.mine.map(id => {
-					let cell;
-					if (sync.merge) {
-						cell = sync.merge.cells.get(id)?.merged;
-					} else {
-						cell = world.cells.get(id);
-					}
+					const cell = world.cells.get(id);
 					if (!cell) {
 						--nextCellIdx;
 						return false;
@@ -4341,11 +3877,7 @@
 					/** @type {Cell | undefined} */
 					let killer;
 					if (cell.deadTo !== -1) {
-						if (sync.merge) {
-							killer = sync.merge.cells.get(cell.deadTo)?.merged;
-						} else {
-							killer = world.cells.get(cell.deadTo);
-						}
+						killer = world.cells.get(cell.deadTo);
 					}
 					const { x, y, r, jr } = world.xyr(cell, killer, now);
 					// without jelly physics, the radius of cells is adjusted such that its subtle outline doesn't go
@@ -4402,13 +3934,6 @@
 						}
 
 						let skin = '';
-						for (const data of sync.others.values()) {
-							if (data.owned.has(cell.id)) {
-								if (world.camera.merged) cellUboInts[9] |= 0x08; // inactive multi outline
-								if (settings.syncSkin) skin = data.skin;
-								break;
-							}
-						}
 
 						if (settings.selfSkin && (myIndex !== -1 || world.mineDead.has(cell.id))) {
 							skin = settings.selfSkin;
@@ -4567,14 +4092,8 @@
 					if (pellet.deadTo !== -1) return;
 					pelletAlpha[i++] = calcAlpha(pellet);
 				};
-				if (sync.merge) {
-					for (const collection of sync.merge.pellets.values()) {
-						if (collection.merged) iterateStaticPellet(collection.merged);
-					}
-				} else {
-					for (const pellet of world.pellets.values()) {
-						iterateStaticPellet(pellet);
-					}
+				for (const pellet of world.pellets.values()) {
+					iterateStaticPellet(pellet);
 				}
 				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao[0].alphaBuffer);
 				gl.bufferSubData(gl.ARRAY_BUFFER, 0, pelletAlpha);
@@ -4603,14 +4122,8 @@
 				const iterateAnimatedPellet = pellet => {
 					if (pellet.deadTo !== -1) draw(pellet); // no rtx glow is fine here
 				};
-				if (sync.merge) {
-					for (const collection of sync.merge.pellets.values()) {
-						if (collection.merged) iterateAnimatedPellet(collection.merged);
-					}
-				} else {
-					for (const pellet of world.pellets.values()) {
-						iterateAnimatedPellet(pellet);
-					}
+				for (const pellet of world.pellets.values()) {
+					iterateAnimatedPellet(pellet);
 				}
 
 				/** @type {[Cell, number][]} */
@@ -4621,14 +4134,8 @@
 					const computedR = cell.or + (cell.nr - cell.or) * rAlpha;
 					sorted.push([cell, computedR]);
 				};
-				if (sync.merge) {
-					for (const collection of sync.merge.cells.values()) {
-						if (collection.merged) iterateSortableCell(collection.merged);
-					}
-				} else {
-					for (const cell of world.cells.values()) {
-						iterateSortableCell(cell);
-					}
+				for (const cell of world.cells.values()) {
+					iterateSortableCell(cell);
 				}
 
 				// sort by smallest to biggest
@@ -4649,14 +4156,8 @@
 							cellAlpha[i++] = alpha;
 						}
 					};
-					if (sync.merge) {
-						for (const collection of sync.merge.cells.values()) {
-							if (collection.merged) iterateCellGlow(collection.merged);
-						}
-					} else {
-						for (const cell of world.cells.values()) {
-							iterateCellGlow(cell);
-						}
+					for (const cell of world.cells.values()) {
+						iterateCellGlow(cell);
 					}
 
 					gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao[1].alphaBuffer);
@@ -4686,12 +4187,7 @@
 
 					world.mine.forEach(id => {
 						/** @type {Cell | undefined} */
-						let cell;
-						if (sync.merge) {
-							cell = sync.merge.cells.get(id)?.merged;
-						} else {
-							cell = world.cells.get(id);
-						}
+						let cell = world.cells.get(id);
 						if (!cell || cell.deadAt !== undefined) return;
 
 						let { x, y } = world.xyr(cell, undefined, now);
@@ -4882,6 +4378,6 @@
 
 	// @ts-expect-error for debugging purposes and other scripts. dm me on discord @ 8y8x to guarantee stability
 	window.sigfix = {
-		destructor, aux, ui, settings, sync, world, net, input, glconf, render,
+		destructor, aux, ui, settings, world, net, input, glconf, render,
 	};
 })();
