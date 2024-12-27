@@ -2554,16 +2554,17 @@
 			input.zoom = Math.min(Math.max(input.zoom, minZoom), 0.8 ** -21);
 		});
 
-		/** @param {boolean} spectating */
-		const playData = spectating => {
-			/** @type {HTMLInputElement | null} */
-			const nickElement = document.querySelector('input#nick');
+		/**
+		 * @param {string} name
+		 * @param {boolean} spectating
+		 */
+		const playData = (name, spectating) => {
 			/** @type {HTMLInputElement | null} */
 			const password = document.querySelector('input#password');
 
 			return {
 				state: spectating ? 2 : undefined,
-				name: nickElement?.value ?? '',
+				name,
 				skin: aux.settings.skin,
 				token: aux.token?.token,
 				sub: (aux.userData?.subscription ?? 0) > Date.now(),
@@ -2572,6 +2573,13 @@
 				password: password?.value,
 			};
 		}
+
+		/** @type {HTMLInputElement} */
+		const nickElement = aux.require(document.querySelector('input#nick'),
+			'Can\'t find the nickname element. Try reloading the page?');
+		const secondaryNickElement = /** @type {HTMLInputElement} */ (nickElement?.cloneNode(true));
+		// this apparently just works perfectly in vanilla and sigmod
+		nickElement.parentElement?.appendChild(secondaryNickElement);
 
 		addEventListener('keydown', e => {
 			const view = world.selected;
@@ -2591,7 +2599,11 @@
 				}
 
 				// also, press play on the current tab ONLY if any tab is alive
-				if (world.alive()) net.play(world.selected, playData(false));
+				if (world.alive()) {
+					const name = world.selected === world.viewId.primary
+						? nickElement.value : secondaryNickElement.value;
+					net.play(world.selected, playData(name, false));
+				}
 				return;
 			}
 
@@ -2688,15 +2700,11 @@
 
 		// #2 : play and spectate buttons, and captcha
 		/** @type {HTMLButtonElement} */
-		const play = aux.require(
-			document.querySelector('button#play-btn'),
-			'Can\'t find the play button. Try reloading the page?',
-		);
+		const play = aux.require(document.querySelector('button#play-btn'),
+			'Can\'t find the play button. Try reloading the page?');
 		/** @type {HTMLButtonElement} */
-		const spectate = aux.require(
-			document.querySelector('button#spectate-btn'),
-			'Can\'t find the spectate button. Try reloading the page?',
-		);
+		const spectate = aux.require(document.querySelector('button#spectate-btn'),
+			'Can\'t find the spectate button. Try reloading the page?');
 
 		play.disabled = spectate.disabled = true;
 		const playText = play.textContent;
@@ -2936,6 +2944,8 @@
 
 			/** @param {MouseEvent} e */
 			async function clickHandler(e) {
+				const name = world.selected === world.viewId.primary ? nickElement.value : secondaryNickElement.value;
+
 				const con = net.connections.get(world.selected);
 				if (!con || con.rejected) return;
 				ui.toggleEscOverlay(false);
@@ -2945,12 +2955,12 @@
 					if (0 < score && score < 5500) {
 						world.stats.spawnedAt = undefined; // prevent death screen from appearing
 						net.chat('/leaveworld', world.selected); // instant respawn
-						net.play(world.selected, playData(true)); // required, idk why
+						net.play(world.selected, playData(name, true)); // required, idk why
 						net.chat('/joinworld 1', world.selected); // spectating doesn't automatically put you back into the world
 					}
 				}
 
-				net.play(world.selected, playData(e.currentTarget === spectate));
+				net.play(world.selected, playData(name, e.currentTarget === spectate));
 			}
 
 			play.addEventListener('click', clickHandler);
