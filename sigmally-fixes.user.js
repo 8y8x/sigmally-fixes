@@ -431,9 +431,6 @@
 			}),
 		});
 
-		/** @type {{ status: 'left' | 'pending', started: number } | undefined} */
-		destructor.respawnBlock = undefined;
-
 		const cmdRepresentation = new TextEncoder().encode('/leaveworld').toString();
 		/** @type {WeakSet<WebSocket>} */
 		destructor.safeWebSockets = new WeakSet();
@@ -453,14 +450,34 @@
 
 				if (buf && buf.byteLength === '/leaveworld'.length + 3
 					&& new Uint8Array(buf).toString().includes(cmdRepresentation)) {
-					// block respawns if we haven't actually respawned yet (with a 500ms max in case something fails)
-					if (performance.now() - (destructor.respawnBlock?.started ?? -Infinity) < 500) return;
-					destructor.respawnBlock = undefined;
-					// trying to respawn; see if we are nearby an alive multi-tab
-					if (false/*if shouldBlockRespawn == true*/) return;
+					let con, view, vision; // cba to put explicit types here
+					for (const [otherView, otherCon] of net.connections) {
+						if (otherCon.ws === this) {
+							con = otherCon;
+							view = otherView;
+							vision = world.views.get(otherView);
+							break;
+						}
+					}
+					if (con && view && vision) {
+						// block respawns if we haven't actually respawned yet
+						// (with a 500ms max in case something fails)
+						if (performance.now() - (con.respawnBlock?.started ?? -Infinity) < 500) return;
+						con.respawnBlock = undefined;
+						// trying to respawn; see if we are nearby an alive multi-tab
+						if (world.score(view) > 0) {
+							for (const [otherView, otherVision] of world.views) {
+								if (vision === otherVision) continue;
+								if (world.score(otherView) <= 0) continue;
+								if (Math.hypot(vision.camera.tx - otherVision.camera.tx,
+									vision.camera.ty - otherVision.camera.ty) <= 7500)
+									return;
+							}
+						}
 
-					// we are allowing a respawn, take note
-					destructor.respawnBlock = { status: 'pending', started: performance.now() };
+						// we are allowing a respawn, take note
+						con.respawnBlock = { status: 'pending', started: performance.now() };
+					}
 				}
 			}
 
@@ -1903,6 +1920,7 @@
 		 *		opened: boolean,
 		 * 		pings: number[],
 		 * 		rejected: boolean,
+		 * 		respawnBlock: { status: 'left' | 'pending', started: number } | undefined,
 		 * 		ws: WebSocket | undefined,
 		 * }>} */
 		net.connections = new Map();
@@ -1917,6 +1935,7 @@
 				opened: false,
 				pings: [],
 				rejected: false,
+				respawnBlock: undefined,
 				ws: connect(view),
 			});
 		};
@@ -1948,6 +1967,7 @@
 				connection.handshake = undefined;
 				connection.latency = undefined;
 				connection.pings = [];
+				connection.respawnBlock = undefined;
 				if (!connection.opened) connection.rejected = true;
 				connection.opened = false;
 
@@ -1993,7 +2013,7 @@
 				let o = 1;
 				switch (connection.handshake.unshuffle[dat.getUint8(0)]) {
 					case 0x10: { // world update
-						// TODO: respawnBlock
+						if (connection.respawnBlock?.status === 'left') connection.respawnBlock = undefined;
 
 						// (a) : kills / consumes
 						const killCount = dat.getUint16(o, true);
@@ -2138,7 +2158,7 @@
 
 					case 0x12: { // delete all cells
 						// happens every time you respawn
-						// TODO: respawn block
+						if (connection.respawnBlock?.status === 'pending') connection.respawnBlock.status = 'left';
 
 						// DO NOT just clear the maps! when respawning, OgarII will not resend cell data if we spawn
 						// nearby.
@@ -2148,10 +2168,13 @@
 								if (cell && cell.deadAt === undefined) cell.deadAt = now;
 							}
 						}
+						world.merge();
+						render.upload('pellets');
 						// passthrough
 					}
 					case 0x14: { // delete my cells
 						vision.owned = [];
+						ui.deathScreen.check();
 						break;
 					}
 
