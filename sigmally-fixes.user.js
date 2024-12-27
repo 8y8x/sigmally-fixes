@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.4.3-BETA';
+	const sfVersion = '2.5.0-BETA';
 	const undefined = window.undefined; // yes, this actually makes a significant difference
 
 	////////////////////////////////
