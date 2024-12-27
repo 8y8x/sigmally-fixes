@@ -1080,6 +1080,7 @@
 			rainbowBorder: false,
 			scrollFactor: 1,
 			selfSkin: '',
+			selfSkinMulti: '',
 			showStats: true,
 			syncSkin: true,
 			textOutlinesFactor: 1,
@@ -1223,10 +1224,9 @@
 		 * @param {PropertyOfType<typeof settings, string>} property
 		 * @param {string} title
 		 * @param {string} placeholder
-		 * @param {boolean} sync
 		 * @param {string} help
 		 */
-		function input(property, title, placeholder, sync, help) {
+		function input(property, title, placeholder, help) {
 			/**
 			 * @param {HTMLInputElement} input
 			 */
@@ -1238,10 +1238,7 @@
 					save();
 				});
 
-				onSaves.add(() => {
-					if (sync) input.value = settings[property];
-					else input.value = settings[property] = /** @type {never} */ (oldValue);
-				});
+				onSaves.add(() => input.value = settings[property]);
 			};
 
 			const vanilla = fromHTML(`
@@ -1434,10 +1431,11 @@
 		slider('cellOpacity', 'Cell opacity', undefined, 0.5, 1, 0.005, 3, false,
 			'How opaque cells should be. 1 = fully visible, 0 = invisible. It can be helpful to see the size of a ' +
 			'smaller cell under a big cell.');
-		input('selfSkin', 'Self skin URL (not synced)', 'https://i.imgur.com/...', false,
-			'Direct URL to a custom skin for yourself. Not visible to others. You are able to use different skins ' +
-			'for different tabs.');
-		input('background', 'Map background image', 'https://i.imgur.com/...', true,
+		input('selfSkin', 'Self skin URL', 'https://i.imgur.com/...',
+			'Direct URL to a custom skin for yourself. Not visible to others.');
+		input('selfSkinMulti', 'Secondary skin URL', 'https://i.imgur.com/...',
+			'Direct URL to a custom skin for your secondary multibox tab. Not visible to others.');
+		input('background', 'Map background image', 'https://i.imgur.com/...',
 			'A square background image to use within the entire map border. Images under 1024x1024 will be treated ' +
 			'as a repeating pattern, where 50 pixels = 1 grid square.');
 		checkbox('tracer', 'Lines between cells and mouse', 'If enabled, draws a line between all of the cells you ' +
@@ -1657,7 +1655,7 @@
 
 						// only merge with tabs if their vision regions are close. expand threshold depending on
 						// how much mass each tab has (if both tabs are large, allow them to go pretty far)
-						const threshold = Math.min(mainWeight / 100 / 100, otherDesc.weight / 100 / 100);
+						const threshold = 1000 + Math.min(mainWeight / 100 / 25, otherDesc.weight / 100 / 25);
 						if (Math.abs(otherX - mainX) < mainWidth + otherWidth + threshold
 							&& Math.abs(otherY - mainY) < mainHeight + otherHeight + threshold) {
 							desc.sumX += otherDesc.sumX;
@@ -2562,6 +2560,22 @@
 		}
 
 		addEventListener('keydown', e => {
+			const inputs = input.views.get(world.selected) ?? create(world.selected);
+			if (e.code === 'Tab') {
+				e.preventDefault(); // prevent selecting anything on the page
+				if (settings.multibox) {
+					inputs.w = false; // stop current tab from feeding; don't change forceW
+					// peep this if you're looking into n-boxing
+					if (world.selected === world.viewId.primary) world.selected = world.viewId.secondary;
+					else world.selected = world.viewId.primary;
+					world.create(world.selected);
+					net.create(world.selected);
+				}
+
+				// also, press play on the current tab ONLY if any tab is alive
+				if (world.alive()) net.play(world.selected, playData(false));
+			}
+
 			if (e.code === 'Escape') {
 				if (document.activeElement === ui.chat.input)
 					ui.chat.input.blur();
@@ -2580,7 +2594,6 @@
 				return;
 			}
 
-			const inputs = input.views.get(world.selected) ?? create(world.selected);
 			switch (e.code) {
 				case 'KeyQ':
 					if (!e.repeat) net.qdown(world.selected);
@@ -2604,21 +2617,6 @@
 				}
 				case 'Enter': {
 					ui.chat.input.focus();
-					break;
-				}
-				case 'Tab': {
-					e.preventDefault(); // prevent selecting anything on the page
-					if (settings.multibox) {
-						inputs.w = false; // stop current tab from feeding; don't change forceW
-						// peep this if you're looking into n-boxing
-						if (world.selected === world.viewId.primary) world.selected = world.viewId.secondary;
-						else world.selected = world.viewId.primary;
-						world.create(world.selected);
-						net.create(world.selected);
-					}
-
-					// also, press play on the current tab ONLY if any tab is alive
-					if (world.alive()) net.play(world.selected, playData(false));
 					break;
 				}
 			}
@@ -4030,19 +4028,36 @@
 							if (vision.camera.merging.length > 0) cellUboInts[9] |= 0x04; // active multi outline
 							if (!canSplit[myIndex] && settings.unsplittableOpacity > 0) cellUboInts[9] |= 0x10;
 						}
-						// TODO: other tab cell outlines
+						let ownedByOther = false;
+						for (const otherVision of world.views.values()) {
+							if (otherVision === vision) continue;
+							if (!otherVision.camera.merging.includes(world.selected)) continue;
+							if (!otherVision.owned.includes(cell.id)) continue;
+							cellUboInts[9] |= 0x08; // inactive multi outline
+							ownedByOther = true;
+							break;
+						}
 
 						let skin = '';
+						// ownedByOther && myIndex !== -1 && world.selected != primary: impossible
+						// ownedByOther && myIndex !== -1 && world.selected == primary: impossible
+						// ownedByOther && myIndex === -1 && world.selected != primary: 
+						// myIndex !== -1 && world.selected != primary: settings.selfSkinMulti
+						// ownedByOther && world.selected == primary: settings.selfSkinMulti
+						// myIndex !== -1 && world.selected == primary: settings.selfSkin
 
-						if (settings.selfSkin && myIndex !== -1) {
-							skin = settings.selfSkin;
-						} else {
-							if (!skin && aux.settings.showSkins && cell.skin) {
-								if (skinReplacement && cell.skin.includes(skinReplacement.original + '.png'))
-									skin = skinReplacement.replacement ?? skinReplacement.replaceImg ?? '';
-								else
-									skin = cell.skin;
-							}
+						if (myIndex !== -1) {
+							skin = (world.selected === world.viewId.primary)
+								? settings.selfSkin : settings.selfSkinMulti;
+						} else if (ownedByOther) {
+							skin = (world.selected === world.viewId.secondary)
+								? settings.selfSkin : settings.selfSkinMulti;
+						}
+						if (!skin && aux.settings.showSkins && cell.skin) {
+							if (skinReplacement && cell.skin.includes(skinReplacement.original + '.png'))
+								skin = skinReplacement.replacement ?? skinReplacement.replaceImg ?? '';
+							else
+								skin = cell.skin;
 						}
 
 						if (skin) {
