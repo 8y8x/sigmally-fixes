@@ -234,7 +234,7 @@
 			// sigmod's showNames setting is always "true" interally (i think??)
 			aux.sigmodSettings.showNames = aux.setting('input#showNames', true);
 
-			aux.sigmodSettings.tripleKey = sigmod.macros?.keys?.splits?.triple;
+			aux.sigmodSettings.tripleKey = sigmod.macros?.keys?.splits?.triple || undefined; // blank keys are ''
 		}, 200);
 
 		// patch some sigmod bugs
@@ -1114,10 +1114,7 @@
 
 		function save() {
 			localStorage.setItem('sigfix', JSON.stringify(settings));
-			/** @type {any} */
-			const replicated = { ...settings };
-			delete replicated.selfSkin;
-			channel.postMessage(replicated);
+			channel.postMessage(settings);
 		}
 
 		/**
@@ -1446,10 +1443,11 @@
 		dropdown('mergeStrategy', 'Vision merging strategy', [
 			['flawless', 'Flawless - sync tabs'], ['alpha', 'Compatibility - prefer primary']
 			], 'Which algorithm to use when combining visible cells between tabs.\n' + 
-			'- "Flawless - sync tabs" synchronizes all connections and prevents warping. However, if any ' +
+			'- &quot;Flawless - sync tabs&quot; synchronizes all connections and prevents warping. However, if any ' +
 			'tab starts lagging, the rest will freeze too. Default for Sigmally Fixes.\n' +
-			'- "Compatibility - prefer primary" uses the primary tab\'s cells if possible, though the most opaque ' +
-			'cell will be chosen. Cells may warp around, but will stay usable if laggy. Similar to Delta.');
+			'- &quot;Compatibility - prefer primary&quot; uses the primary tab\'s cells if possible, though the most ' +
+			'opaque cell will be chosen. Cells may warp around, but will stay usable if your internet is unstable. ' +
+			'Similar to Delta.');
 		slider('outlineMulti', 'Current tab cell outline thickness', 0.2, 0, 1, 0.01, 2, true,
 			'Draws an inverse outline on your cells, the thickness being a % of your cell radius. This only shows ' +
 			'when \'merge camera between tabs\' is enabled and when you\'re near one of your tabs.');
