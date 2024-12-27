@@ -1082,6 +1082,7 @@
 			selfSkin: '',
 			selfSkinMulti: '',
 			showStats: true,
+			spectator: false,
 			syncSkin: true,
 			textOutlinesFactor: 1,
 			tracer: false,
@@ -1497,6 +1498,8 @@
 			'leaderboard will use the bold Ubuntu font.');
 		checkbox('showStats', 'Show server stats', 'When disabled, hides the top-left server stats including the ' +
 			'player count and server uptime.');
+		checkbox('spectator', 'Connect spectating tab', 'Automatically connects an extra tab and sets it to spectate ' +
+			'#1.');
 		checkbox('syncSkin', 'Show self skin on other tabs',
 			'Whether your custom skin should be shown on your other tabs too.');
 
@@ -2417,8 +2420,39 @@
 		// create initial connection
 		world.create(world.viewId.primary);
 		net.create(world.viewId.primary);
+		let lastChangedSpectate = -Infinity;
 		setInterval(() => {
 			if (!settings.multibox) world.selected = world.viewId.primary;
+			if (settings.spectator) {
+				const vision = world.create(world.viewId.spectate);
+				net.create(world.viewId.spectate);
+				net.play(world.viewId.spectate, { name: '', skin: '', clan: aux.userData?.clan, state: 2 });
+
+				// only press Q to toggle once in a while, in case ping is above 200
+				const now = performance.now();
+				if (now - lastChangedSpectate > 1000) {
+					if (vision.camera.tscale > 0.39) { // when roaming, the spectate scale is set to ~0.4
+						net.qdown(world.viewId.spectate);
+					}
+				} else {
+					net.qup(world.viewId.spectate); // doubly serves as anti-afk
+				}
+			} else {
+				const con = net.connections.get(world.viewId.spectate);
+				if (con?.ws && con?.ws.readyState !== WebSocket.CLOSED && con?.ws.readyState !== WebSocket.CLOSING) {
+					con?.ws.close();
+				}
+				net.connections.delete(world.viewId.spectate);
+				world.views.delete(world.viewId.spectate);
+				input.views.delete(world.viewId.spectate);
+
+				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+					for (const [id, resolution] of world[key]) {
+						resolution.views.delete(world.viewId.spectate);
+						if (resolution.views.size === 0) world[key].delete(id);
+					}
+				}
+			}
 		}, 200);
 
 		return net;
