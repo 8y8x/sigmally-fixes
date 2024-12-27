@@ -2066,6 +2066,9 @@
 					}
 
 					case 0x63: { // chat message
+						// only handle chat messages on the primary tab, to prevent duplicate messages
+						// this means that command responses won't be shown on the secondary tab but who actually cares
+						if (view !== world.viewId.primary) return;
 						const flags = dat.getUint8(o++);
 						const rgb = /** @type {[number, number, number, number]} */
 							([dat.getUint8(o++) / 255, dat.getUint8(o++) / 255, dat.getUint8(o++) / 255, 1]);
@@ -2328,7 +2331,10 @@
 			if (e.target instanceof HTMLDivElement
 				&& /** @type {CSSUnitValue | undefined} */ (e.target.attributeStyleMap.get('z-index'))?.value === 99)
 				return;
-			input.current = [(e.clientX / innerWidth * 2) - 1, (e.clientY / innerHeight * 2) - 1];
+			const inputs = input.views.get(world.selected) ?? create(world.selected);
+			inputs.mouse = input.current = [(e.clientX / innerWidth * 2) - 1, (e.clientY / innerHeight * 2) - 1];
+			// update inputs.current immediately for the tracers
+			inputs.current = toWorld(world.selected, inputs.mouse);
 		});
 
 		addEventListener('wheel', e => {
