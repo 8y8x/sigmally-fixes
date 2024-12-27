@@ -459,7 +459,7 @@
 							break;
 						}
 					}
-					if (con && view && vision) {
+					if (con && view !== undefined && vision) {
 						// block respawns if we haven't actually respawned yet
 						// (with a 500ms max in case something fails)
 						if (performance.now() - (con.respawnBlock?.started ?? -Infinity) < 500) return;
