@@ -2578,6 +2578,8 @@
 		const nickElement = aux.require(document.querySelector('input#nick'),
 			'Can\'t find the nickname element. Try reloading the page?');
 		const secondaryNickElement = /** @type {HTMLInputElement} */ (nickElement?.cloneNode(true));
+		secondaryNickElement.style.display = settings.multibox ? '' : 'none';
+		setInterval(() => secondaryNickElement.style.display = settings.multibox ? '' : 'none', 200);
 		// this apparently just works perfectly in vanilla and sigmod
 		nickElement.parentElement?.appendChild(secondaryNickElement);
 
