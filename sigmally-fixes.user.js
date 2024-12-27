@@ -1464,10 +1464,8 @@
 			'A smaller zoom speed lets you fine-tune your zoom.');
 		dropdown('autoZoom', 'Auto-zoom', [['auto', 'When not multiboxing'], ['never', 'Never']],
 			'When enabled, automatically zooms in/out for you based on how big you are. ');
-		checkbox('blockBrowserKeybinds', 'Block all browser keybinds',
-			'When enabled, only Ctrl+Tab and F11 are allowed to be pressed. You must be in fullscreen, and ' +
-			'non-Chrome browsers probably won\'t respect this setting. Doesn\'t work for Ctrl+W anymore: get a ' +
-			'browser extension to block it for you.');
+		checkbox('blockBrowserKeybinds', 'Force fullscreen',
+			'When enabled, fullscreen will be forcefully enabled when playing and will block all browser keybinds.');
 		checkbox('blockNearbyRespawns', 'Block respawns near other tabs',
 			'Disables the respawn keybind (SigMod-only) when near one of your bigger tabs.');
 		separator('• text •');
@@ -2519,6 +2517,11 @@
 			if (e.target instanceof HTMLDivElement
 				&& /** @type {CSSUnitValue | undefined} */ (e.target.attributeStyleMap.get('z-index'))?.value === 99)
 				return;
+			if (settings.blockBrowserKeybinds) {
+				/** @type {any} */ (navigator).keyboard?.lock();
+				// not supported on safari
+				document.body.requestFullscreen?.();
+			}
 			const inputs = input.views.get(world.selected) ?? create(world.selected);
 			inputs.mouse = input.current = [(e.clientX / innerWidth * 2) - 1, (e.clientY / innerHeight * 2) - 1];
 			// update inputs.current immediately for the tracers
@@ -2632,8 +2635,11 @@
 			if (e.ctrlKey && e.code === 'Tab') {
 				e.returnValue = true; // undo e.preventDefault() by SigMod
 				e.stopImmediatePropagation(); // prevent SigMod from calling e.preventDefault() afterwards
-			} else if (settings.blockBrowserKeybinds && e.code !== 'F11')
+			} else if (settings.blockBrowserKeybinds && e.code !== 'F11') {
 				e.preventDefault();
+			} else if (e.ctrlKey && e.code === 'KeyW') {
+				e.preventDefault(); // doesn't seem to work for me, but works for others
+			}
 		});
 
 		addEventListener('keyup', e => {
