@@ -2550,8 +2550,8 @@
 			// i don't think browsers support DOM_DELTA_LINE, so assume DOM_DELTA_PIXEL otherwise
 			const deltaY = e.deltaMode === e.DOM_DELTA_PAGE ? e.deltaY : e.deltaY / 100;
 			input.zoom *= 0.8 ** (deltaY * settings.scrollFactor);
-			const minZoom = (!settings.multibox && !aux.settings.zoomout) ? 1 : 0.8 ** 10;
-			input.zoom = Math.min(Math.max(input.zoom, minZoom), 0.8 ** -11);
+			const minZoom = (!settings.multibox && !aux.settings.zoomout) ? 1 : 0.8 ** 15;
+			input.zoom = Math.min(Math.max(input.zoom, minZoom), 0.8 ** -21);
 		});
 
 		/** @param {boolean} spectating */
