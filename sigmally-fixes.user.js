@@ -2439,11 +2439,11 @@
 		/** @type {[number, number]} */
 		input.current = [0, 0];
 		/** @type {Map<number, {
-		 * 		current: [number, number], // world position; only updates when tab is selected
 		 * 		forceW: boolean,
 		 * 		lock: { mouse: [number, number], world: [number, number], from: number } | undefined,
 		 * 		mouse: [number, number], // between -1 and 1
 		 * 		w: boolean,
+		 * 		world: [number, number], // world position; only updates when tab is selected
 		 * }>} */
 		input.views = new Map();
 		input.zoom = 1;
@@ -2454,7 +2454,7 @@
 			if (old) return old;
 
 			/** @type {typeof input.views extends Map<number, infer T> ? T : never} */
-			const inputs = { current: [0, 0], forceW: false, lock: undefined, mouse: [0, 0], w: false };
+			const inputs = { forceW: false, lock: undefined, mouse: [0, 0], w: false, world: [0, 0] };
 			input.views.set(view, inputs);
 			return inputs;
 		};
@@ -2464,7 +2464,7 @@
 		 * @param {[number, number]} x, y
 		 * @returns {[number, number]}
 		 */
-		const toWorld = (view, [x, y]) => {
+		input.toWorld = (view, [x, y]) => {
 			const camera = world.views.get(view)?.camera;
 			if (!camera) return [0, 0];
 			return [
@@ -2473,41 +2473,6 @@
 			];
 		};
 
-		/**
-		 * @param {number} view
-		 * @returns {[number, number]}
-		 */
-		input.mouse = view => {
-			const inputs = input.views.get(view);
-			if (!inputs) return create(view).mouse;
-
-			// inject mouse lock NOT on input.move; we want the tracers to show the mouse lock
-			if (inputs.lock && performance.now() - inputs.lock.from <= 650) {
-				// if you move the mouse by more than 10% of your screen in any direction, cancel the freeze
-				// 10% should be enough so that if you want it to go straight, it will, and if you want it to not, then
-				// it also will.
-				if (Math.hypot(inputs.mouse[0] - inputs.lock.mouse[0], inputs.mouse[1] - inputs.lock.mouse[1]) > 0.2)
-					inputs.lock = undefined;
-				else
-					return inputs.lock.world;
-			} else {
-				inputs.lock = undefined;
-			}
-			return inputs.current;
-		};
-
-		const unfocused = () => ui.escOverlayVisible() || document.activeElement?.tagName === 'INPUT';
-
-		setInterval(() => {
-			for (const [view, inputs] of input.views) {
-				if (world.selected === view) inputs.current = toWorld(view, inputs.mouse = input.current);
-				net.move(view, ...input.mouse(view));
-				// if holding w with sigmod, tabbing out, then tabbing in, avoid spitting out only one W
-				if (inputs.forceW || inputs.w) net.w(view);
-				inputs.forceW = false;
-			}
-		}, 40);
-
 		// sigmod freezes the player by overlaying an invisible div, so we just listen for canvas movements instead
 		addEventListener('mousemove', e => {
 			if (ui.escOverlayVisible()) return;
@@ -2515,23 +2480,45 @@
 			if (e.target instanceof HTMLDivElement
 				&& /** @type {CSSUnitValue | undefined} */ (e.target.attributeStyleMap.get('z-index'))?.value === 99)
 				return;
-			const inputs = input.views.get(world.selected) ?? create(world.selected);
-			inputs.mouse = input.current = [(e.clientX / innerWidth * 2) - 1, (e.clientY / innerHeight * 2) - 1];
-			// update inputs.current immediately for the tracers
-			inputs.current = toWorld(world.selected, inputs.mouse);
+			input.current = [(e.clientX / innerWidth * 2) - 1, (e.clientY / innerHeight * 2) - 1];
 		});
+
+		const unfocused = () => ui.escOverlayVisible() || document.activeElement?.tagName === 'INPUT';
+
+		/**
+		 * @param {number} view
+		 * @param {boolean} forceUpdate
+		 */
+		input.move = (view, forceUpdate) => {
+			const now = performance.now();
+			const inputs = input.views.get(view) ?? create(view);
+			if (inputs.lock && now - inputs.lock.from < 650) {
+				net.move(view, ...inputs.lock.world);
+			} else {
+				if (world.selected === view || forceUpdate) {
+					inputs.world = input.toWorld(view, inputs.mouse = input.current);
+				}
+				net.move(view, ...inputs.world);
+			}
+		};
+
+		setInterval(() => {
+			create(world.selected);
+			for (const [view, inputs] of input.views) {
+				input.move(view, false);
+				// if holding w with sigmod, tabbing out, then tabbing in, avoid spitting out only one W
+				if (inputs.forceW || inputs.w) net.w(view);
+				inputs.forceW = false;
+			}
+		}, 40);
 
 		addEventListener('wheel', e => {
 			if (unfocused()) return;
-			let deltaY;
-			if (e.deltaMode === e.DOM_DELTA_PAGE) {
-				// support for the very obscure "scroll by page" setting in windows
-				deltaY = e.deltaY;
-			} else { // i don't think browsers support DOM_DELTA_LINE, so assume DOM_DELTA_PIXEL
-				deltaY = e.deltaY / 100;
-			}
+			// support for the very obscure "scroll by page" setting in windows
+			// i don't think browsers support DOM_DELTA_LINE, so assume DOM_DELTA_PIXEL otherwise
+			const deltaY = e.deltaMode === e.DOM_DELTA_PAGE ? e.deltaY : e.deltaY / 100;
 			input.zoom *= 0.8 ** (deltaY * settings.scrollFactor);
-			const minZoom = (!settings.mergeCamera && !aux.settings.zoomout) ? 1 : 0.8 ** 10;
+			const minZoom = (!settings.multibox && !aux.settings.zoomout) ? 1 : 0.8 ** 10;
 			input.zoom = Math.min(Math.max(input.zoom, minZoom), 0.8 ** -11);
 		});
 
@@ -2555,12 +2542,16 @@
 		}
 
 		addEventListener('keydown', e => {
-			const inputs = input.views.get(world.selected) ?? create(world.selected);
+			const view = world.selected;
+			const inputs = input.views.get(view) ?? create(view);
 			if (e.code === 'Tab') {
 				e.preventDefault(); // prevent selecting anything on the page
 				if (settings.multibox) {
 					inputs.w = false; // stop current tab from feeding; don't change forceW
-					// peep this if you're looking into n-boxing
+					// update mouse immediately (after setTimeout, when mouse events happen)
+					setTimeout(() => inputs.world = input.toWorld(view, inputs.mouse = input.current));
+
+					// swap tabs
 					if (world.selected === world.viewId.primary) world.selected = world.viewId.secondary;
 					else world.selected = world.viewId.primary;
 					world.create(world.selected);
@@ -2602,11 +2593,8 @@
 						// send mouse position immediately, so the split will go in the correct direction.
 						// setTimeout is used to ensure that our mouse position is actually updated (it comes after
 						// keydown events)
-						const view = world.selected;
 						setTimeout(() => {
-							inputs.mouse = input.current;
-							inputs.current = toWorld(view, inputs.mouse);
-							net.move(view, ...input.mouse(view)); // allow splitting during a mouse lock
+							input.move(view, true);
 							net.split(view);
 						});
 					}
@@ -2622,7 +2610,7 @@
 				// if you triple twice for some reason, it should use the new mouse position
 				inputs.lock = {
 					mouse: inputs.mouse,
-					world: toWorld(world.selected, inputs.mouse),
+					world: input.toWorld(world.selected, inputs.mouse),
 					from: performance.now(),
 				};
 			}
@@ -4294,9 +4282,13 @@
 				if (settings.tracer) {
 					gl.useProgram(glconf.programs.tracer);
 
-					const [x, y] = input.mouse(world.selected);
-					tracerUboFloats[2] = x; // tracer_pos2.x
-					tracerUboFloats[3] = y; // tracer_pos2.y
+					const inputs = input.views.get(world.selected);
+					if (inputs) {
+						let mouse;
+						if (inputs.lock && now - inputs.lock.from < 650) mouse = inputs.lock.world;
+						else mouse = input.toWorld(world.selected, input.current);
+						[tracerUboFloats[2], tracerUboFloats[3]] = mouse; // tracer_pos2.xy
+					}
 
 					ownedToMerged.forEach(cell => {
 						if (!cell || cell.deadAt !== undefined) return;
