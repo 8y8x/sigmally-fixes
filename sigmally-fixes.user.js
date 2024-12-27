@@ -1462,8 +1462,8 @@
 			'A smaller zoom speed lets you fine-tune your zoom.');
 		dropdown('autoZoom', 'Auto-zoom', [['auto', 'When not multiboxing'], ['never', 'Never']],
 			'When enabled, automatically zooms in/out for you based on how big you are. ');
-		checkbox('blockBrowserKeybinds', 'Force fullscreen',
-			'When enabled, fullscreen will be forcefully enabled when playing and will block all browser keybinds.');
+		checkbox('blockBrowserKeybinds', 'Block all browser keybinds',
+			'When enabled, only Ctrl+Tab and F11 are allowed to be pressed. You must be in fullscreen.');
 		checkbox('blockNearbyRespawns', 'Block respawns near other tabs',
 			'Disables the respawn keybind (SigMod-only) when near one of your bigger tabs.');
 		separator('• text •');
@@ -2515,11 +2515,6 @@
 			if (e.target instanceof HTMLDivElement
 				&& /** @type {CSSUnitValue | undefined} */ (e.target.attributeStyleMap.get('z-index'))?.value === 99)
 				return;
-			if (settings.blockBrowserKeybinds) {
-				/** @type {any} */ (navigator).keyboard?.lock();
-				// not supported on safari
-				document.body.requestFullscreen?.();
-			}
 			const inputs = input.views.get(world.selected) ?? create(world.selected);
 			inputs.mouse = input.current = [(e.clientX / innerWidth * 2) - 1, (e.clientY / innerHeight * 2) - 1];
 			// update inputs.current immediately for the tracers
@@ -2574,6 +2569,7 @@
 
 				// also, press play on the current tab ONLY if any tab is alive
 				if (world.alive()) net.play(world.selected, playData(false));
+				return;
 			}
 
 			if (e.code === 'Escape') {
@@ -2608,6 +2604,7 @@
 						// keydown events)
 						const view = world.selected;
 						setTimeout(() => {
+							inputs.mouse = input.current;
 							inputs.current = toWorld(view, inputs.mouse);
 							net.move(view, ...input.mouse(view)); // allow splitting during a mouse lock
 							net.split(view);
@@ -2630,10 +2627,18 @@
 				};
 			}
 
-			if (e.ctrlKey && e.code === 'Tab') {
-				e.returnValue = true; // undo e.preventDefault() by SigMod
-				e.stopImmediatePropagation(); // prevent SigMod from calling e.preventDefault() afterwards
-			} else if (settings.blockBrowserKeybinds && e.code !== 'F11') {
+			if (settings.blockBrowserKeybinds) {
+				if (e.code === 'F11') {
+					// force true fullscreen to make sure Ctrl+W and other binds are caught.
+					// not well supported on safari
+					if (!document.fullscreenElement) {
+						document.body.requestFullscreen?.()?.catch(() => {});
+						/** @type {any} */ (navigator).keyboard?.lock()?.catch(() => {});
+					} else {
+						document.exitFullscreen?.()?.catch(() => {});
+						/** @type {any} */ (navigator).keyboard?.unlock()?.catch(() => {});
+					}
+				}
 				e.preventDefault();
 			} else if (e.ctrlKey && e.code === 'KeyW') {
 				e.preventDefault(); // doesn't seem to work for me, but works for others
@@ -4031,10 +4036,10 @@
 						let ownedByOther = false;
 						for (const otherVision of world.views.values()) {
 							if (otherVision === vision) continue;
-							if (!otherVision.camera.merging.includes(world.selected)) continue;
 							if (!otherVision.owned.includes(cell.id)) continue;
-							cellUboInts[9] |= 0x08; // inactive multi outline
 							ownedByOther = true;
+							// inactive multi outline
+							if (otherVision.camera.merging.includes(world.selected)) cellUboInts[9] |= 0x08;
 							break;
 						}
 
