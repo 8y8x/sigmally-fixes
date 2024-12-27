@@ -164,16 +164,17 @@
 
 		/**
 		 * @param {DataView} dat
-		 * @param {number} off
+		 * @param {number} o
 		 * @returns {[string, number]}
 		 */
-		aux.readZTString = (dat, off) => {
-			const startOff = off;
-			for (; off < dat.byteLength; ++off) {
-				if (dat.getUint8(off) === 0) break;
+		aux.readZTString = (dat, o) => {
+			if (dat.getUint8(o) === 0) return ['', o + 1]; // quick return for empty strings (there are a lot)
+			const startOff = o;
+			for (; o < dat.byteLength; ++o) {
+				if (dat.getUint8(o) === 0) break;
 			}
 
-			return [aux.textDecoder.decode(new DataView(dat.buffer, startOff, off - startOff)), off + 1];
+			return [aux.textDecoder.decode(new DataView(dat.buffer, startOff, o - startOff)), o + 1];
 		};
 
 		/** @type {{
@@ -598,9 +599,9 @@
 				line-height: 1.1; opacity: 0.5;';
 			container.appendChild(misc);
 
-			let statsLastUpdated = performance.now();
-			const update = () => {
-				let color = aux.settings.darkTheme ? '#fff' : '#000';
+			/** @param {number} view */
+			const update = view => {
+				const color = aux.settings.darkTheme ? '#fff' : '#000';
 				score.style.color = color;
 				measures.style.color = color;
 				misc.style.color = color;
@@ -609,78 +610,52 @@
 				measures.style.opacity = settings.showStats ? '1' : '0.5';
 				misc.style.opacity = settings.showStats ? '0.5' : '0';
 
-				statsLastUpdated = performance.now();
-				if ((aux.sigmodSettings?.showNames ?? true) && world.leaderboard.length > 0)
-					ui.leaderboard.container.style.display = '';
-				else {
-					ui.leaderboard.container.style.display = 'none';
-				}
-
-				let scoreVal = 0;
-				for (const id of world.mine) {
-					const cell = world.cells.get(id);
-					if (cell) {
-						// we use nr because this is what the server sees; interpolated mass is irrelevant
-						// we also floor every cell individually, so the score matches what you could count yourself
-						scoreVal += Math.floor(cell.nr * cell.nr / 100);
-					}
-				}
-				if (typeof aux.userData?.boost === 'number' && aux.userData.boost > Date.now())
-					scoreVal *= 2;
-				if (scoreVal > world.stats.highestScore) {
-					world.stats.highestScore = scoreVal;
-				}
-
+				let scoreVal = world.score(world.selected);
+				if (typeof aux.userData?.boost === 'number' && aux.userData.boost > Date.now()) scoreVal *= 2;
+				if (scoreVal > world.stats.highestScore) world.stats.highestScore = scoreVal;
 				score.textContent = scoreVal > 0 ? ('Score: ' + Math.floor(scoreVal)) : '';
 
+				const con = net.connections.get(view);
 				let measuresText = `${Math.floor(render.fps)} FPS`;
-				if (net.latency !== undefined) {
-					if (net.latency === -1)
-						measuresText += ' ????ms ping';
-					else
-						measuresText += ` ${Math.floor(net.latency)}ms ping`;
-				}
-
+				if (con?.latency !== undefined) measuresText += ` ${Math.floor(con.latency)}ms ping`;
 				measures.textContent = measuresText;
 			};
-			// if the player starts lagging, we still need to update the stats
-			setInterval(() => {
-				if (performance.now() - statsLastUpdated > 250)
-					update();
-			}, 250);
 
-			/** @param {object} statData */
-			function updateMisc(statData) {
+			/** @param {object | undefined} stats */
+			const updateStats = (stats) => {
+				if (!stats) {
+					misc.textContent = '';
+					return;
+				}
+
 				let uptime;
-				if (statData.uptime < 60) {
-					uptime = '<1min';
+				if (stats.uptime < 60) {
+					uptime = Math.floor(stats.uptime) + 's';
 				} else {
-					uptime = Math.floor(statData.uptime / 60 % 60) + 'min';
-					if (statData.uptime >= 60 * 60)
-						uptime = Math.floor(statData.uptime / 60 / 60 % 24) + 'hr ' + uptime;
-					if (statData.uptime >= 24 * 60 * 60)
-						uptime = Math.floor(statData.uptime / 24 / 60 / 60 % 60) + 'd ' + uptime;
+					uptime = Math.floor(stats.uptime / 60 % 60) + 'min';
+					if (stats.uptime >= 60 * 60)
+						uptime = Math.floor(stats.uptime / 60 / 60 % 24) + 'hr ' + uptime;
+					if (stats.uptime >= 24 * 60 * 60)
+						uptime = Math.floor(stats.uptime / 24 / 60 / 60 % 60) + 'd ' + uptime;
 				}
 
 				misc.textContent = [
-					`${statData.name} (${statData.mode})`,
-					`${statData.playersTotal} / ${statData.playersLimit} players`,
-					`${statData.playersAlive} playing`,
-					`${statData.playersSpect} spectating`,
-					`${(statData.update * 2.5).toFixed(1)}% load @ ${uptime}`,
+					`${stats.name} (${stats.mode})`,
+					`${stats.playersTotal} / ${stats.playersLimit} players`,
+					`${stats.playersAlive} playing`,
+					`${stats.playersSpect} spectating`,
+					`${(stats.update * 2.5).toFixed(1)}% load @ ${uptime}`,
 				].join('\r\n');
 			}
 
-			function matchTheme() {
-				let color = aux.settings.darkTheme ? '#fff' : '#000';
-				score.style.color = color;
-				measures.style.color = color;
-				misc.style.color = color;
-			}
+			/** @type {object | undefined} */
+			let lastStats;
+			setInterval(() => { // update as frequently as possible
+				const currentStats = world.views.get(world.selected)?.stats;
+				if (currentStats !== lastStats) updateStats(lastStats = currentStats);
+			});
 
-			matchTheme();
-
-			return { container, score, measures, misc, update, updateMisc, matchTheme };
+			return { update };
 		})();
 
 		ui.leaderboard = (() => {
@@ -700,40 +675,45 @@
 				height: fit-content; text-align: center; white-space: pre; overflow: hidden;';
 			container.appendChild(linesContainer);
 
+			/** @type {HTMLDivElement[]} */
 			const lines = [];
-			for (let i = 0; i < 11; ++i) {
-				const line = document.createElement('div');
-				line.style.display = 'none';
-				linesContainer.appendChild(line);
-				lines.push(line);
-			}
-
-			function update() {
+			/** @param {{ me: boolean, name: string, sub: boolean, place: number | undefined }[]} lb */
+			function update(lb) {
 				const friends = /** @type {any} */ (window).sigmod?.friend_names;
 				const friendSettings = /** @type {any} */ (window).sigmod?.friends_settings;
-				world.leaderboard.forEach((entry, i) => {
-					const line = lines[i];
-					if (!line) return;
+				lb.forEach((entry, i) => {
+					let line = lines[i];
+					if (!line) {
+						line = document.createElement('div');
+						line.style.display = 'none';
+						linesContainer.appendChild(line);
+						lines.push(line);
+					}
 
 					line.style.display = 'block';
 					line.textContent = `${entry.place ?? i + 1}. ${entry.name || 'An unnamed cell'}`;
-					if (entry.me)
-						line.style.color = '#faa';
+					if (entry.me) line.style.color = '#faa';
 					else if (friends instanceof Set && friends.has(entry.name) && friendSettings?.highlight_friends)
 						line.style.color = friendSettings.highlight_color;
-					else if (entry.sub)
-						line.style.color = '#ffc826';
-					else
-						line.style.color = '#fff';
+					else if (entry.sub) line.style.color = '#ffc826';
+					else line.style.color = '#fff';
 				});
 
-				for (let i = world.leaderboard.length; i < lines.length; ++i)
+				for (let i = lb.length; i < lines.length; ++i)
 					lines[i].style.display = 'none';
 
+				container.style.display = lb.length > 0 ? '' : 'none';
 				container.style.fontWeight = settings.boldUi ? 'bold' : 'normal';
 			}
 
-			return { container, title, linesContainer, lines, update };
+			/** @type {object | undefined} */
+			let lastLb;
+			setInterval(() => { // update leaderboard frequently
+				const currentLb = world.views.get(world.selected)?.leaderboard;
+				if (currentLb !== lastLb) {
+					update((lastLb = currentLb) ?? []);
+				}
+			});
 		})();
 
 		/** @type {HTMLElement} */
@@ -793,35 +773,40 @@
 				ui.toggleEscOverlay(true);
 			});
 
-			// i'm not gonna buy a boost to try and figure out how this thing works
+			// TODO: figure out how this thing works
 			/** @type {HTMLElement | null} */
 			const bonus = document.querySelector('#menu__bonus');
 			if (bonus) bonus.style.display = 'none';
 
-			/**
-			 * @param {{ foodEaten: number, highestScore: number, highestPosition: number,
-			 * spawnedAt: number | undefined }} stats
-			 */
-			deathScreen.show = stats => {
+			let shown = false;
+			deathScreen.check = () => {
+				if (world.stats.spawnedAt === undefined) return;
+				for (const vision of world.views.values()) {
+					for (const id of vision.owned) {
+						const cell = world.cells.get(id)?.merged;
+						// if a cell does not exist yet, we treat it as alive
+						if (!cell || cell.deadAt === undefined) return;
+					}
+				}
+				deathScreen.show();
+			};
+
+			deathScreen.show = () => {
 				const foodEatenElement = document.querySelector('#food_eaten');
 				if (foodEatenElement)
-					foodEatenElement.textContent = stats.foodEaten.toString();
+					foodEatenElement.textContent = world.stats.foodEaten.toString();
 
 				const highestMassElement = document.querySelector('#highest_mass');
 				if (highestMassElement)
-					highestMassElement.textContent = Math.round(stats.highestScore).toString();
+					highestMassElement.textContent = Math.round(world.stats.highestScore).toString();
 
 				const highestPositionElement = document.querySelector('#top_leaderboard_position');
 				if (highestPositionElement)
-					highestPositionElement.textContent = stats.highestPosition.toString();
+					highestPositionElement.textContent = world.stats.highestPosition.toString();
 
 				const timeAliveElement = document.querySelector('#time_alive');
 				if (timeAliveElement) {
-					let time;
-					if (stats.spawnedAt === undefined)
-						time = 0;
-					else
-						time = (performance.now() - stats.spawnedAt) / 1000;
+					const time = (performance.now() - (world.stats.spawnedAt ?? 0)) / 1000;
 					const hours = Math.floor(time / 60 / 60);
 					const mins = Math.floor(time / 60 % 60);
 					const seconds = Math.floor(time % 60);
@@ -833,11 +818,8 @@
 				statsContainer.classList.remove('line--hidden');
 				ui.toggleEscOverlay(false);
 				if (overlay) overlay.style.display = '';
-
-				stats.foodEaten = 0;
-				stats.highestScore = 0;
-				stats.highestPosition = 0;
-				stats.spawnedAt = undefined;
+				shown = true;
+				world.stats = { foodEaten: 0, highestPosition: 0, highestScore: 0, spawnedAt: undefined };
 
 				// refresh ads... ...yep
 				const { adSlot4, adSlot5, adSlot6, googletag } = /** @type {any} */ (window);
@@ -849,12 +831,10 @@
 			};
 
 			deathScreen.hide = () => {
-				const shown = !statsContainer?.classList.contains('line--hidden');
 				statsContainer?.classList.add('line--hidden');
 				const { googletag } = /** @type {any} */ (window);
-				if (shown && googletag) {
-					googletag.cmd.push(() => googletag.pubads().refresh());
-				}
+				if (shown && googletag) googletag.cmd.push(() => googletag.pubads().refresh());
+				shown = false;
 			};
 
 			return deathScreen;
@@ -1558,16 +1538,136 @@
 		const world = {};
 
 		// #1 : define cell variables and functions
-		/** @type {Map<number, Cell>} */
+		let nextViewId = 0;
+		/** @type {Map<number, { merged: Cell | undefined, model: Cell | undefined, views: Map<number, Cell> }>} */
 		world.cells = new Map();
-		/** @type {Set<Cell>} */
-		world.clanmates = new Set();
-		/** @type {number[]} */
-		world.mine = []; // order matters, as the oldest cells split first
-		/** @type {Set<number>} */
-		world.mineDead = new Set();
-		/** @type {Map<number, Cell>} */
+		/** @type {Map<number, { merged: Cell | undefined, model: Cell | undefined, views: Map<number, Cell> }>} */
 		world.pellets = new Map();
+		world.viewId = { // decoupling views like this should make it easier to do n-boxing in the future
+			primary: nextViewId++,
+			secondary: nextViewId++,
+			spectate: nextViewId++,
+		};
+		world.selected = world.viewId.primary;
+		/** @type {Map<number, {
+		 * 		border: { l: number, r: number, t: number, b: number } | undefined,
+		 * 		camera: {
+		 * 			x: number, tx: number,
+		 * 			y: number, ty: number,
+		 * 			scale: number, tscale: number,
+		 * 			merging: number[],
+		 * 		},
+		 * 		leaderboard: { name: string, me: boolean, sub: boolean, place: number | undefined }[],
+		 * 		owned: number[],
+		 * 		stats: object | undefined,
+		 * }>} */
+		world.views = new Map();
+
+		/**
+		 * @param {number} view
+		 * @param {number} weightExponent
+		 * @param {number} now
+		 * @returns {{ r: number, sumX: number, sumY: number, weight: number }}
+		 */
+		world.singleCamera = (view, weightExponent, now) => {
+			let r = 0;
+			let sumX = 0;
+			let sumY = 0;
+			let weight = 0;
+			for (const id of (world.views.get(view)?.owned ?? [])) {
+				const cell = world.cells.get(id)?.merged;
+				if (!cell || cell.deadAt !== undefined) continue;
+				const xyr = world.xyr(cell, undefined, now);
+				r += cell.nr;
+				sumX += xyr.x * (cell.nr ** weightExponent);
+				sumY += xyr.y * (cell.nr ** weightExponent);
+				weight += (cell.nr ** weightExponent);
+			}
+
+			return { r, sumX, sumY, weight };
+		};
+
+		/**
+		 * @param {number} view
+		 * @param {number} now
+		 * @param {number} dt
+		 */
+		world.camera = (view, now, dt) => {
+			// temporary default camera for now
+			const vision = world.views.get(view);
+			if (!vision) return;
+
+			const desc = world.singleCamera(view, 0, now);
+			let xyFactor;
+			if (desc.weight > 0) {
+				vision.camera.tx = desc.sumX / desc.weight;
+				vision.camera.ty = desc.sumY / desc.weight;
+				vision.camera.tscale = Math.min(64 / desc.r, 1) ** 0.4;
+				xyFactor = 2;
+			} else {
+				xyFactor = 20;
+			}
+
+			vision.camera.x = aux.exponentialEase(vision.camera.x, vision.camera.tx, xyFactor, dt);
+			vision.camera.y = aux.exponentialEase(vision.camera.y, vision.camera.ty, xyFactor, dt);
+			vision.camera.scale = aux.exponentialEase(vision.camera.scale, input.zoom * vision.camera.tscale, 9, dt);
+		};
+
+		/** @param {number} view */
+		world.create = view => {
+			const old = world.views.get(view);
+			if (old) return old;
+
+			const vision = {
+				border: undefined,
+				camera: { x: 0, tx: 0, y: 0, ty: 0, scale: 0, tscale: 0, merging: [] },
+				leaderboard: [],
+				owned: [],
+				stats: undefined,
+			};
+			world.views.set(view, vision);
+			return vision;
+		};
+
+		world.merge = () => {
+			if (world.views.size === 1 && world.views.has(world.viewId.primary)) {
+				// no-merge strategy
+				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+					for (const resolution of world[key].values()) {
+						resolution.merged = resolution.views.get(world.viewId.primary);
+					}
+				}
+			} else {
+				// lazy strategy, prefer primary tab
+				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+					for (const resolution of world[key].values()) {
+						/** @type {Cell | undefined} */
+						let best;
+						for (const [view, cell] of resolution.views) {
+							if (!best) {
+								best = cell;
+								continue;
+							}
+							if (best.deadAt !== undefined && cell.deadAt === undefined) best = cell;
+							else if (view === world.selected && cell.deadAt === undefined) best = cell;
+						}
+						resolution.merged = best;
+					}
+				}
+			}
+		};
+
+		/** @param {number} view */
+		world.score = view => {
+			let score = 0;
+			for (const id of (world.views.get(view)?.owned ?? [])) {
+				const cell = world.cells.get(id)?.merged;
+				if (!cell || cell.deadAt !== undefined) continue;
+				score += cell.nr * cell.nr / 100; // use exact score as given by the server, no interpolation
+			}
+
+			return score;
+		};
 
 		/**
 		 * @param {Cell} cell
@@ -1597,131 +1697,24 @@
 			};
 		};
 
-		let last = performance.now();
-		world.moveCamera = () => {
+		// clean up dead, invisible cells ONLY before uploading pellets
+		let lastClean = performance.now();
+		world.clean = () => {
 			const now = performance.now();
-			const dt = (now - last) / 1000;
-			last = now;
-
-			const weight = 0;
-
-			/**
-			 * @param {Iterable<number>} owned
-			 * @param {Map<number, { x: number, y: number, r: number, nr: number } | false> | undefined} fallback
-			 * @returns {{
-			 * 	weightedX: number, weightedY: number, totalWeight: number,
-			 * 	scale: number, width: number, height: number
-			 * }}
-			 */
-			const cameraDesc = (owned, fallback) => {
-				let weightedX = 0;
-				let weightedY = 0;
-				let totalWeight = 0;
-				let totalR = 0;
-
-				for (const id of owned) {
-					/** @type {{ x: number, y: number, r: number }} */
-					let xyr;
-                    /** @type {number} */
-                    let nr;
-
-					let cell = world.cells.get(id);
-					if (!cell) {
-						const partial = fallback?.get(id);
-						if (!partial) continue;
-						xyr = partial;
-                        nr = partial.nr;
-					} else if (cell.deadAt !== undefined) continue;
-					else {
-                        xyr = world.xyr(cell, undefined, now);
-                        nr = cell.nr;
-                    }
-
-					const weighted = nr ** weight;
-					weightedX += xyr.x * weighted;
-					weightedY += xyr.y * weighted;
-					totalWeight += weighted;
-					totalR += nr;
-				}
-
-				const scale = Math.min(64 / totalR, 1) ** 0.4;
-				const width = 1920 / 2 / scale;
-				const height = 1080 / 2 / scale;
-
-				return { weightedX, weightedY, totalWeight, scale, width, height };
-			};
-
-			const localDesc = cameraDesc(world.mine, undefined);
-			let { weightedX, weightedY, totalWeight } = localDesc;
-			const localX = weightedX / totalWeight;
-			const localY = weightedY / totalWeight;
-
-			world.camera.merged = false;
-			if (settings.mergeCamera && localDesc.totalWeight > 0) {
-				/*for (const data of sync.others.values()) {
-					const thisDesc = cameraDesc(data.owned.keys(), data.owned);
-					if (thisDesc.totalWeight <= 0) continue;
-					const thisX = thisDesc.weightedX / thisDesc.totalWeight;
-					const thisY = thisDesc.weightedY / thisDesc.totalWeight;
-
-					const threshold = 1000
-						+ Math.min(localDesc.totalWeight / 100 / 100, thisDesc.totalWeight / 100 / 100);
-					if (Math.abs(thisX - localX) < localDesc.width + thisDesc.width + threshold
-						&& Math.abs(thisY - localY) < localDesc.height + thisDesc.height + threshold) {
-						weightedX += thisDesc.weightedX;
-						weightedY += thisDesc.weightedY;
-						totalWeight += thisDesc.totalWeight;
-						world.camera.merged = true;
+			if (now - lastClean < 200) return;
+			for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+				for (const [id, resolution] of world[key]) {
+					for (const [view, cell] of resolution.views) {
+						if (cell.deadAt !== undefined && now - cell.deadAt >= 200) resolution.views.delete(view);
 					}
-				}*/
+					if (resolution.views.size === 0) world[key].delete(id);
+				}
 			}
-
-			// auto + merge => 0.25
-			// auto + -merge => localDesc.scale
-			// never + merge => 0.25
-			// never + -merge => 0.25
-			/** @type {number} */
-			let zoomout;
-			if (settings.autoZoom === 'never' || (settings.autoZoom === 'auto' && settings.mergeCamera)) {
-				zoomout = 0.25;
-			} else {
-				zoomout = localDesc.scale;
-			}
-
-			let xyEaseFactor;
-			if (totalWeight > 0) {
-				world.camera.tx = weightedX / totalWeight;
-				world.camera.ty = weightedY / totalWeight;
-				world.camera.tscale = zoomout * input.zoom;
-
-				xyEaseFactor = 2;
-			} else {
-				xyEaseFactor = 20;
-			}
-
-			world.camera.x = aux.exponentialEase(world.camera.x, world.camera.tx, xyEaseFactor, dt);
-			world.camera.y = aux.exponentialEase(world.camera.y, world.camera.ty, xyEaseFactor, dt);
-			world.camera.scale = aux.exponentialEase(world.camera.scale, world.camera.tscale, 9, dt);
 		};
 
 
 
-		// #2 : define others, like camera and borders
-		world.camera = {
-			x: 0, y: 0, scale: 1,
-			tx: 0, ty: 0, tscale: 1,
-			merged: false,
-		};
-
-		/** @type {{ l: number, r: number, t: number, b: number } | undefined} */
-		world.border = undefined;
-
-		/** @type {{ name: string, me: boolean, sub: boolean, place: number | undefined }[]} */
-		world.leaderboard = [];
-
-
-
-		// #3 : define stats
+		// #2 : define stats
 		world.stats = {
 			foodEaten: 0,
 			highestPosition: 200,
@@ -1744,579 +1737,488 @@
 		const net = {};
 
 		// #1 : define state
-		/** @type {{ shuffle: Map<number, number>, unshuffle: Map<number, number> } | undefined} */
-		let handshake;
-		/** @type {number | undefined} */
-		let pendingPingFrom;
-		let pingInterval;
-		let wasOpen = false;
-		/** @type {WebSocket} */
-		let ws;
+		/** @type {Map<number, {
+		 * 		handshake: { shuffle: Uint8Array, unshuffle: Uint8Array } | undefined,
+		 * 		latency: number | undefined,
+		 *		opened: boolean,
+		 * 		pings: number[],
+		 * 		rejected: boolean,
+		 * 		ws: WebSocket | undefined,
+		 * }>} */
+		net.connections = new Map();
 
-		/** -1 if ping reply took too long @type {number | undefined} */
-		net.latency = undefined;
-		net.ready = false;
-		net.lastUpdate = -Infinity;
-		net.rejected = false;
+		/** @param {number} view */
+		net.create = view => {
+			if (net.connections.has(view)) return;
 
-		// #2 : connecting/reconnecting the websocket
-		/** @type {HTMLSelectElement | null} */
-		const gamemode = document.querySelector('#gamemode');
-		/** @type {HTMLOptionElement | null} */
-		const firstGamemode = document.querySelector('#gamemode option');
-
-		net.url = () => {
-			let server = 'wss://' + (gamemode?.value || firstGamemode?.value || 'ca0.sigmally.com/ws/');
-			if (location.search.startsWith('?ip='))
-				server = location.search.slice('?ip='.length);
-
-			return server;
+			net.connections.set(view, {
+				handshake: undefined,
+				latency: undefined,
+				opened: false,
+				pings: [],
+				rejected: false,
+				ws: connect(view),
+			});
 		};
 
-		function connect() {
-			// you can connect to multiple servers easily while being ratelimited
-			if (ws?.readyState !== WebSocket.CLOSED && ws?.readyState !== WebSocket.CLOSING) ws?.close?.();
+		/**
+		 * @param {number} view
+		 * @returns {WebSocket | undefined}
+		*/
+		const connect = view => {
+			if (net.connections.get(view)?.ws) return; // already being handled by another process
+
+			let ws;
 			try {
 				ws = new destructor.realWebSocket(net.url());
 			} catch (err) {
 				console.error('can\'t make WebSocket:', err);
-				aux.require(null, 'The server is invalid. Try changing the server, reloading the page, or clearing ' +
-					'your browser cache and cookies.');
+				aux.require(null, 'The server address is invalid. Try changing the server, reloading the page, and ' +
+					'clearing your browser cache.');
+				return; // ts-check is dumb
 			}
 
 			destructor.safeWebSockets.add(ws);
 			ws.binaryType = 'arraybuffer';
-			ws.addEventListener('close', wsClose);
-			ws.addEventListener('error', wsError);
-			ws.addEventListener('message', wsMessage);
-			ws.addEventListener('open', wsOpen);
-		}
+			ws.addEventListener('close', () => {
+				const connection = net.connections.get(view);
+				const vision = world.views.get(view);
+				if (!connection || !vision) return; // if the entry no longer exists, don't reconnect
 
-		function wsClose() {
-			handshake = undefined;
-			pendingPingFrom = undefined;
-			if (pingInterval)
-				clearInterval(pingInterval);
+				connection.handshake = undefined;
+				connection.latency = undefined;
+				connection.pings = [];
+				if (!connection.opened) connection.rejected = true;
+				connection.opened = false;
 
-			net.latency = undefined;
-			net.lastUpdate = performance.now();
-			net.ready = false;
-			if (!wasOpen) net.rejected = true;
-			wasOpen = false;
+				vision.border = undefined;
+				// don't reset vision.camera
+				vision.owned = [];
+				vision.leaderboard = [];
 
-			// hide/clear UI and show death screen if necessary
-			ui.stats.misc.textContent = '';
-			world.leaderboard = [];
-			ui.leaderboard.update();
-			if (world.stats.spawnedAt !== undefined) {
-				ui.deathScreen.show(world.stats);
-				ui.stats.update();
-			} else {
-				ui.toggleEscOverlay(true);
-			}
-
-			// clear world
-			world.border = undefined;
-			world.cells.clear(); // make sure we won't see overlapping IDs from new cells from the new connection
-			world.pellets.clear();
-			world.clanmates.clear();
-			while (world.mine.length) world.mine.pop();
-			world.mineDead.clear();
-		}
-
-		let reconnectAttempts = 0;
-		/** @type {number | undefined} */
-		let willReconnectAt;
-		setInterval(() => {
-			// retry after 500, 1000, 1500, 3000ms of closing
-			// OR if a captcha was (very recently) accepted
-			if (ws.readyState !== WebSocket.CLOSING && ws.readyState !== WebSocket.CLOSED)
-				return;
-
-			const now = performance.now();
-			if (input.captchaAcceptedAt && now - input.captchaAcceptedAt <= 3000) {
-				willReconnectAt = undefined;
-				connect();
-				return;
-			}
-
-			if (willReconnectAt === undefined) {
-				willReconnectAt = now + Math.min(500 * ++reconnectAttempts, 3000);
-			} else if (now >= willReconnectAt) {
-				willReconnectAt = undefined;
-				connect();
-			}
-		}, 50);
-
-		/** @param {Event} err */
-		function wsError(err) {
-			console.error('WebSocket error:', err);
-		}
-
-		function wsOpen() {
-			net.rejected = false;
-			wasOpen = true;
-			reconnectAttempts = 0;
-
-			ui.chat.barrier();
-
-			// reset camera location to the middle; this is implied but never sent by the server
-			world.camera.x = world.camera.tx = 0;
-			world.camera.y = world.camera.ty = 0;
-			world.camera.scale = world.camera.tscale = 1;
-
-			ws.send(aux.textEncoder.encode('SIG 0.0.1\x00'));
-		}
-
-		// listen for when the gamemode changes
-		gamemode?.addEventListener('change', () => {
-			ws.close();
-		});
-
-
-
-		// #3 : set up auxiliary functions
-		/**
-		 * @param {number} opcode
-		 * @param {object} data
-		 */
-		function sendJson(opcode, data) {
-			// must check readyState as a weboscket might be in the 'CLOSING' state (so annoying!)
-			if (!handshake || ws.readyState !== WebSocket.OPEN) return;
-			const dataBuf = aux.textEncoder.encode(JSON.stringify(data));
-			const dat = new DataView(new ArrayBuffer(dataBuf.byteLength + 2));
-
-			dat.setUint8(0, Number(handshake.shuffle.get(opcode)));
-			for (let i = 0; i < dataBuf.byteLength; ++i) {
-				dat.setUint8(1 + i, dataBuf[i]);
-			}
-
-			ws.send(dat);
-		}
-
-		function createPingLoop() {
-			function ping() {
-				if (!handshake || ws.readyState !== WebSocket.OPEN) return; // shouldn't ever happen
-
-				if (pendingPingFrom !== undefined) {
-					// ping was not replied to, tell the player the ping text might be wonky for a bit
-					net.latency = -1;
+				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+					for (const [id, resolution] of world[key]) {
+						resolution.views.delete(view);
+						if (resolution.views.size === 0) world[key].delete(id);
+					}
 				}
 
-				ws.send(new Uint8Array([Number(handshake.shuffle.get(0xfe))]));
-				pendingPingFrom = performance.now();
-			}
+				connection.ws = undefined;
+				setTimeout(() => connection.ws = connect(view), connection.rejected ? 1500 : 0);
+			});
+			ws.addEventListener('error', err => console.error('WebSocket error:', err));
+			ws.addEventListener('message', e => {
+				const connection = net.connections.get(view);
+				const vision = world.views.get(view);
+				if (!connection || !vision) return ws.close();
+				const dat = new DataView(e.data);
 
-			ping();
-			pingInterval = setInterval(ping, 2_000);
-		}
+				if (!connection.handshake) {
+					// skip version "SIG 0.0.1\0"
+					let o = 10;
 
+					const shuffle = new Uint8Array(256);
+					const unshuffle = new Uint8Array(256);
+					for (let i = 0; i < 256; ++i) {
+						const shuffled = dat.getUint8(o + i);
+						shuffle[i] = shuffled;
+						unshuffle[shuffled] = i;
+					}
 
-
-		// #4 : set up message handler
-		/** @param {MessageEvent} msg */
-		function wsMessage(msg) {
-			const dat = new DataView(msg.data);
-			if (!handshake) {
-				// unlikely to change as we're still on v0.0.1 but i'll check it anyway
-				let [version, off] = aux.readZTString(dat, 0);
-				if (version !== 'SIG 0.0.1') {
-					alert(`got unsupported version "${version}", expected "SIG 0.0.1"`);
-					return ws.close();
+					connection.handshake = { shuffle, unshuffle };
+					return;
 				}
 
-				handshake = { shuffle: new Map(), unshuffle: new Map() };
-				for (let i = 0; i < 256; ++i) {
-					const shuffled = dat.getUint8(off + i);
-					handshake.shuffle.set(i, shuffled);
-					handshake.unshuffle.set(shuffled, i);
-				}
+				const now = performance.now();
+				let o = 1;
+				switch (connection.handshake.unshuffle[dat.getUint8(0)]) {
+					case 0x10: { // world update
+						// TODO: respawnBlock
 
-				createPingLoop();
+						// (a) : kills / consumes
+						const killCount = dat.getUint16(o, true);
+						o += 2;
+						for (let i = 0; i < killCount; ++i) {
+							const killerId = dat.getUint32(o, true);
+							const killedId = dat.getUint32(o + 4, true);
+							o += 8;
 
-				return;
-			}
-
-			const now = performance.now();
-			const opcode = Number(handshake.unshuffle.get(dat.getUint8(0)));
-			dat.setUint8(0, opcode);
-			let off = 1;
-			switch (opcode) {
-				case 0x10: { // world update
-					net.lastUpdate = now;
-					if (destructor.respawnBlock?.status === 'left') {
-						destructor.respawnBlock = undefined;
-					}
-
-					// #a : kills / consumes
-					const killCount = dat.getUint16(off, true);
-					off += 2;
-
-					for (let i = 0; i < killCount; ++i) {
-						const killerId = dat.getUint32(off, true);
-						const killedId = dat.getUint32(off + 4, true);
-						off += 8;
-
-						const killed = world.pellets.get(killedId) ?? world.cells.get(killedId);
-						if (killed) {
-							killed.deadTo = killerId;
-							killed.deadAt = killed.updated = now;
-
-							world.clanmates.delete(killed);
-
-							if (killed.pellet && world.mine.includes(killerId))
-								++world.stats.foodEaten;
-
-							const myIdx = world.mine.indexOf(killedId);
-							if (myIdx !== -1) {
-								world.mine.splice(myIdx, 1);
-								world.mineDead.add(killedId);
+							const killed = (world.pellets.get(killedId) ?? world.cells.get(killedId))?.views.get(view);
+							if (killed) {
+								killed.deadAt = killed.updated = now;
+								killed.deadTo = killerId;
+								if (killed.pellet && vision.owned.includes(killerId)) ++world.stats.foodEaten;
 							}
 						}
-					}
 
-					// #b : updates
-					while (true) {
-						const id = dat.getUint32(off, true);
-						off += 4;
-						if (id === 0) break;
+						// (b) : updates
+						do {
+							const id = dat.getUint32(o, true);
+							o += 4;
+							if (id === 0) break;
 
-						const x = dat.getInt16(off, true);
-						const y = dat.getInt16(off + 2, true);
-						const r = dat.getUint16(off + 4, true);
-						const flags = dat.getUint8(off + 6);
-						// (void 1 byte, "isUpdate")
-						// (void 1 byte, "isPlayer")
-						const sub = !!dat.getUint8(off + 9);
-						off += 10;
+							const x = dat.getInt16(o, true);
+							const y = dat.getInt16(o + 2, true);
+							const r = dat.getUint16(o + 4, true);
+							const flags = dat.getUint8(o + 6);
+							// (void 1 byte, "isUpdate")
+							// (void 1 byte, "isPlayer")
+							const sub = !!dat.getUint8(o + 9);
+							o += 10;
 
-						let clan;
-						[clan, off] = aux.readZTString(dat, off);
+							let clan; [clan, o] = aux.readZTString(dat, o);
 
-						/** @type {number | undefined} */
-						let Rgb, rGb, rgB;
-						if (flags & 0x02) {
-							// update color
-							Rgb = dat.getUint8(off) / 255;
-							rGb = dat.getUint8(off + 1) / 255;
-							rgB = dat.getUint8(off + 2) / 255;
-							off += 3;
-						}
-
-						let skin = '';
-						if (flags & 0x04) {
-							// update skin
-							[skin, off] = aux.readZTString(dat, off);
-							skin = aux.parseSkin(skin);
-						}
-
-						let name = '';
-						if (flags & 0x08) {
-							// update name
-							[name, off] = aux.readZTString(dat, off);
-							name = aux.parseName(name);
-							if (name) render.textFromCache(name, sub); // make sure the texture is ready on render
-						}
-
-						const jagged = !!(flags & 0x11);
-						const eject = !!(flags & 0x20);
-
-						/** @type {Cell | undefined} */
-						const cell = world.cells.get(id) ?? world.pellets.get(id);
-						if (cell && cell.deadAt === undefined) {
-							const { x: ix, y: iy, r: ir, jr } = world.xyr(cell, undefined, now);
-							cell.ox = ix; cell.oy = iy; cell.or = ir;
-							cell.jr = jr;
-							cell.nx = x; cell.ny = y; cell.nr = r;
-							cell.jagged = jagged;
-							cell.updated = now;
-
-							if (Rgb !== undefined) {
-								cell.Rgb = Rgb;
-								cell.rGb = /** @type {number} */ (rGb);
-								cell.rgB = /** @type {number} */ (rgB);
-							}
-							if (skin) cell.skin = skin;
-							if (name) cell.name = name;
-							cell.sub = sub;
-
-							cell.clan = clan;
-							if (clan && clan === aux.userData?.clan)
-								world.clanmates.add(cell);
-						} else {
-							if (cell?.deadAt !== undefined) {
-								// when respawning, OgarII does not send the description of cells if you spawn in the
-								// same area, despite those cells being deleted from your view area
-								if (Rgb === undefined)
-									({ Rgb, rGb, rgB } = cell);
-								name ||= cell.name;
-								skin ||= cell.skin;
+							/** @type {number | undefined} */
+							let Rgb, rGb, rgB;
+							if (flags & 0x02) { // update color
+								Rgb = dat.getUint8(o++) / 255;
+								rGb = dat.getUint8(o++) / 255;
+								rgB = dat.getUint8(o++) / 255;
 							}
 
-							/** @type {Cell} */
-							const ncell = {
-								id,
-								ox: x, nx: x,
-								oy: y, ny: y,
-								or: r, nr: r, jr: r,
-								Rgb: Rgb ?? 1, rGb: rGb ?? 1, rgB: rgB ?? 1,
-								jagged, pellet: r < 75 && !eject, // tourney servers have bigger pellets
-								updated: now, born: now,
-								deadAt: undefined, deadTo: -1,
-								name, skin, sub, clan,
-							};
+							let skin = '';
+							if (flags & 0x04) { // update skin
+								[skin, o] = aux.readZTString(dat, o);
+								skin = aux.parseSkin(skin);
+							}
 
-							const key = ncell.pellet ? 'pellets' : 'cells';
-							world[key].set(id, ncell);
-							if (clan === aux.userData?.clan)
-								world.clanmates.add(ncell);
-						}
-					}
+							let name = '';
+							if (flags & 0x08) { // update name
+								[name, o] = aux.readZTString(dat, o);
+								name = aux.parseName(name);
+								if (name) render.textFromCache(name, sub); // make sure the texture is ready on render
+							}
 
-					// #c : deletes
-					const deleteCount = dat.getUint16(off, true);
-					off += 2;
+							const jagged = !!(flags & 0x11); // spiked or agitated
+							const eject = !!(flags & 0x20);
+							const pellet = r < 75 && !eject; // tourney servers have bigger pellets
+							const cell = (pellet ? world.pellets : world.cells).get(id)?.views.get(view);
+							if (cell && cell.deadAt === undefined) {
+								const { x: ix, y: iy, r: ir, jr } = world.xyr(cell, undefined, now);
+								cell.ox = ix; cell.oy = iy; cell.or = ir;
+								cell.jr = jr;
+								cell.nx = x; cell.ny = y; cell.nr = r;
+								cell.jagged = jagged;
+								cell.updated = now;
 
-					for (let i = 0; i < deleteCount; ++i) {
-						const deletedId = dat.getUint32(off, true);
-						off += 4;
+								cell.clan = clan;
+								if (Rgb !== undefined) {
+									cell.Rgb = Rgb;
+									cell.rGb = /** @type {number} */ (rGb);
+									cell.rgB = /** @type {number} */ (rgB);
+								}
+								if (skin) cell.skin = skin;
+								if (name) cell.name = name;
+								cell.sub = sub;
+							} else {
+								if (cell?.deadAt !== undefined) {
+									// when respawning, OgarII does not send the description of cells if you spawn in
+									// the same area, despite those cells being deleted from your view area
+									if (Rgb === undefined) ({ Rgb, rGb, rgB} = cell);
+									name ||= cell.name; // note the || and not ??
+									skin ||= cell.skin;
+								}
 
-						const deleted = world.pellets.get(deletedId) ?? world.cells.get(deletedId);
-						if (deleted) {
-							if (deleted.deadAt === undefined) {
+								/** @type {Cell} */
+								const ncell = {
+									id,
+									ox: x, nx: x,
+									oy: y, ny: y,
+									or: r, nr: r, jr: r,
+									Rgb: Rgb ?? 1, rGb: rGb ?? 1, rgB: rgB ?? 1,
+									jagged, pellet,
+									updated: now, born: now,
+									deadAt: undefined, deadTo: -1,
+									name, skin, sub, clan,
+								};
+								let resolution = world[pellet ? 'pellets' : 'cells'].get(id);
+								if (!resolution) {
+									resolution = { merged: undefined, model: undefined, views: new Map() };
+									world[pellet ? 'pellets' : 'cells'].set(id, resolution);
+								}
+								resolution.views.set(view, ncell);
+							}
+						} while (true);
+
+						// (c) : deletes
+						const deleteCount = dat.getUint16(o, true);
+						o += 2;
+						for (let i = 0; i < deleteCount; ++i) {
+							const deletedId = dat.getUint32(o, true);
+							o += 4;
+
+							const deleted
+								= (world.pellets.get(deletedId) ?? world.cells.get(deletedId))?.views.get(view);
+							if (deleted && deleted.deadAt === undefined) {
 								deleted.deadAt = now;
 								deleted.deadTo = -1;
 							}
+						}
 
-							world.clanmates.delete(deleted);
+						// (d) : finalize, upload data
+						world.merge();
+						world.clean();
+						render.upload('pellets');
 
-							const myIdx = world.mine.indexOf(deletedId);
-							if (myIdx !== -1) {
-								world.mine.splice(myIdx, 1);
-								world.mineDead.add(myIdx);
+						// (e) : clear own cells that don't exist anymore (NOT on world.clean!)
+						for (let i = 0; i < vision.owned.length; ++i) {
+							if (world.cells.has(vision.owned[i])) continue;
+							vision.owned.splice(i--, 1);
+						}
+						ui.deathScreen.check();
+						break;
+					}
+
+					case 0x11: { // update camera pos
+						vision.camera.tx = dat.getFloat32(o, true);
+						vision.camera.ty = dat.getFloat32(o + 4, true);
+						vision.camera.tscale = dat.getFloat32(o + 8, true);
+						break;
+					}
+
+					case 0x12: { // delete all cells
+						// happens every time you respawn
+						// TODO: respawn block
+
+						// DO NOT just clear the maps! when respawning, OgarII will not resend cell data if we spawn
+						// nearby.
+						for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+							for (const resolution of world[key].values()) {
+								const cell = resolution.views.get(view);
+								if (cell && cell.deadAt === undefined) cell.deadAt = now;
 							}
 						}
+						// passthrough
+					}
+					case 0x14: { // delete my cells
+						vision.owned = [];
+						break;
 					}
 
-					// #4 : clean all cells
-					for (const [id, cell] of world.cells) {
-						if (cell.deadAt === undefined) continue;
-						if (now - cell.deadAt >= 200) {
-							world.cells.delete(id);
-							world.mineDead.delete(id);
+					case 0x20: { // new owned cell
+						// check if this is the first owned cell
+						let first = true;
+						for (const [otherView, otherVision] of world.views) {
+							for (const id of otherVision.owned) {
+								const cell = world.cells.get(id)?.views.get(otherView);
+								if (!cell || cell.deadAt !== undefined) continue;
+								first = false;
+								break;
+							}
+							if (!first) break;
 						}
+						if (first) world.stats.spawnedAt = now;
+
+						vision.owned.push(dat.getUint32(o, true));
+						break;
 					}
 
-					for (const [id, cell] of world.pellets) {
-						if (cell.deadAt === undefined) continue;
-						if (now - cell.deadAt >= 200) {
-							world.pellets.delete(id);
-						}
-					}
+					// case 0x30 is a text list (not a numbered list), leave unsupported
+					case 0x31: { // ffa leaderboard list
+						const lb = [];
+						const count = dat.getUint32(o, true);
+						o += 4;
 
-					// #5: extra
-					render.upload('pellets');
+						/** @type {number | undefined} */
+						let myPosition;
+						for (let i = 0; i < count; ++i) {
+							const me = !!dat.getUint32(o, true);
+							o += 4;
 
-					if (world.mine.length === 0 && world.stats.spawnedAt !== undefined) {
-						ui.deathScreen.show(world.stats);
-					}
+							let name; [name, o] = aux.readZTString(dat, o);
+							name = aux.parseName(name);
 
-					ui.stats.update();
-					break;
-				}
+							// why this is copied into every leaderboard entry is beyond my understanding
+							myPosition = dat.getUint32(o, true);
+							const sub = !!dat.getUint32(o + 4, true);
+							o += 8;
 
-				case 0x11: { // update camera pos
-					world.camera.tx = dat.getFloat32(off, true);
-					world.camera.ty = dat.getFloat32(off + 4, true);
-					world.camera.tscale = dat.getFloat32(off + 8, true) * input.zoom;
-					break;
-				}
-
-				case 0x12: // delete all cells
-					net.lastUpdate = now;
-					// happens every time you respawn
-					if (destructor.respawnBlock?.status === 'pending') {
-						destructor.respawnBlock.status = 'left';
-					}
-
-					// DO NOT just clear the maps! when respawning, OgarII will not resend cell data if we spawn nearby.
-					for (const map of [world.cells, world.pellets]) {
-						for (const cell of map.values()) {
-							if (cell.deadAt === undefined) cell.deadAt = now;
-						}
-					}
-					world.clanmates.clear();
-				// passthrough
-				case 0x14: // delete my cells
-					while (world.mine.length) world.mine.pop();
-					break;
-
-				case 0x20: { // new owned cell
-					world.mine.push(dat.getUint32(off, true));
-					if (world.mine.length === 1)
-						world.stats.spawnedAt = now;
-					break;
-				}
-
-				// case 0x30 is a text list (not a numbered list), leave unsupported
-				case 0x31: { // ffa leaderboard list
-					const lb = [];
-					const count = dat.getUint32(off, true);
-					off += 4;
-
-					let myPosition;
-					for (let i = 0; i < count; ++i) {
-						const me = !!dat.getUint32(off, true);
-						off += 4;
-
-						let name;
-						[name, off] = aux.readZTString(dat, off);
-						name = aux.parseName(name);
-
-						// why this is copied into every leaderboard entry is beyond my understanding
-						myPosition = dat.getUint32(off, true);
-						const sub = !!dat.getUint32(off + 4, true);
-						off += 8;
-
-						lb.push({ name, sub, me, place: undefined });
-					}
-
-					if (myPosition) {
-						if (myPosition - 1 >= lb.length) {
-							/** @type {HTMLInputElement | null} */
-							const inputName = document.querySelector('input#nick');
-							lb.push({
-								me: true,
-								name: aux.parseName(inputName?.value ?? ''),
-								place: myPosition,
-								sub: false,
-							});
+							lb.push({ name, sub, me, place: undefined });
 						}
 
-						if (myPosition < world.stats.highestPosition)
-							world.stats.highestPosition = myPosition;
+						if (myPosition !== undefined) {
+							if (myPosition - 1 >= lb.length) {
+								/** @type {HTMLInputElement | null} */
+								const inputName = document.querySelector('input#nick');
+								lb.push({
+									me: true,
+									name: aux.parseName(inputName?.value ?? ''),
+									place: myPosition,
+									sub: false, // doesn't matter
+								});
+							}
+
+							world.stats.highestPosition = Math.min(world.stats.highestPosition, myPosition);
+						}
+
+						vision.leaderboard = lb;
+						break;
 					}
 
-					world.leaderboard = lb;
-					ui.leaderboard.update();
-					break;
-				}
-
-				case 0x40: { // border update
-					world.border = {
-						l: dat.getFloat64(off, true),
-						t: dat.getFloat64(off + 8, true),
-						r: dat.getFloat64(off + 16, true),
-						b: dat.getFloat64(off + 24, true),
-					};
-					break;
-				}
-
-				case 0x63: { // chat message
-					const flags = dat.getUint8(off);
-					const rgb = /** @type {[number, number, number, number]} */
-						([dat.getUint8(off + 1) / 255, dat.getUint8(off + 2) / 255, dat.getUint8(off + 3) / 255, 1]);
-					off += 4;
-
-					let name;
-					[name, off] = aux.readZTString(dat, off);
-					let msg;
-					[msg, off] = aux.readZTString(dat, off);
-
-					ui.chat.add(name, rgb, msg, !!(flags & 0x80));
-					break;
-				}
-
-				case 0xb4: { // incorrect password alert
-					ui.error('Password is incorrect');
-					break;
-				}
-
-				case 0xdd: {
-					net.howarewelosingmoney();
-					net.ready = true;
-					break;
-				}
-
-				case 0xfe: { // server stats, response to a ping
-					let statString;
-					[statString, off] = aux.readZTString(dat, off);
-
-					const statData = JSON.parse(statString);
-					ui.stats.updateMisc(statData);
-
-					if (pendingPingFrom) {
-						net.latency = now - pendingPingFrom;
-						pendingPingFrom = undefined;
+					case 0x40: { // border update
+						vision.border = {
+							l: dat.getFloat64(o, true),
+							t: dat.getFloat64(o + 8, true),
+							r: dat.getFloat64(o + 16, true),
+							b: dat.getFloat64(o + 24, true),
+						};
+						break;
 					}
-					break;
+
+					case 0x63: { // chat message
+						const flags = dat.getUint8(o++);
+						const rgb = /** @type {[number, number, number, number]} */
+							([dat.getUint8(o++) / 255, dat.getUint8(o++) / 255, dat.getUint8(o++) / 255, 1]);
+						
+						let name; [name, o] = aux.readZTString(dat, o);
+						let msg; [msg, o] = aux.readZTString(dat, o);
+						ui.chat.add(name, rgb, msg, !!(flags & 0x80));
+						break;
+					}
+
+					case 0xb4: { // incorrect password alert
+						ui.error('Password is incorrect');
+						break;
+					}
+
+					case 0xdd: {
+						net.howarewelosingmoney(view);
+						break;
+					}
+
+					case 0xfe: { // server stats (in response to a ping)
+						let statString; [statString, o] = aux.readZTString(dat, o);
+						vision.stats = JSON.parse(statString);
+						const from = connection.pings.shift();
+						if (from !== undefined) connection.latency = now - from;
+						break;
+					}
 				}
+			});
+			ws.addEventListener('open', e => {
+				const connection = net.connections.get(view);
+				const vision = world.views.get(view);
+				if (!connection || !vision) return ws.close();
+
+				connection.rejected = false;
+				connection.opened = true;
+
+				vision.camera.x = vision.camera.tx = 0;
+				vision.camera.y = vision.camera.ty = 0;
+				vision.camera.scale = vision.camera.tscale = 1;
+				ws.send(aux.textEncoder.encode('SIG 0.0.1\x00'));
+			});
+
+			return ws;
+		};
+
+		// ping loop
+		setInterval(() => {
+			for (const connection of net.connections.values()) {
+				if (!connection.handshake || connection.ws?.readyState !== WebSocket.OPEN) continue;
+				connection.pings.push(performance.now());
+				connection.ws.send(connection.handshake.shuffle.slice(0xfe, 0xfe + 1));
 			}
+		}, 2000);
+
+		// #2 : define helper functions
+		/** @type {HTMLSelectElement | null} */
+		const gamemode = document.querySelector('#gamemode');
+		/** @type {HTMLOptionElement | null} */
+		const firstGamemode = document.querySelector('#gamemode option');
+		net.url = () => {
+			if (location.search.startsWith('?ip=')) return location.search.slice('?ip='.length);
+			else return 'wss://' + (gamemode?.value || firstGamemode?.value || 'ca0.sigmally.com/ws/');
+		};
+
+		// disconnect if a different gamemode is selected
+		// an interval is preferred because the game can apply its gamemode setting *after* connecting without
+		// triggering any events
+		setInterval(() => {
+			for (const connection of net.connections.values()) {
+				if (!connection.ws) continue;
+				if (connection.ws.readyState !== WebSocket.CONNECTING && connection.ws.readyState !== WebSocket.OPEN)
+					continue;
+				if (connection.ws.url === net.url()) continue;
+				connection.ws.close();
+			}
+		}, 200);
+
+		/**
+		 * @param {number} view
+		 * @param {number} opcode
+		 * @param {object} data
+		 */
+		const sendJson = (view, opcode, data) => {
+			// must check readyState as a weboscket might be in the 'CLOSING' state (so annoying!)
+			const connection = net.connections.get(view);
+			if (!connection?.handshake || connection.ws?.readyState !== WebSocket.OPEN) return;
+			const dataBuf = aux.textEncoder.encode(JSON.stringify(data));
+			const dat = new DataView(new ArrayBuffer(dataBuf.byteLength + 2));
+
+			dat.setUint8(0, connection.handshake.shuffle[opcode]);
+			for (let i = 0; i < dataBuf.byteLength; ++i) {
+				dat.setUint8(1 + i, dataBuf[i]);
+			}
+			connection.ws.send(dat);
 		}
-
-
 
 		// #5 : export input functions
 		/**
+		 * @param {number} view
 		 * @param {number} x
 		 * @param {number} y
 		 */
-		net.move = function (x, y) {
-			if (!handshake || ws.readyState !== WebSocket.OPEN) return;
+		net.move = (view, x, y) => {
+			const connection = net.connections.get(view);
+			if (!connection?.handshake || connection.ws?.readyState !== WebSocket.OPEN) return;
 			const dat = new DataView(new ArrayBuffer(13));
 
-			dat.setUint8(0, Number(handshake.shuffle.get(0x10)));
+			dat.setUint8(0, connection.handshake.shuffle[0x10]);
 			dat.setInt32(1, x, true);
 			dat.setInt32(5, y, true);
-
-			ws.send(dat);
+			connection.ws.send(dat);
 		};
 
-		net.w = function () {
-			if (!handshake || ws.readyState !== WebSocket.OPEN) return;
-			ws.send(new Uint8Array([Number(handshake.shuffle.get(21))]));
+		/** @param {number} opcode */
+		const bindOpcode = opcode => /** @param {number} view */ view => {
+			const connection = net.connections.get(view);
+			if (!connection?.handshake || connection.ws?.readyState !== WebSocket.OPEN) return;
+			connection.ws.send(connection.handshake.shuffle.slice(opcode, opcode + 1));
 		};
-
-		net.qdown = function () {
-			if (!handshake || ws.readyState !== WebSocket.OPEN) return;
-			ws.send(new Uint8Array([Number(handshake.shuffle.get(18))]));
-		};
-
-		net.qup = function () {
-			if (!handshake || ws.readyState !== WebSocket.OPEN) return;
-			ws.send(new Uint8Array([Number(handshake.shuffle.get(19))]));
-		};
-
-		net.split = function () {
-			if (!handshake || ws.readyState !== WebSocket.OPEN) return;
-			ws.send(new Uint8Array([Number(handshake.shuffle.get(17))]));
-		};
+		net.w = bindOpcode(21);
+		net.qdown = bindOpcode(18);
+		net.qup = bindOpcode(19);
+		net.split = bindOpcode(17);
 
 		/**
+		 * @param {number} view
 		 * @param {string} msg
 		 */
-		net.chat = function (msg) {
-			if (!handshake || ws.readyState !== WebSocket.OPEN) return;
+		net.chat = (view, msg) => {
+			const connection = net.connections.get(view);
+			if (!connection?.handshake || connection.ws?.readyState !== WebSocket.OPEN) return;
 			const msgBuf = aux.textEncoder.encode(msg);
 			const dat = new DataView(new ArrayBuffer(msgBuf.byteLength + 3));
 
-			dat.setUint8(0, Number(handshake.shuffle.get(0x63)));
-			// skip flags, not implemented anyway
-			for (let i = 0; i < msgBuf.byteLength; ++i)
+			dat.setUint8(0, connection.handshake.shuffle[0x63]);
+			// skip flags
+			for (let i = 0; i < msgBuf.byteLength; ++i) {
 				dat.setUint8(2 + i, msgBuf[i]);
-
-			ws.send(dat);
+			}
+			connection.ws.send(dat);
 		};
 
 		/**
+		 * @param {number} view
 		 * @param {{ name: string, skin: string, [x: string]: any }} data
 		 */
-		net.play = function (data) {
-			sendJson(0x00, data);
+		net.play = (view, data) => {
+			sendJson(view, 0x00, data);
 		};
 
-		net.howarewelosingmoney = function () {
-			if (!handshake || ws.readyState !== WebSocket.OPEN) return;
+		/** @param {number} view */
+		net.howarewelosingmoney = view => {
 			// this is a new thing added with the rest of the recent source code obfuscation (2024/02/18)
 			// which collects and links to your sigmally account, seemingly just for light data analysis but probably
 			// just for the fun of it:
@@ -2326,18 +2228,14 @@
 			// - whether you are using a traditional adblocker
 			//
 			// so, no thank you
-			sendJson(0xd0, { ip: '', country: '', proxy: false, user: null, blocker: 'sigmally fixes @8y8x' });
+			// TODO: this has been updated. check case 221 (which is 0xdd).
+			sendJson(view, 0xd0, { ip: '', country: '', proxy: false, user: null, blocker: 'sigmally fixes @8y8x' });
 		};
 
-		net.connection = function () {
-			if (!ws) return undefined;
-			if (!handshake || ws.readyState !== WebSocket.OPEN) return undefined;
-			return ws;
-		};
+		// create initial connection
+		world.create(world.viewId.primary);
+		net.create(world.viewId.primary);
 
-
-
-		connect();
 		return net;
 	})();
 
@@ -2350,66 +2248,78 @@
 		const input = {};
 
 		// #1 : general inputs
-		/** @type {number | undefined} */
-		let lastMouseX = undefined;
-		/** @type {number | undefined} */
-		let lastMouseY = undefined;
-		/** @type {{ mouseX: number, mouseY: number, x: number, y: number, from: number } | undefined} */
-		let mouseLock; // when tripling, lock the mouse for 650ms to make sure it goes as straight as possible
-		let mouseX = 0; // -1 <= mouseX <= 1
-		let mouseY = 0; // -1 <= mouseY <= 1
-		let forceW = false;
-		let w = false;
-
+		// between -1 and 1
+		/** @type {[number, number]} */
+		input.current = [0, 0];
+		/** @type {Map<number, {
+		 * 		current: [number, number], // world position; only updates when tab is selected
+		 * 		forceW: boolean,
+		 * 		lock: { mouse: [number, number], world: [number, number], from: number } | undefined,
+		 * 		mouse: [number, number], // between -1 and 1
+		 * 		w: boolean,
+		 * }>} */
+		input.views = new Map();
 		input.zoom = 1;
 
-		const realMouse = () => [
-			world.camera.x + mouseX * (innerWidth / innerHeight) * 540 / world.camera.scale,
-			world.camera.y + mouseY * 540 / world.camera.scale,
-		];
+		/** @param {number} view */
+		const create = view => {
+			const old = input.views.get(view);
+			if (old) return old;
 
-		/** @returns [number, number] */
-		input.mouse = () => {
+			/** @type {typeof input.views extends Map<number, infer T> ? T : never} */
+			const inputs = { current: [0, 0], forceW: false, lock: undefined, mouse: [0, 0], w: false };
+			input.views.set(view, inputs);
+			return inputs;
+		};
+
+		/**
+		 * @param {number} view
+		 * @param {[number, number]} x, y
+		 * @returns {[number, number]}
+		 */
+		const toWorld = (view, [x, y]) => {
+			const camera = world.views.get(view)?.camera;
+			if (!camera) return [0, 0];
+			return [
+				camera.x + x * (innerWidth / innerHeight) * 540 / camera.scale,
+				camera.y + y * 540 / camera.scale,
+			];
+		};
+
+		/**
+		 * @param {number} view
+		 * @returns {[number, number]}
+		 */
+		input.mouse = view => {
+			const inputs = input.views.get(view);
+			if (!inputs) return create(view).mouse;
+
 			// inject mouse lock NOT on input.move; we want the tracers to show the mouse lock
-			if (mouseLock) {
-				if (performance.now() - mouseLock.from > 650) mouseLock = undefined;
+			if (inputs.lock && performance.now() - inputs.lock.from <= 650) {
 				// if you move the mouse by more than 10% of your screen in any direction, cancel the freeze
 				// 10% should be enough so that if you want it to go straight, it will, and if you want it to not, then
 				// it also will.
-				else if (Math.hypot(mouseX - mouseLock.mouseX, mouseY - mouseLock.mouseY) > 0.2) mouseLock = undefined;
-				else return [mouseLock.x, mouseLock.y];
+				if (Math.hypot(inputs.mouse[0] - inputs.lock.mouse[0], inputs.mouse[1] - inputs.lock.mouse[1]) > 0.2)
+					inputs.lock = undefined;
+				else
+					return inputs.lock.world;
+			} else {
+				inputs.lock = undefined;
 			}
-			return realMouse();
+			return inputs.current;
 		};
 
-		function mouse() {
-			const [x, y] = input.mouse();
-			net.move(x, y);
-			lastMouseX = mouseX;
-			lastMouseY = mouseY;
-		}
+		const unfocused = () => ui.escOverlayVisible() || document.activeElement?.tagName === 'INPUT';
 
-		function unfocused() {
-			return ui.escOverlayVisible() || document.activeElement?.tagName === 'INPUT';
-		}
-
-		let lastMovement = performance.now();
-		input.move = () => {
-			// called every frame because tabbing out reduces setInterval frequency, which messes up mouse flick fixes
-			const now = performance.now();
-			if (now - lastMovement < 40) return;
-			lastMovement = now;
-
-			// if holding w with sigmod, tabbing out, then tabbing in, avoid spitting out only one W
-			const consumedForceW = forceW;
-			forceW = false;
-
-			// allow flicking mouse then immediately switching tabs in the same tick
-			if (document.visibilityState === 'hidden' && lastMouseX === mouseX && lastMouseY === mouseY) return;
-			mouse();
-
-			if (consumedForceW || w) net.w();
-		};
+		setInterval(() => {
+			for (const [view, inputs] of input.views) {
+				if (world.selected === view) inputs.current = toWorld(view, inputs.mouse = input.current);
+				net.move(view, ...input.mouse(view));
+				// if holding w with sigmod, tabbing out, then tabbing in, avoid spitting out only one W
+				if (inputs.forceW || inputs.w) net.w(view);
+				inputs.forceW = false;
+			}
+		}, 40);
 
 		// sigmod freezes the player by overlaying an invisible div, so we just listen for canvas movements instead
 		addEventListener('mousemove', e => {
@@ -2418,8 +2328,7 @@
 			if (e.target instanceof HTMLDivElement
 				&& /** @type {CSSUnitValue | undefined} */ (e.target.attributeStyleMap.get('z-index'))?.value === 99)
 				return;
-			mouseX = (e.clientX / innerWidth * 2) - 1;
-			mouseY = (e.clientY / innerHeight * 2) - 1;
+			input.current = [(e.clientX / innerWidth * 2) - 1, (e.clientY / innerHeight * 2) - 1];
 		});
 
 		addEventListener('wheel', e => {
@@ -2447,7 +2356,7 @@
 
 			if (unfocused()) {
 				if (e.code === 'Enter' && document.activeElement === ui.chat.input && ui.chat.input.value.length > 0) {
-					net.chat(ui.chat.input.value.slice(0, 15));
+					net.chat(world.selected, ui.chat.input.value.slice(0, 15));
 					ui.chat.input.value = '';
 					ui.chat.input.blur();
 				}
@@ -2455,23 +2364,24 @@
 				return;
 			}
 
+			const inputs = input.views.get(world.selected) ?? create(world.selected);
 			switch (e.code) {
 				case 'KeyQ':
-					if (!e.repeat)
-						net.qdown();
+					if (!e.repeat) net.qdown(world.selected);
 					break;
 				case 'KeyW':
-					forceW = true;
-					w = true;
+					inputs.forceW = inputs.w = true;
 					break;
 				case 'Space': {
 					if (!e.repeat) {
 						// send mouse position immediately, so the split will go in the correct direction.
 						// setTimeout is used to ensure that our mouse position is actually updated (it comes after
 						// keydown events)
+						const view = world.selected;
 						setTimeout(() => {
-							mouse();
-							net.split();
+							inputs.current = toWorld(view, inputs.mouse);
+							net.move(view, ...input.mouse(view)); // allow splitting during a mouse lock
+							net.split(view);
 						});
 					}
 					break;
@@ -2480,11 +2390,25 @@
 					ui.chat.input.focus();
 					break;
 				}
+				case 'Tab': {
+					inputs.w = false; // stop current tab from feeding; don't change forceW
+					// peep this if you're looking into n-boxing
+					if (world.selected === world.viewId.primary) world.selected = world.viewId.secondary;
+					else world.selected = world.viewId.primary;
+					world.create(world.selected);
+					net.create(world.selected);
+					e.preventDefault(); // prevent pressing tab anywhere on the page
+					break;
+				}
 			}
 
 			if (e.key === aux.sigmodSettings?.tripleKey) {
-				const [x, y] = realMouse(); // if you triple twice for some reason, it should use the new mouse position
-				mouseLock = { mouseX, mouseY, x, y, from: performance.now() };
+				// if you triple twice for some reason, it should use the new mouse position
+				inputs.lock = {
+					mouse: inputs.mouse,
+					world: toWorld(world.selected, inputs.mouse),
+					from: performance.now(),
+				};
 			}
 
 			if (e.ctrlKey && e.code === 'Tab') {
@@ -2492,30 +2416,19 @@
 				e.stopImmediatePropagation(); // prevent SigMod from calling e.preventDefault() afterwards
 			} else if (settings.blockBrowserKeybinds && e.code !== 'F11')
 				e.preventDefault();
-			else if ((e.ctrlKey && e.code === 'KeyW') || e.code === 'Tab') // doesn't work anymore but i'll leave it
-				e.preventDefault(); // because chrome devs are stubborn
 		});
 
 		addEventListener('keyup', e => {
 			// do not check if unfocused
-			if (e.code === 'KeyQ')
-				net.qup();
-			else if (e.code === 'KeyW')
-				w = false;
+			if (e.code === 'KeyQ') net.qup(world.selected);
+			else if (e.code === 'KeyW') {
+				const inputs = input.views.get(world.selected) ?? create(world.selected);
+				inputs.w = false; // don't change forceW
+			}
 		});
 
-		// when switching tabs, make sure W is not being held
-		addEventListener('blur', () => {
-			// force sigmod to get the signal
-			if (aux.sigmodSettings?.rapidFeedKey)
-				document.dispatchEvent(new KeyboardEvent('keyup', { key: aux.sigmodSettings.rapidFeedKey }));
-
-			w = false;
-		});
-
-		addEventListener('beforeunload', e => {
-			e.preventDefault();
-		});
+		// prompt before closing window
+		addEventListener('beforeunload', e => e.preventDefault());
 
 		// prevent right clicking on the game
 		ui.game.canvas.addEventListener('contextmenu', e => e.preventDefault());
@@ -2683,14 +2596,17 @@
 			};
 
 			setInterval(() => {
-				const canPlay = !net.rejected && net.connection()?.readyState === WebSocket.OPEN;
+				const con = net.connections.get(world.selected);
+				if (!con) return;
+
+				const canPlay = !net.rejected && con?.ws?.readyState === WebSocket.OPEN;
 				if (play.disabled !== !canPlay) {
 					play.disabled = spectate.disabled = !canPlay;
 					play.textContent = playText;
 				}
 
 				if (token === waiting) return;
-				if (!net.rejected) return;
+				if (!con.rejected) return;
 
 				const url = net.url();
 
@@ -2792,26 +2708,21 @@
 
 			/** @param {MouseEvent} e */
 			async function clickHandler(e) {
-				if (!net.connection() || net.rejected) return;
+				const con = net.connections.get(world.selected);
+				if (!con || con.rejected) return;
 				ui.toggleEscOverlay(false);
 				if (e.currentTarget === spectate) {
 					// you should be able to escape sigmod auto-respawn and spectate as long as you don't have mass
-					let score = 0;
-					for (const id of world.mine) {
-						const cell = world.cells.get(id);
-						if (!cell) continue;
-						score += cell.nr * cell.nr / 100;
-					}
-
+					const score = world.score(world.selected);
 					if (0 < score && score < 5500) {
 						world.stats.spawnedAt = undefined; // prevent death screen from appearing
-						net.chat('/leaveworld'); // instant respawn
-						net.play(playData(true)); // required, idk why
-						net.chat('/joinworld 1'); // spectating doesn't automatically put you back into the world
+						net.chat(world.selected, '/leaveworld'); // instant respawn
+						net.play(world.selected, playData(true)); // required, idk why
+						net.chat(world.selected, '/joinworld 1'); // spectating doesn't automatically put you back into the world
 					}
 				}
 
-				net.play(playData(e.currentTarget === spectate));
+				net.play(world.selected, playData(e.currentTarget === spectate));
 			}
 
 			play.addEventListener('click', clickHandler);
@@ -3606,11 +3517,13 @@
 			// find expected # of pellets (exclude any that are being *animated*)
 			let expected = 0;
 			if (key === 'pellets') {
-				for (const pellet of world.pellets.values()) {
-					if (pellet.deadTo === -1) ++expected;
+				for (const resolution of world.pellets.values()) {
+					if (resolution.merged?.deadTo === -1) ++expected;
 				}
 			} else {
-				expected = world.cells.size;
+				for (const resolution of world.cells.values()) {
+					if (resolution.merged) ++expected;
+				}
 			}
 
 			// grow the pellet buffer by 2x multiples if necessary
@@ -3662,7 +3575,7 @@
 				++i;
 			};
 			for (const cell of world[key].values()) {
-				iterate(cell);
+				if (cell.merged) iterate(cell.merged);
 			}
 
 			// now, upload data
@@ -3736,20 +3649,20 @@
 
 			refreshTextCache();
 
-			// note: most routines are named, for benchmarking purposes
-			(function updateGame() {
-				world.moveCamera();
-				input.move();
-			})();
+			const vision = aux.require(world.views.get(world.selected), 'no selected vision (BAD BUG)');
+			for (const view of world.views.keys()) {
+				world.camera(view, now, dt);
+			}
 
+			// note: most routines are named, for benchmarking purposes
 			(function setGlobalUniforms() {
 				// note that binding the same buffer to gl.UNIFORM_BUFFER twice in a row causes it to not update.
 				// why that happens is completely beyond me but oh well.
 				// for consistency, we always bind gl.UNIFORM_BUFFER to null directly after updating it.
 				gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Camera);
 				gl.bufferSubData(gl.UNIFORM_BUFFER, 0, new Float32Array([
-					ui.game.canvas.width / ui.game.canvas.height, world.camera.scale / 540,
-					world.camera.x, world.camera.y,
+					ui.game.canvas.width / ui.game.canvas.height, vision.camera.scale / 540,
+					vision.camera.x, vision.camera.y,
 				]));
 				gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 
@@ -3787,9 +3700,9 @@
 
 				let borderColor;
 				let borderLrtb;
-				if (aux.settings.showBorder && world.border) {
+				if (aux.settings.showBorder && vision.border) {
 					borderColor = [0, 0, 1, 1]; // #00ff
-					borderLrtb = world.border;
+					borderLrtb = vision.border;
 				} else {
 					borderColor = [0, 0, 0, 0]; // transparent
 					borderLrtb = { l: 0, r: 0, t: 0, b: 0 };
@@ -3821,17 +3734,13 @@
 
 			(function cells() {
 				// for white cell outlines
-				let nextCellIdx = world.mine.length;
-				const canSplit = world.mine.map(id => {
-					const cell = world.cells.get(id);
-					if (!cell) {
-						--nextCellIdx;
-						return false;
-					}
-
-					if (cell.nr < 128)
-						return false;
-
+				let nextCellIdx = 0;
+				const ownedToMerged = vision.owned.map(id => world.cells.get(id)?.merged);
+				for (const cell of ownedToMerged) {
+					if (cell && cell.deadAt === undefined) ++nextCellIdx;
+				}
+				const canSplit = ownedToMerged.map(cell => {
+					if (!cell || cell.nr < 128) return false;
 					return nextCellIdx++ < 16;
 				});
 
@@ -3845,8 +3754,7 @@
 						const alpha2 = 1 - (now - cell.deadAt) / 100;
 						if (alpha2 < alpha) alpha = alpha2;
 					}
-					alpha = alpha > 1 ? 1 : alpha < 0 ? 0 : alpha;
-					return alpha;
+					return alpha > 1 ? 1 : alpha < 0 ? 0 : alpha;
 				};
 
 				/**
@@ -3862,7 +3770,7 @@
 					/** @type {Cell | undefined} */
 					let killer;
 					if (cell.deadTo !== -1) {
-						killer = world.cells.get(cell.deadTo);
+						killer = world.cells.get(cell.deadTo)?.merged;
 					}
 					const { x, y, r, jr } = world.xyr(cell, killer, now);
 					// without jelly physics, the radius of cells is adjusted such that its subtle outline doesn't go
@@ -3912,15 +3820,16 @@
 					cellUboInts[9] |= settings.cellOutlines ? 0x02 : 0;
 
 					if (!cell.pellet) {
-						const myIndex = world.mine.indexOf(cell.id);
+						const myIndex = vision.owned.indexOf(cell.id);
 						if (myIndex !== -1) {
-							if (world.camera.merged) cellUboInts[9] |= 0x04; // active multi outline
+							if (vision.camera.merging.length > 0) cellUboInts[9] |= 0x04; // active multi outline
 							if (!canSplit[myIndex] && settings.unsplittableOpacity > 0) cellUboInts[9] |= 0x10;
 						}
+						// TODO: other tab cell outlines
 
 						let skin = '';
 
-						if (settings.selfSkin && (myIndex !== -1 || world.mineDead.has(cell.id))) {
+						if (settings.selfSkin && myIndex !== -1) {
 							skin = settings.selfSkin;
 						} else {
 							if (!skin && aux.settings.showSkins && cell.skin) {
@@ -4071,19 +3980,16 @@
 
 				// draw static pellets first
 				let i = 0;
-				/** @param {Cell} pellet */
-				const iterateStaticPellet = pellet => {
+				for (const resolution of world.pellets.values()) {
 					// deadTo property should never change in between upload('pellets') calls
-					if (pellet.deadTo !== -1) return;
-					pelletAlpha[i++] = calcAlpha(pellet);
-				};
-				for (const pellet of world.pellets.values()) {
-					iterateStaticPellet(pellet);
+					if (resolution.merged?.deadTo !== -1) continue;
+					pelletAlpha[i++] = calcAlpha(resolution.merged);
 				}
 				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao[0].alphaBuffer);
 				gl.bufferSubData(gl.ARRAY_BUFFER, 0, pelletAlpha);
 				gl.bindBuffer(gl.ARRAY_BUFFER, null); // TODO: necessary unbinding?
 
+				// setup no-glow for static pellets
 				if (settings.pelletGlow && aux.settings.darkTheme) {
 					gl.blendFunc(gl.SRC_ALPHA, gl.ONE); // make sure pellets (and glow) are visible in light theme
 				}
@@ -4091,36 +3997,34 @@
 				gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([ 1, 0 ]), gl.STATIC_DRAW);
 				gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 
+				// draw static pellets
 				gl.useProgram(glconf.programs.circle);
 				gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, uploadedPellets);
 				if (settings.pelletGlow) {
+					// setup glow for static pellets
 					gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
 					gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([ 0.25, 2 ]), gl.STATIC_DRAW);
 					gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 
+					// draw glow for static pellets
 					gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, uploadedPellets);
 					gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 				}
 
 				// then draw *animated* pellets
-				/** @param {Cell} pellet */
-				const iterateAnimatedPellet = pellet => {
-					if (pellet.deadTo !== -1) draw(pellet); // no rtx glow is fine here
-				};
-				for (const pellet of world.pellets.values()) {
-					iterateAnimatedPellet(pellet);
+				for (const resolution of world.pellets.values()) {
+					// animated pellets shouldn't glow
+					if (resolution.merged && resolution.merged.deadTo !== -1) draw(resolution.merged);
 				}
 
 				/** @type {[Cell, number][]} */
 				const sorted = [];
-				/** @param {Cell} cell */
-				const iterateSortableCell = cell => {
+				for (const resolution of world.cells.values()) {
+					const cell = resolution.merged;
+					if (!cell) continue;
 					const rAlpha = Math.min(Math.max((now - cell.updated) / settings.drawDelay, 0), 1);
 					const computedR = cell.or + (cell.nr - cell.or) * rAlpha;
 					sorted.push([cell, computedR]);
-				};
-				for (const cell of world.cells.values()) {
-					iterateSortableCell(cell);
 				}
 
 				// sort by smallest to biggest
@@ -4131,8 +4035,9 @@
 				if (settings.cellGlow) {
 					render.upload('cells', now);
 					let i = 0;
-					/** @param {Cell} cell */
-					const iterateCellGlow = cell => {
+					for (const resolution of world.cells.values()) {
+						const cell = resolution.merged;
+						if (!cell) continue;
 						if (cell.jagged) cellAlpha[i++] = 0;
 						else {
 							let alpha = calcAlpha(cell);
@@ -4140,15 +4045,13 @@
 							if (cell.deadTo !== -1) alpha *= 0.25;
 							cellAlpha[i++] = alpha;
 						}
-					};
-					for (const cell of world.cells.values()) {
-						iterateCellGlow(cell);
 					}
 
 					gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao[1].alphaBuffer);
 					gl.bufferSubData(gl.ARRAY_BUFFER, 0, cellAlpha);
 					gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
+					// use a separate vao for cells, so pellet data doesn't have to be copied as often
 					gl.useProgram(glconf.programs.circle);
 					gl.bindVertexArray(glconf.vao[1].vao);
 					gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
@@ -4166,13 +4069,11 @@
 				if (settings.tracer) {
 					gl.useProgram(glconf.programs.tracer);
 
-					const [x, y] = input.mouse();
+					const [x, y] = input.mouse(world.selected);
 					tracerUboFloats[2] = x; // tracer_pos2.x
 					tracerUboFloats[3] = y; // tracer_pos2.y
 
-					world.mine.forEach(id => {
-						/** @type {Cell | undefined} */
-						let cell = world.cells.get(id);
+					ownedToMerged.forEach(cell => {
 						if (!cell || cell.deadAt !== undefined) return;
 
 						let { x, y } = world.xyr(cell, undefined, now);
@@ -4186,8 +4087,10 @@
 				}
 			})();
 
+			ui.stats.update(world.selected);
+
 			(function minimap() {
-				if (now - lastMinimapDraw < 40) return;
+				if (now - lastMinimapDraw < 40) return; // should be good enough when multiboxing, may change later
 				lastMinimapDraw = now;
 
 				if (!aux.settings.showMinimap) {
@@ -4228,7 +4131,7 @@
 					};
 				}
 
-				const { border } = world;
+				const { border } = vision;
 				if (!border) return;
 
 				// sigmod overlay resizes itself differently, so we correct it whenever we need to
@@ -4250,8 +4153,8 @@
 				ctx.fillStyle = '#ff0';
 				ctx.globalAlpha = 0.3;
 
-				const sectionX = Math.floor((world.camera.x - border.l) / gameWidth * 5);
-				const sectionY = Math.floor((world.camera.y - border.t) / gameHeight * 5);
+				const sectionX = Math.floor((vision.camera.x - border.l) / gameWidth * 5);
+				const sectionY = Math.floor((vision.camera.y - border.t) / gameHeight * 5);
 				ctx.fillRect(sectionX * sectorSize, sectionY * sectorSize, sectorSize, sectorSize);
 
 				// draw section names
@@ -4296,8 +4199,10 @@
 				// we sort clanmates by color AND name, to ensure clanmates stay separate
 				/** @type {Map<string, { name: string, n: number, x: number, y: number }>} */
 				const avgPos = new Map();
-				world.clanmates.forEach(cell => {
-					if (world.mine.includes(cell.id)) return;
+				for (const resolution of world.cells.values()) {
+					const cell = resolution.merged;
+					if (!cell || vision.owned.includes(cell.id)) continue;
+					if (!cell.clan || cell.clan !== aux.userData?.clan) continue;
 					drawCell(cell);
 
 					const name = cell.name || 'An unnamed cell';
@@ -4310,7 +4215,7 @@
 					} else {
 						avgPos.set(id, { name, n: 1, x: cell.nx, y: cell.ny });
 					}
-				});
+				}
 
 				avgPos.forEach(entry => {
 					drawName(entry.x / entry.n, entry.y / entry.n, entry.name);
@@ -4321,8 +4226,8 @@
 				let ownN = 0;
 				let ownX = 0;
 				let ownY = 0;
-				world.mine.forEach(id => {
-					const cell = world.cells.get(id);
+				vision.owned.forEach(id => {
+					const cell = world.cells.get(id)?.merged;
 					if (!cell) return;
 
 					drawCell(cell);
@@ -4335,7 +4240,7 @@
 				if (ownN <= 0) {
 					// if no cells were drawn, draw our spectate pos instead
 					drawCell({
-						nx: world.camera.x, ny: world.camera.y, nr: gameWidth / canvas.width * 5,
+						nx: vision.camera.x, ny: vision.camera.y, nr: gameWidth / canvas.width * 5,
 						Rgb: 1, rGb: 0.6, rgB: 0.6,
 					});
 				} else {
@@ -4355,7 +4260,7 @@
 			requestAnimationFrame(renderGame);
 		}
 
-		renderGame();
+		requestAnimationFrame(renderGame);
 		return render;
 	})();
 
