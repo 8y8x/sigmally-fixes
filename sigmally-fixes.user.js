@@ -781,14 +781,7 @@
 			let shown = false;
 			deathScreen.check = () => {
 				if (world.stats.spawnedAt === undefined) return;
-				for (const vision of world.views.values()) {
-					for (const id of vision.owned) {
-						const cell = world.cells.get(id)?.merged;
-						// if a cell does not exist yet, we treat it as alive
-						if (!cell || cell.deadAt === undefined) return;
-					}
-				}
-				deathScreen.show();
+				if (!world.alive()) deathScreen.show();
 			};
 
 			deathScreen.show = () => {
@@ -1057,6 +1050,9 @@
 			massBold: false,
 			massOpacity: 1,
 			massScaleFactor: 1,
+			/** @type {'flawless' | 'alpha'} */
+			mergeStrategy: 'flawless',
+			multibox: false,
 			nameBold: false,
 			nameScaleFactor: 1,
 			outlineMulti: 0.2,
@@ -1221,13 +1217,13 @@
 				let oldValue = input.value = settings[property];
 
 				input.addEventListener('input', () => {
-					oldValue = settings[property] = /** @type {any} */ (input.value);
+					oldValue = settings[property] = /** @type {never} */ (input.value);
 					save();
 				});
 
 				onSaves.add(() => {
 					if (sync) input.value = settings[property];
-					else input.value = settings[property] = /** @type {any} */ (oldValue);
+					else input.value = settings[property] = /** @type {never} */ (oldValue);
 				});
 			};
 
@@ -1371,7 +1367,7 @@
 				input.value = settings[property];
 
 				const changed = () => {
-					settings[property] = /** @type {any} */ (input.value);
+					settings[property] = /** @type {never} */ (input.value);
 					save();
 				};
 				input.addEventListener('input', changed);
@@ -1430,6 +1426,15 @@
 		checkbox('tracer', 'Lines between cells and mouse', 'If enabled, draws a line between all of the cells you ' +
 			'control and your mouse. Useful as a hint to your subconscious about which tab you\'re currently on.');
 		separator('• multibox •');
+		checkbox('multibox', 'Press Tab to multibox', 'Whether you can multibox within one tab. When enabled, a ' +
+			'weighted camera is used.');
+		dropdown('mergeStrategy', 'Vision merging strategy', [
+			['flawless', 'Flawless - sync tabs'], ['alpha', 'Compatibility - prefer primary']
+			], 'Which algorithm to use when combining visible cells between tabs.\n' + 
+			'- "Flawless - sync tabs" synchronizes all connections and prevents warping. However, if any ' +
+			'tab starts lagging, the rest will freeze too. Default for Sigmally Fixes.\n' +
+			'- "Compatibility - prefer primary" uses the primary tab\'s cells if possible, though the most opaque ' +
+			'cell will be chosen. Cells may warp around, but will stay usable if laggy. Similar to Delta.');
 		slider('outlineMulti', 'Current tab cell outline thickness', 0.2, 0, 1, 0.01, 2, true,
 			'Draws an inverse outline on your cells, the thickness being a % of your cell radius. This only shows ' +
 			'when \'merge camera between tabs\' is enabled and when you\'re near one of your tabs.');
@@ -1541,6 +1546,8 @@
 		let nextViewId = 0;
 		/** @type {Map<number, { merged: Cell | undefined, model: Cell | undefined, views: Map<number, Cell> }>} */
 		world.cells = new Map();
+		/** @type {never[]} */
+		world.mine = []; // sigmod compatibility, so respawning still works
 		/** @type {Map<number, { merged: Cell | undefined, model: Cell | undefined, views: Map<number, Cell> }>} */
 		world.pellets = new Map();
 		world.viewId = { // decoupling views like this should make it easier to do n-boxing in the future
@@ -1562,6 +1569,17 @@
 		 * 		stats: object | undefined,
 		 * }>} */
 		world.views = new Map();
+
+		world.alive = () => {
+			for (const vision of world.views.values()) {
+				for (const id of vision.owned) {
+					const cell = world.cells.get(id)?.merged;
+					// if a cell does not exist yet, we treat it as alive
+					if (!cell || cell.deadAt === undefined) return true;
+				}
+			}
+			return false;
+		};
 
 		/**
 		 * @param {number} view
@@ -1597,12 +1615,47 @@
 			const vision = world.views.get(view);
 			if (!vision) return;
 
-			const desc = world.singleCamera(view, 0, now);
+			const autozoom = !settings.multibox && settings.autoZoom === 'auto';
+			/** @type {number[]} */
+			const merging = [];
+			const desc = world.singleCamera(view, settings.multibox ? 2 : 0, now);
 			let xyFactor;
 			if (desc.weight > 0) {
+				const mainScale = Math.min(64 / desc.r, 1) ** 0.4;
+				if (settings.multibox) {
+					const mainX = desc.sumX / desc.weight;
+					const mainY = desc.sumY / desc.weight;
+					const mainWeight = desc.weight;
+					const mainWidth = 1920 / 2 / mainScale;
+					const mainHeight = 1080 / 2 / mainScale;
+
+					for (const otherView of world.views.keys()) {
+						if (otherView === view) continue;
+						const otherDesc = world.singleCamera(otherView, 2, now);
+						if (otherDesc.weight <= 0) continue;
+
+						const otherX = otherDesc.sumX / otherDesc.weight;
+						const otherY = otherDesc.sumY / otherDesc.weight;
+						const otherScale = Math.min(64 / otherDesc.r, 1) ** 0.4;
+						const otherWidth = 1920 / 2 / otherScale;
+						const otherHeight = 1080 / 2 / otherScale;
+
+						// only merge with tabs if their vision regions are close. expand threshold depending on
+						// how much mass each tab has (if both tabs are large, allow them to go pretty far)
+						const threshold = Math.min(mainWeight / 100 / 100, otherDesc.weight / 100 / 100);
+						if (Math.abs(otherX - mainX) < mainWidth + otherWidth + threshold
+							&& Math.abs(otherY - mainY) < mainHeight + otherHeight + threshold) {
+							desc.sumX += otherDesc.sumX;
+							desc.sumY += otherDesc.sumY;
+							desc.weight += otherDesc.weight;
+							merging.push(otherView);
+						}
+					}
+				}
+
 				vision.camera.tx = desc.sumX / desc.weight;
 				vision.camera.ty = desc.sumY / desc.weight;
-				vision.camera.tscale = Math.min(64 / desc.r, 1) ** 0.4;
+				vision.camera.tscale = autozoom ? mainScale : 0.25;
 				xyFactor = 2;
 			} else {
 				xyFactor = 20;
@@ -1611,6 +1664,7 @@
 			vision.camera.x = aux.exponentialEase(vision.camera.x, vision.camera.tx, xyFactor, dt);
 			vision.camera.y = aux.exponentialEase(vision.camera.y, vision.camera.ty, xyFactor, dt);
 			vision.camera.scale = aux.exponentialEase(vision.camera.scale, input.zoom * vision.camera.tscale, 9, dt);
+			vision.camera.merging = merging;
 		};
 
 		/** @param {number} view */
@@ -1630,6 +1684,7 @@
 		};
 
 		world.merge = () => {
+			const now = performance.now();
 			if (world.views.size === 1 && world.views.has(world.viewId.primary)) {
 				// no-merge strategy
 				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
@@ -1637,21 +1692,126 @@
 						resolution.merged = resolution.views.get(world.viewId.primary);
 					}
 				}
-			} else {
-				// lazy strategy, prefer primary tab
+			} else if (settings.mergeStrategy === 'alpha') {
+				// maximize alpha, prefer primary tab
 				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
 					for (const resolution of world[key].values()) {
+						let alpha = 0;
 						/** @type {Cell | undefined} */
 						let best;
 						for (const [view, cell] of resolution.views) {
-							if (!best) {
+							let thisAlpha = now - cell.born;
+							if (cell.deadAt !== undefined) thisAlpha = Math.min(thisAlpha, 100 - (now - cell.deadAt));
+							thisAlpha = Math.min(thisAlpha, 100);
+							if (!best || thisAlpha > alpha || (thisAlpha === alpha && view === world.viewId.primary)) {
+								alpha = thisAlpha;
 								best = cell;
-								continue;
 							}
-							if (best.deadAt !== undefined && cell.deadAt === undefined) best = cell;
-							else if (view === world.selected && cell.deadAt === undefined) best = cell;
 						}
 						resolution.merged = best;
+					}
+				}
+			} else { // settings.mergeStrategy === 'flawless'
+				// for camera merging to look extremely smooth, we need to merge packets and apply them *ONLY* when all
+				// tabs are synchronized.
+				// if you simply fall back to what the other tabs see, you will get lots of flickering and warping (what
+				// delta suffers from).
+				// threfore, we make sure that all tabs that share visible cells see them in the same spots, to make
+				// sure they are all on the same tick.
+				// it's also not sufficient to simply count how many update (0x10) packets we get, as /leaveworld (part
+				// of respawn functionality) stops those packets from coming in.
+				// if the view areas are disjoint, then there's nothing we can do but this should never happen when
+				// splitrunning
+				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+					for (const resolution of world[key].values()) {
+						/** @type {Cell | undefined} */
+						let model;
+						for (const cell of resolution.views.values()) {
+							if (!model) {
+								model = cell;
+								continue;
+							}
+
+							const modelDisappeared = model.deadAt !== undefined && model.deadTo === -1;
+							const cellDisappeared = cell.deadAt !== undefined && cell.deadTo === -1;
+							if (!modelDisappeared && !cellDisappeared) {
+								// both cells are visible; are they at the same place?
+								if (model.nx !== cell.nx || model.ny !== cell.ny || model.nr !== cell.nr)
+									return;
+							} else if (modelDisappeared && !cellDisappeared) {
+								// model went out of view; prefer the visible cell
+								model = cell;
+							} else if (!modelDisappeared && cellDisappeared) {
+								// cell went out of view; prefer the model
+							} else { // modelDisappeared && cellDisappeared
+								// both cells disappeared; prefer the one that disappeared last
+								if (/** @type {number} */ (cell.deadAt) > /** @type {number} */ (model.deadAt)) {
+									model = cell;
+								}
+							}
+						}
+						// we don't want to maintain a separate map for models because indexes are very expensive
+						resolution.model = model;
+					}
+				}
+
+				// all views are synced; merge according to the models
+				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+					for (const resolution of world[key].values()) {
+						const { merged, model } = resolution;
+						if (!model) {
+							resolution.merged = undefined;
+							continue;
+						}
+
+						if (!merged) {
+							// merged cell doesn't exist; only make it if the cell didn't immediately die
+							// otherwise, it would just stay transparent
+							if (model.deadAt === undefined) {
+								resolution.merged = {
+									id: model.id,
+									ox: model.nx, nx: model.nx,
+									oy: model.ny, ny: model.ny,
+									or: model.nr, nr: model.nr, jr: model.nr,
+									Rgb: model.Rgb, rGb: model.rGb, rgB: model.rgB,
+									jagged: model.jagged, pellet: model.pellet,
+									name: model.name, skin: model.skin, sub: model.sub, clan: model.clan,
+									born: model.born, updated: now,
+									deadAt: undefined, deadTo: -1,
+								};
+							}
+						} else {
+							// merged cell *does* exist, move it if the cell is not currently dead
+							if (model.deadAt === undefined) {
+								if (merged.deadAt === undefined) {
+									const { x, y, r, jr } = world.xyr(merged, undefined, now);
+									merged.ox = x;
+									merged.oy = y;
+									merged.or = r;
+									merged.jr = jr;
+								} else {
+									// came back to life (probably back into view)
+									merged.ox = model.nx;
+									merged.oy = model.ny;
+									merged.or = model.nr;
+									merged.jr = model.jr;
+									merged.deadAt = undefined;
+									merged.deadTo = -1;
+									merged.born = now;
+								}
+								merged.nx = model.nx;
+								merged.ny = model.ny;
+								merged.nr = model.nr;
+								merged.updated = now;
+							} else {
+								// model died; only kill/update the merged cell once
+								if (merged.deadAt === undefined) {
+									merged.deadAt = now;
+									merged.deadTo = model.deadTo;
+									merged.updated = now;
+								}
+							}
+						}
 					}
 				}
 			}
@@ -2108,7 +2268,8 @@
 
 				vision.camera.x = vision.camera.tx = 0;
 				vision.camera.y = vision.camera.ty = 0;
-				vision.camera.scale = vision.camera.tscale = 1;
+				vision.camera.scale = input.zoom;
+				vision.camera.tscale = 1;
 				ws.send(aux.textEncoder.encode('SIG 0.0.1\x00'));
 			});
 
@@ -2194,11 +2355,12 @@
 		net.qup = bindOpcode(19);
 		net.split = bindOpcode(17);
 
+		// reversed argument order for sigmod compatibility
 		/**
-		 * @param {number} view
 		 * @param {string} msg
+		 * @param {number=} view
 		 */
-		net.chat = (view, msg) => {
+		net.chat = (msg, view = world.selected) => {
 			const connection = net.connections.get(view);
 			if (!connection?.handshake || connection.ws?.readyState !== WebSocket.OPEN) return;
 			const msgBuf = aux.textEncoder.encode(msg);
@@ -2238,6 +2400,9 @@
 		// create initial connection
 		world.create(world.viewId.primary);
 		net.create(world.viewId.primary);
+		setInterval(() => {
+			if (!settings.multibox) world.selected = world.viewId.primary;
+		}, 200);
 
 		return net;
 	})();
@@ -2351,6 +2516,25 @@
 			input.zoom = Math.min(Math.max(input.zoom, minZoom), 0.8 ** -11);
 		});
 
+		/** @param {boolean} spectating */
+		const playData = spectating => {
+			/** @type {HTMLInputElement | null} */
+			const nickElement = document.querySelector('input#nick');
+			/** @type {HTMLInputElement | null} */
+			const password = document.querySelector('input#password');
+
+			return {
+				state: spectating ? 2 : undefined,
+				name: nickElement?.value ?? '',
+				skin: aux.settings.skin,
+				token: aux.token?.token,
+				sub: (aux.userData?.subscription ?? 0) > Date.now(),
+				clan: aux.userData?.clan,
+				showClanmates: aux.settings.showClanmates,
+				password: password?.value,
+			};
+		}
+
 		addEventListener('keydown', e => {
 			if (e.code === 'Escape') {
 				if (document.activeElement === ui.chat.input)
@@ -2362,7 +2546,7 @@
 
 			if (unfocused()) {
 				if (e.code === 'Enter' && document.activeElement === ui.chat.input && ui.chat.input.value.length > 0) {
-					net.chat(world.selected, ui.chat.input.value.slice(0, 15));
+					net.chat(ui.chat.input.value.slice(0, 15), world.selected);
 					ui.chat.input.value = '';
 					ui.chat.input.blur();
 				}
@@ -2397,13 +2581,18 @@
 					break;
 				}
 				case 'Tab': {
-					inputs.w = false; // stop current tab from feeding; don't change forceW
-					// peep this if you're looking into n-boxing
-					if (world.selected === world.viewId.primary) world.selected = world.viewId.secondary;
-					else world.selected = world.viewId.primary;
-					world.create(world.selected);
-					net.create(world.selected);
-					e.preventDefault(); // prevent pressing tab anywhere on the page
+					e.preventDefault(); // prevent selecting anything on the page
+					if (settings.multibox) {
+						inputs.w = false; // stop current tab from feeding; don't change forceW
+						// peep this if you're looking into n-boxing
+						if (world.selected === world.viewId.primary) world.selected = world.viewId.secondary;
+						else world.selected = world.viewId.primary;
+						world.create(world.selected);
+						net.create(world.selected);
+					}
+
+					// also, press play on the current tab ONLY if any tab is alive
+					if (world.alive()) net.play(world.selected, playData(false));
 					break;
 				}
 			}
@@ -2446,25 +2635,6 @@
 
 
 		// #2 : play and spectate buttons, and captcha
-		/** @param {boolean} spectating */
-		function playData(spectating) {
-			/** @type {HTMLInputElement | null} */
-			const nickElement = document.querySelector('input#nick');
-			/** @type {HTMLInputElement | null} */
-			const password = document.querySelector('input#password');
-
-			return {
-				state: spectating ? 2 : undefined,
-				name: nickElement?.value ?? '',
-				skin: aux.settings.skin,
-				token: aux.token?.token,
-				sub: (aux.userData?.subscription ?? 0) > Date.now(),
-				clan: aux.userData?.clan,
-				showClanmates: aux.settings.showClanmates,
-				password: password?.value,
-			};
-		}
-
 		/** @type {HTMLButtonElement} */
 		const play = aux.require(
 			document.querySelector('button#play-btn'),
@@ -2722,9 +2892,9 @@
 					const score = world.score(world.selected);
 					if (0 < score && score < 5500) {
 						world.stats.spawnedAt = undefined; // prevent death screen from appearing
-						net.chat(world.selected, '/leaveworld'); // instant respawn
+						net.chat('/leaveworld', world.selected); // instant respawn
 						net.play(world.selected, playData(true)); // required, idk why
-						net.chat(world.selected, '/joinworld 1'); // spectating doesn't automatically put you back into the world
+						net.chat('/joinworld 1', world.selected); // spectating doesn't automatically put you back into the world
 					}
 				}
 
