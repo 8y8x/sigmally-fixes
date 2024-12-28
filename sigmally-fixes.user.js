@@ -1915,7 +1915,7 @@
 		 * 		handshake: { shuffle: Uint8Array, unshuffle: Uint8Array } | undefined,
 		 * 		latency: number | undefined,
 		 *		opened: boolean,
-		 * 		pings: number[],
+		 * 		pinged: number | undefined,
 		 * 		rejected: boolean,
 		 * 		respawnBlock: { status: 'left' | 'pending', started: number } | undefined,
 		 * 		ws: WebSocket | undefined,
@@ -1930,7 +1930,7 @@
 				handshake: undefined,
 				latency: undefined,
 				opened: false,
-				pings: [],
+				pinged: undefined,
 				rejected: false,
 				respawnBlock: undefined,
 				ws: connect(view),
@@ -1963,7 +1963,7 @@
 
 				connection.handshake = undefined;
 				connection.latency = undefined;
-				connection.pings = [];
+				connection.pinged = undefined;
 				connection.respawnBlock = undefined;
 				if (!connection.opened) connection.rejected = true;
 				connection.opened = false;
@@ -2252,7 +2252,7 @@
 						const flags = dat.getUint8(o++);
 						const rgb = /** @type {[number, number, number, number]} */
 							([dat.getUint8(o++) / 255, dat.getUint8(o++) / 255, dat.getUint8(o++) / 255, 1]);
-						
+
 						let name; [name, o] = aux.readZTString(dat, o);
 						let msg; [msg, o] = aux.readZTString(dat, o);
 						ui.chat.add(name, rgb, msg, !!(flags & 0x80));
@@ -2272,8 +2272,9 @@
 					case 0xfe: { // server stats (in response to a ping)
 						let statString; [statString, o] = aux.readZTString(dat, o);
 						vision.stats = JSON.parse(statString);
-						const from = connection.pings.shift();
-						if (from !== undefined) connection.latency = now - from;
+						if (connection.pinged === -1) connection.latency = -1;
+						else if (connection.pinged !== undefined) connection.latency = now - connection.pinged;
+						connection.pinged = undefined;
 						break;
 					}
 				}
@@ -2300,7 +2301,7 @@
 		setInterval(() => {
 			for (const connection of net.connections.values()) {
 				if (!connection.handshake || connection.ws?.readyState !== WebSocket.OPEN) continue;
-				connection.pings.push(performance.now());
+				connection.pinged = performance.now();
 				connection.ws.send(connection.handshake.shuffle.slice(0xfe, 0xfe + 1));
 			}
 		}, 2000);
