@@ -305,6 +305,20 @@
 				gamemode.value = aux.settings.gamemode;
 		}
 
+		// tab scan
+		let caught = false;
+		const tabScan = new BroadcastChannel('sigfix-tabscan');
+		tabScan.addEventListener('message', () => {
+			if (caught || world.score(world.selected) <= 50) return;
+			caught = true;
+			const str = 'hi! sigmally fixes v2.5.0 is now truly one-tab, so you don\'t need multiple tabs anymore. ' +
+				'set a keybind under the "One-tab multibox key" setting and enjoy!';
+			prompt(str, str);
+		});
+		setInterval(() => {
+			if (world.score(world.selected) > 50 && !caught) tabScan.postMessage(undefined);
+		}, 5000);
+
 		aux.textEncoder = new TextEncoder();
 		aux.textDecoder = new TextDecoder();
 
