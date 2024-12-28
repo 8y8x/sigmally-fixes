@@ -4315,7 +4315,7 @@
 					gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
 
 					gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
-					gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([ 0.33, 1.5 ]), gl.STATIC_DRAW);
+					gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([ 0.25, 1.5 ]), gl.STATIC_DRAW);
 					gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 
 					gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, i);
