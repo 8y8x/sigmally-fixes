@@ -1069,7 +1069,7 @@
 			massScaleFactor: 1,
 			/** @type {'flawless' | 'alpha'} */
 			mergeStrategy: 'flawless',
-			multibox: false,
+			multibox: '',
 			nameBold: false,
 			nameScaleFactor: 1,
 			outlineMulti: 0.2,
@@ -1092,6 +1092,10 @@
 		try {
 			Object.assign(settings, JSON.parse(localStorage.getItem('sigfix') ?? ''));
 		} catch (_) { }
+		
+		// convert old settings
+		if (/** @type {any} */ (settings.multibox) === true) settings.multibox = 'Tab';
+		else if (/** @type {any} */ (settings.multibox) === false) settings.multibox = '';
 
 		/** @type {Set<() => void>} */
 		const onSaves = new Set();
@@ -1123,6 +1127,10 @@
 		 * @typedef {{ [K in keyof O]: O[K] extends T ? K : never }[keyof O]} PropertyOfType
 		 */
 
+		/** @type {HTMLElement | null} */
+		const vanillaModal = document.querySelector('#cm_modal__settings .ctrl-modal__modal');
+		if (vanillaModal) vanillaModal.style.width = '440px'; // make modal wider to fit everything properly
+
 		const vanillaMenu = document.querySelector('#cm_modal__settings .ctrl-modal__content');
 		vanillaMenu?.appendChild(fromHTML(`
 			<div class="menu__item">
@@ -1146,10 +1154,9 @@
 		 * @param {number} max
 		 * @param {number} step
 		 * @param {number} decimals
-		 * @param {boolean} double
 		 * @param {string} help
 		 */
-		function slider(property, title, initial, min, max, step, decimals, double, help) {
+		function slider(property, title, initial, min, max, step, decimals, help) {
 			/**
 			 * @param {HTMLInputElement} slider
 			 * @param {HTMLInputElement} display
@@ -1181,7 +1188,7 @@
 
 			const datalist = `<datalist id="sf-${property}-markers"> <option value="${initial}"></option> </datalist>`;
 			const vanilla = fromHTML(`
-				<div style="height: ${double ? '50' : '25'}px; position: relative;" title="${help}">
+				<div style="height: 25px; position: relative;" title="${help}">
 					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">${title}</div>
 					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
 						<input id="sf-${property}" style="display: block; float: left; height: 25px; line-height: 25px;\
@@ -1229,10 +1236,9 @@
 			 * @param {HTMLInputElement} input
 			 */
 			const listen = input => {
-				let oldValue = input.value = settings[property];
-
+				input.value = /** @type {never} */ (settings[property]);
 				input.addEventListener('input', () => {
-					oldValue = settings[property] = /** @type {never} */ (input.value);
+					settings[property] = /** @type {never} */ (input.value);
 					save();
 				});
 
@@ -1240,7 +1246,7 @@
 			};
 
 			const vanilla = fromHTML(`
-				<div style="height: 50px; position: relative;" title="${help}">
+				<div style="height: 25px; position: relative;" title="${help}">
 					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">${title}</div>
 					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
 						<input id="sf-${property}" placeholder="${placeholder}" type="text" />
@@ -1272,7 +1278,6 @@
 			 */
 			const listen = input => {
 				input.checked = settings[property];
-
 				input.addEventListener('input', () => {
 					settings[property] = input.checked;
 					save();
@@ -1320,7 +1325,6 @@
 			const listen = (input, visible) => {
 				input.value = aux.rgba2hex6(...settings[property]);
 				visible.checked = settings[property][3] > 0;
-
 				const changed = () => {
 					settings[property] = aux.hex2rgba(input.value);
 					settings[property][3] = visible.checked ? 1 : 0;
@@ -1377,12 +1381,10 @@
 			 */
 			const listen = input => {
 				input.value = settings[property];
-
-				const changed = () => {
+				input.addEventListener('input', () => {
 					settings[property] = /** @type {never} */ (input.value);
 					save();
-				};
-				input.addEventListener('input', changed);
+				});
 
 				onSaves.add(() => {
 					input.value = settings[property];
@@ -1414,6 +1416,54 @@
 			sigmodContainer.appendChild(sigmod);
 		}
 
+		/**
+		 * @param {PropertyOfType<typeof settings, string>} property
+		 * @param {string} title
+		 * @param {string} help
+		 */
+		function keybind(property, title, help) {
+			/**
+			 * @param {HTMLSelectElement} input
+			 */
+			const listen = input => {
+				input.value = settings[property];
+				input.addEventListener('keydown', e => {
+					if (e.code === 'Escape' || e.code === 'Backspace') {
+						settings[property] = /** @type {never} */ (input.value = '');
+					} else {
+						settings[property] = /** @type {never} */ (input.value = e.key);
+					}
+					e.preventDefault(); // prevent the actual key from being input
+					save();
+				});
+
+				onSaves.add(() => {
+					input.value = settings[property];
+				});
+			};
+
+			const vanilla = fromHTML(`
+				<div style="height: 25px; position: relative;" title="${help}">
+					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">${title}</div>
+					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
+						<input id="sf-${property}" placeholder="..." type="text" style="width: 40px;" />
+					</div>
+				</div>
+			`);
+			listen(/** @type {HTMLSelectElement} */(vanilla.querySelector(`input#sf-${property}`)));
+			vanillaContainer.appendChild(vanilla);
+
+			const sigmod = fromHTML(`
+				<div class="modRowItems justify-sb" style="padding: 5px 10px;" title="${help}">
+					<span>${title}</span>
+					<input class="keybinding" id="sfsm-${property}" placeholder="..." \
+						style="width: 50px;" type="text" />
+				</div>
+			`);
+			listen(/** @type {HTMLSelectElement} */(sigmod.querySelector(`input#sfsm-${property}`)));
+			sigmodContainer.appendChild(sigmod);
+		}
+
 		function separator(text = '•') {
 			vanillaContainer.appendChild(fromHTML(`<div style="text-align: center; width: 100%;">${text}</div>`));
 			sigmodContainer.appendChild(fromHTML(`<span class="text-center">${text}</span>`));
@@ -1421,12 +1471,12 @@
 
 		// #2 : generate ui for settings
 		separator('Hover over a setting for more info');
-		slider('drawDelay', 'Draw delay', 120, 40, 300, 1, 0, false,
+		slider('drawDelay', 'Draw delay', 120, 40, 300, 1, 0,
 			'How long (in ms) cells will lag behind for. Lower values mean cells will very quickly catch up to where ' +
 			'they actually are.');
 		checkbox('cellOutlines', 'Cell outlines', 'Whether the subtle dark outlines around cells (including skins) ' +
 			'should draw.');
-		slider('cellOpacity', 'Cell opacity', undefined, 0.5, 1, 0.005, 3, false,
+		slider('cellOpacity', 'Cell opacity', undefined, 0.5, 1, 0.005, 3,
 			'How opaque cells should be. 1 = fully visible, 0 = invisible. It can be helpful to see the size of a ' +
 			'smaller cell under a big cell.');
 		input('selfSkin', 'Self skin URL', 'https://i.imgur.com/...',
@@ -1439,8 +1489,10 @@
 		checkbox('tracer', 'Lines between cells and mouse', 'If enabled, draws a line between all of the cells you ' +
 			'control and your mouse. Useful as a hint to your subconscious about which tab you\'re currently on.');
 		separator('• multibox •');
-		checkbox('multibox', 'Press Tab to multibox', 'Whether you can multibox within one tab. When enabled, a ' +
-			'weighted camera is used.');
+		keybind('multibox', 'One-tab multibox key', 'Pressing this key will switch between two game connections in ' +
+			'this browser tab. When this key is set, a weighted camera will be used. You can unbind the key by ' +
+			'setting it to Escape or Backspace. If you\'re used to Ctrl+Tab, consider enabling &quot;Block all ' +
+			'browser keybinds&quot;.');
 		dropdown('mergeStrategy', 'Vision merging strategy', [
 			['flawless', 'Flawless - sync tabs'], ['alpha', 'Compatibility - prefer primary']
 			], 'Which algorithm to use when combining visible cells between tabs.\n' + 
@@ -1449,7 +1501,7 @@
 			'- &quot;Compatibility - prefer primary&quot; uses the primary tab\'s cells if possible, though the most ' +
 			'opaque cell will be chosen. Cells may warp around, but will stay usable if your internet is unstable. ' +
 			'Similar to Delta.');
-		slider('outlineMulti', 'Current tab cell outline thickness', 0.2, 0, 1, 0.01, 2, true,
+		slider('outlineMulti', 'Current tab cell outline thickness', 0.2, 0, 1, 0.01, 2,
 			'Draws an inverse outline on your cells, the thickness being a % of your cell radius. This only shows ' +
 			'when \'merge camera between tabs\' is enabled and when you\'re near one of your tabs.');
 		color('outlineMultiColor', 'Current tab outline color',
@@ -1457,33 +1509,34 @@
 		color('outlineMultiInactiveColor', 'Other tab outline color',
 			'The outline color for the cells of your other unfocused multibox tabs. Turn off the checkbox to disable.');
 		separator('• inputs •');
-		slider('scrollFactor', 'Zoom speed', 1, 0.05, 1, 0.05, 2, false,
+		slider('scrollFactor', 'Zoom speed', 1, 0.05, 1, 0.05, 2,
 			'A smaller zoom speed lets you fine-tune your zoom.');
 		dropdown('autoZoom', 'Auto-zoom', [['auto', 'When not multiboxing'], ['never', 'Never']],
 			'When enabled, automatically zooms in/out for you based on how big you are. ');
 		checkbox('blockBrowserKeybinds', 'Block all browser keybinds',
-			'When enabled, only Ctrl+Tab and F11 are allowed to be pressed. You must be in fullscreen.');
+			'When enabled, only F11 is allowed to be pressed when in fullscreen. Most other browser and system ' +
+			'keybinds will be disabled.');
 		checkbox('blockNearbyRespawns', 'Block respawns near other tabs',
 			'Disables the respawn keybind (SigMod-only) when near one of your bigger tabs.');
 		separator('• text •');
-		slider('nameScaleFactor', 'Name scale factor', 1, 0.5, 2, 0.01, 2, false, 'The size multiplier of names.');
-		slider('massScaleFactor', 'Mass scale factor', 1, 0.5, 4, 0.01, 2, false,
+		slider('nameScaleFactor', 'Name scale factor', 1, 0.5, 2, 0.01, 2, 'The size multiplier of names.');
+		slider('massScaleFactor', 'Mass scale factor', 1, 0.5, 4, 0.01, 2,
 			'The size multiplier of mass (which is half the size of names)');
-		slider('massOpacity', 'Mass opacity', 1, 0, 1, 0.01, 2, false,
+		slider('massOpacity', 'Mass opacity', 1, 0, 1, 0.01, 2,
 			'The opacity of the mass text. You might find it visually appealing to have mass be a little dimmer than ' +
 			'names.');
 		checkbox('nameBold', 'Bold name text', 'Uses the bold Ubuntu font for names (like Agar.io).');
 		checkbox('massBold', 'Bold mass text', 'Uses a bold font for mass.');
 		checkbox('clans', 'Show clans', 'When enabled, shows the name of the clan a player is in above their name. ' +
 			'If you turn off names (using SigMod), then player names will be replaced with their clan\'s.');
-		slider('clanScaleFactor', 'Clan scale factor', 1, 0.5, 4, 0.01, 2, false,
+		slider('clanScaleFactor', 'Clan scale factor', 1, 0.5, 4, 0.01, 2,
 			'The size multiplier of a player\'s clan displayed above their name (only when \'Show clans\' is ' +
 			'enabled). When names are off, names will be replaced with clans and use the name scale factor instead.');
-		slider('textOutlinesFactor', 'Text outline thickness factor', 1, 0, 2, 0.01, 2, false,
+		slider('textOutlinesFactor', 'Text outline thickness factor', 1, 0, 2, 0.01, 2,
 			'The multiplier of the thickness of the black stroke around names, mass, and clans on cells. You can set ' +
 			'this to 0 to disable outlines AND text shadows.');
 		separator('• other •');
-		slider('unsplittableOpacity', 'Unsplittable cell outline opacity', 1, 0, 1, 0.01, 2, true,
+		slider('unsplittableOpacity', 'Unsplittable cell outline opacity', 1, 0, 1, 0.01, 2,
 			'How visible the white outline around cells that can\'t split should be. 0 = not visible, 1 = fully ' +
 			'visible.');
 		checkbox('jellySkinLag', 'Jelly physics cell size lag',
@@ -2587,7 +2640,7 @@
 		addEventListener('keydown', e => {
 			const view = world.selected;
 			const inputs = input.views.get(view) ?? create(view);
-			if (e.code === 'Tab') {
+			if (settings.multibox && e.key.toLowerCase() === settings.multibox.toLowerCase()) {
 				e.preventDefault(); // prevent selecting anything on the page
 				if (settings.multibox) {
 					inputs.w = false; // stop current tab from feeding; don't change forceW
@@ -2670,7 +2723,7 @@
 				}
 			}
 
-			if (e.key === aux.sigmodSettings?.tripleKey) {
+			if (e.key.toLowerCase() === aux.sigmodSettings?.tripleKey?.toLowerCase()) {
 				// if you triple twice for some reason, it should use the new mouse position
 				inputs.lock = {
 					mouse: inputs.mouse,
