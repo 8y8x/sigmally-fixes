@@ -9,26 +9,38 @@
 		"Keep the alert short and unintrusive, as it shifts all the buttons down and out of the main UI.",
 		"No HTML; the < and > characters are stripped."
 	],
+	"2.5.0": {
+		"ok": true
+	},
+	"2.4.2.1": {
+		"ok": false,
+		"alert": "Upgrade to Sigmally Fixes v2.5.0 for smooth, fast one-tab multiboxing: {autolink}",
+		"color": "#09f"
+	},
 	"2.4.2": {
 		"ok": false,
-		"alert": "v2.4.2 is known to be bad for multiboxers. Try downgrading to v2.3.19 or using v2.4.2.1: {autolink}",
+		"alert": "Upgrade to Sigmally Fixes v2.5.0 for smooth, fast one-tab multiboxing: {autolink}",
 		"color": "#09f"
 	},
 	"2.4.1": {
 		"ok": false,
-		"alert": "v2.4.2 is known to be bad for multiboxers. Try downgrading to v2.3.19 or using v2.4.2.1: {autolink}",
-		"color": "#f90"
+		"alert": "Upgrade to Sigmally Fixes v2.5.0 for smooth, fast one-tab multiboxing: {autolink}",
+		"color": "#09f"
 	},
 	"2.4.0": {
 		"ok": false,
-		"alert": "v2.4.2 is known to be bad for multiboxers. Try downgrading to v2.3.19 or using v2.4.2.1: {autolink}",
-		"color": "#f90"
+		"alert": "Upgrade to Sigmally Fixes v2.5.0 for smooth, fast one-tab multiboxing: {autolink}",
+		"color": "#09f"
 	},
 	"2.3.19": {
-		"ok": true
+		"ok": false,
+		"alert": "Upgrade to Sigmally Fixes v2.5.0 for smooth, fast one-tab multiboxing: {autolink}",
+		"color": "#09f"
 	},
 	"2.3.18": {
-		"ok": false
+		"ok": false,
+		"alert": "Upgrade to Sigmally Fixes v2.5.0 for smooth, fast one-tab multiboxing: {autolink}",
+		"color": "#09f"
 	},
 	"2.3.17": {
 		"ok": false,
