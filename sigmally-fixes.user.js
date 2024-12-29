@@ -267,6 +267,7 @@
 		/** @type {object | undefined} */
 		aux.userData = undefined;
 		aux.oldFetch = fetch.bind(window);
+		let lastUserData = -Infinity;
 		// this is the best method i've found to get the userData object, since game.js uses strict mode
 		Object.defineProperty(window, 'fetch', {
 			value: new Proxy(fetch, {
@@ -275,11 +276,16 @@
 					const data = args[1];
 					if (typeof url === 'string') {
 						if (url.includes('/server/recaptcha/v3'))
-							return new Promise(() => { }); // block game.js from attempting to go through captcha flow
+							return new Promise(() => {}); // block game.js from attempting to go through captcha flow
 
 						// game.js doesn't think we're connected to a server, we default to eu0 because that's the
 						// default everywhere else
-						if (url.includes('/userdata/')) url = url.replace('///', '//eu0.sigmally.com/server/');
+						if (url.includes('/userdata/')) {
+							// when holding down the respawn key, you can easily make 30+ requests a second,
+							// bombing you into ratelimit hell
+							if (performance.now() - lastUserData < 500) return new Promise(() => {});
+							url = url.replace('///', '//eu0.sigmally.com/server/');
+						}
 
 						// patch the current token in the url and body of the request
 						if (aux.token) {
@@ -536,19 +542,21 @@
 					if (obj.constructor?.name === 'SigWsHandler') handler = obj;
 					return old.call(this, obj);
 				}
-				new destructor.realWebSocket('//0/sigmally.com');
+				new destructor.realWebSocket('//255.255.255.255/sigmally.com');
 				Function.prototype.bind = old;
 				// handler is expected to be a "SigWsHandler", but it might be something totally different
 				if (handler && 'sendPacket' in handler && 'handleMessage' in handler) {
 					// first, set up the handshake (opcode not-really-a-shuffle)
-					handler.handshake = true;
+					// handshake is reset to false on close (which may or may not happen immediately)
+					Object.defineProperty(handler, 'handshake', { get: () => true, set: () => {} });
 					handler.R = handler.C = new Uint8Array(256); // R and C are linked
 					for (let i = 0; i < 256; ++i) handler.C[i] = i;
 
 					// expose some functions here, don't directly access the handler anywhere else
 					sigmod.proxy = {
 						/** @param {DataView} dat */
-						handleMessage: dat => handler.handleMessage({ data: dat.buffer })
+						handleMessage: dat => handler.handleMessage({ data: dat.buffer }),
+						isPlaying: () => /** @type {any} */ (window).gameSettings.isPlaying = true,
 					};
 
 					// override sendPacket to properly handle what sigmod expects
@@ -2505,6 +2513,8 @@
 			dat.setInt32(1, x, true);
 			dat.setInt32(5, y, true);
 			connection.ws.send(dat);
+
+			sigmod.proxy.isPlaying?.(); // without this, the respawn key will build up timeouts and make the game laggy
 		};
 
 		/** @param {number} opcode */
