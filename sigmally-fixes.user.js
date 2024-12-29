@@ -2712,12 +2712,16 @@
 				return;
 			}
 
+			// if fast feed is rebound, only allow the spoofed W's from sigmod
+			let fastFeeding = e.code === 'KeyW';
+			if (aux.sigmodSettings?.rapidFeedKey && aux.sigmodSettings?.rapidFeedKey !== 'w') {
+				fastFeeding &&= !e.isTrusted;
+			}
+			if (fastFeeding) inputs.forceW = inputs.w = true;
+
 			switch (e.code) {
 				case 'KeyQ':
 					if (!e.repeat) net.qdown(world.selected);
-					break;
-				case 'KeyW':
-					inputs.forceW = inputs.w = true;
 					break;
 				case 'Space': {
 					if (!e.repeat) {
@@ -2737,7 +2741,8 @@
 				}
 			}
 
-			if (e.key.toLowerCase() === aux.sigmodSettings?.tripleKey?.toLowerCase()) {
+			if (e.isTrusted && e.key.toLowerCase() === aux.sigmodSettings?.tripleKey?.toLowerCase()) {
+				// do not allow sigmod to trigger mouse locks
 				// if you triple twice for some reason, it should use the new mouse position
 				inputs.lock = {
 					mouse: inputs.mouse,
@@ -2748,7 +2753,7 @@
 		});
 
 		addEventListener('keyup', e => {
-			// do not check if unfocused
+			// allow inputs if unfocused
 			if (e.code === 'KeyQ') net.qup(world.selected);
 			else if (e.code === 'KeyW') {
 				const inputs = input.views.get(world.selected) ?? create(world.selected);
