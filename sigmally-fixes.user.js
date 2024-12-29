@@ -665,8 +665,9 @@
 			newCanvas.addEventListener('webglcontextrestored', () => glconf.init());
 
 			function resize() {
-				newCanvas.width = Math.ceil(innerWidth * devicePixelRatio);
-				newCanvas.height = Math.ceil(innerHeight * devicePixelRatio);
+				// devicePixelRatio does not have very high precision; it could be 0.800000011920929 for example
+				newCanvas.width = Math.ceil(innerWidth * (devicePixelRatio - 0.0001));
+				newCanvas.height = Math.ceil(innerHeight * (devicePixelRatio - 0.0001));
 				game.gl.viewport(0, 0, newCanvas.width, newCanvas.height);
 			}
 
@@ -4509,7 +4510,7 @@
 
 				const { canvas, ctx } = ui.minimap;
 				// clears the canvas
-				const canvasLength = canvas.width = canvas.height = Math.ceil(200 * devicePixelRatio);
+				const canvasLength = canvas.width = canvas.height = Math.ceil(200 * (devicePixelRatio - 0.0001));
 				const sectorSize = canvas.width / 5;
 
 				// cache the background if necessary (25 texts = bad)
