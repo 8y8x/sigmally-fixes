@@ -4636,8 +4636,10 @@
 				const avgPos = new Map();
 				for (const resolution of world.cells.values()) {
 					const cell = resolution.merged;
-					if (!cell || vision.owned.includes(cell.id)) continue;
-					if (!cell.clan || cell.clan !== aux.userData?.clan) continue;
+					if (!cell) continue;
+					let owned = false;
+					for (const vision of world.views.values()) owned ||= vision.owned.includes(cell.id);
+					if (!owned && (!cell.clan || cell.clan !== aux.userData?.clan)) continue;
 					drawCell(cell);
 
 					const name = cell.name || 'An unnamed cell';
