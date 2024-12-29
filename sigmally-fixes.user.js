@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.5.1-BETA2
+// @version      2.5.1
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.5.1-BETA2';
+	const sfVersion = '2.5.1';
 	const undefined = window.undefined; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -541,7 +541,7 @@
 				Function.prototype.bind = function(obj) {
 					if (obj.constructor?.name === 'SigWsHandler') handler = obj;
 					return old.call(this, obj);
-				}
+				};
 				new destructor.realWebSocket('//255.255.255.255/sigmally.com');
 				Function.prototype.bind = old;
 				// handler is expected to be a "SigWsHandler", but it might be something totally different
@@ -752,7 +752,7 @@
 					`${stats.playersSpect} spectating`,
 					`${(stats.update * 2.5).toFixed(1)}% load @ ${uptime}`,
 				].join('\r\n');
-			}
+			};
 
 			/** @type {object | undefined} */
 			let lastStats;
@@ -1182,7 +1182,7 @@
 		try {
 			Object.assign(settings, JSON.parse(localStorage.getItem('sigfix') ?? ''));
 		} catch (_) { }
-		
+
 		// convert old settings
 		if (/** @type {any} */ (settings.multibox) === true) settings.multibox = 'Tab';
 		else if (/** @type {any} */ (settings.multibox) === false) settings.multibox = '';
@@ -1583,9 +1583,9 @@
 			'this browser tab. When this key is set, a weighted camera will be used. You can unbind the key by ' +
 			'setting it to Escape or Backspace. If you\'re used to Ctrl+Tab, consider enabling &quot;Block all ' +
 			'browser keybinds&quot;.');
-		dropdown('mergeStrategy', 'Vision merging strategy', [
-			['flawless', 'Flawless - sync tabs'], ['alpha', 'Compatibility - prefer primary']
-			], 'Which algorithm to use when combining visible cells between tabs.\n' + 
+		dropdown('mergeStrategy', 'Vision merging strategy',
+			[['flawless', 'Flawless - sync tabs'], ['alpha', 'Compatibility - prefer primary']],
+			'Which algorithm to use when combining visible cells between tabs.\n' +
 			'- &quot;Flawless - sync tabs&quot; synchronizes all connections and prevents warping. However, if any ' +
 			'tab starts lagging, the rest will freeze too. Default for Sigmally Fixes.\n' +
 			'- &quot;Compatibility - prefer primary&quot; uses the primary tab\'s cells if possible, though the most ' +
@@ -1730,7 +1730,7 @@
 		/** @type {[symbol]} */
 		world.mine = [Symbol()];
 		const fakeEntry = {
-			deadAt: undefined, // 
+			deadAt: undefined, // make sure sigmod doesn't skip this cell
 			merged: undefined,
 			model: undefined,
 			views: new Map([ [/** @type {any} */ (Symbol()), {
@@ -2519,7 +2519,7 @@
 				dat.setUint8(1 + i, dataBuf[i]);
 			}
 			connection.ws.send(dat);
-		}
+		};
 
 		// #5 : export input functions
 		/**
@@ -2748,7 +2748,7 @@
 				showClanmates: aux.settings.showClanmates,
 				password: password?.value,
 			};
-		}
+		};
 
 		/** @type {HTMLInputElement} */
 		const nickElement = aux.require(document.querySelector('input#nick'),
@@ -3139,7 +3139,8 @@
 						world.stats.spawnedAt = undefined; // prevent death screen from appearing
 						net.chat('/leaveworld', world.selected); // instant respawn
 						net.play(world.selected, playData(name, true)); // required, idk why
-						net.chat('/joinworld 1', world.selected); // spectating doesn't automatically put you back into the world
+						// spectating doesn't automatically put you back into the world
+						net.chat('/joinworld 1', world.selected);
 					}
 				}
 
@@ -4257,13 +4258,6 @@
 						}
 
 						let skin = '';
-						// ownedByOther && myIndex !== -1 && world.selected != primary: impossible
-						// ownedByOther && myIndex !== -1 && world.selected == primary: impossible
-						// ownedByOther && myIndex === -1 && world.selected != primary: 
-						// myIndex !== -1 && world.selected != primary: settings.selfSkinMulti
-						// ownedByOther && world.selected == primary: settings.selfSkinMulti
-						// myIndex !== -1 && world.selected == primary: settings.selfSkin
-
 						if (myIndex !== -1) {
 							skin = (world.selected === world.viewId.primary)
 								? settings.selfSkin : settings.selfSkinMulti;
