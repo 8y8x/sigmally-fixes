@@ -177,83 +177,6 @@
 			return [aux.textDecoder.decode(new DataView(dat.buffer, startOff, o - startOff)), o + 1];
 		};
 
-		/** @type {{
-		 * 	cellColor?: [number, number, number, number],
-		 * 	foodColor?: [number, number, number, number],
-		 * 	mapColor?: [number, number, number, number],
-		 * 	outlineColor?: [number, number, number, number],
-		 * 	nameColor1?: [number, number, number, number],
-		 * 	nameColor2?: [number, number, number, number],
-		 * 	hidePellets?: boolean,
-		 * 	rapidFeedKey?: string,
-		 * 	removeOutlines?: boolean,
-		 * 	showNames?: boolean,
-		 * 	skinReplacement?: { original: string | null, replacement?: string | null, replaceImg?: string | null },
-		 * 	tripleKey?: string,
-		 * 	virusImage?: string,
-		 * } | undefined} */
-		aux.sigmodSettings = undefined;
-		setInterval(() => {
-			// @ts-expect-error
-			const sigmod = window.sigmod?.settings;
-			if (!sigmod) return;
-			let sigmodSettings = aux.sigmodSettings = {};
-			/**
-			 * @param {'cellColor' | 'foodColor' | 'mapColor' | 'outlineColor' | 'nameColor1' | 'nameColor2'} prop
-			 * @param {any[]} lookups
-			 */
-			const applyColor = (prop, lookups) => {
-				for (const lookup of lookups) {
-					if (lookup) {
-						sigmodSettings[prop] = aux.hex2rgba(lookup);
-						return;
-					}
-				}
-			};
-			applyColor('cellColor', [sigmod.game?.cellColor]);
-			applyColor('foodColor', [sigmod.game?.foodColor]);
-			applyColor('mapColor', [sigmod.game?.map?.color, sigmod.mapColor]);
-			// sigmod treats the map border as cell borders for some reason
-			if (!['#00f', '#00f0', '#0000ff', '#000000ffff'].includes(sigmod.game?.borderColor))
-				applyColor('outlineColor', [sigmod.game?.borderColor]);
-			// note: singular nameColor takes priority
-			applyColor('nameColor1', [
-				sigmod.game?.name?.color,
-				sigmod.game?.name?.gradient?.enabled && sigmod.game.name.gradient.left,
-			]);
-			applyColor('nameColor2', [
-				sigmod.game?.name?.color,
-				sigmod.game?.name?.gradient?.enabled && sigmod.game.name.gradient.right,
-			]);
-			// v10 does not have a 'hide food' setting; check food's transparency
-			aux.sigmodSettings.hidePellets = aux.sigmodSettings.foodColor?.[3] === 0;
-			aux.sigmodSettings.removeOutlines = sigmod.game?.removeOutlines;
-			aux.sigmodSettings.skinReplacement = sigmod.game?.skins;
-			aux.sigmodSettings.virusImage = sigmod.game?.virusImage;
-			aux.sigmodSettings.rapidFeedKey = sigmod.macros?.keys?.rapidFeed;
-			// sigmod's showNames setting is always "true" interally (i think??)
-			aux.sigmodSettings.showNames = aux.setting('input#showNames', true);
-
-			aux.sigmodSettings.tripleKey = sigmod.macros?.keys?.splits?.triple || undefined; // blank keys are ''
-		}, 200);
-
-		// patch some sigmod bugs
-		let patchSigmodInterval;
-		patchSigmodInterval = setInterval(() => {
-			const sigmod = /** @type {any} */ (window).sigmod;
-			if (!sigmod) return;
-
-			clearInterval(patchSigmodInterval);
-
-			// anchor chat and minimap to the screen, so scrolling to zoom doesn't move them
-			// it's possible that cursed will change something at any time so i'm being safe here
-			const minimapContainer = /** @type {HTMLElement | null} */ (document.querySelector('.minimapContainer'));
-			if (minimapContainer) minimapContainer.style.position = 'fixed';
-
-			const modChat = /** @type {HTMLElement | null} */ (document.querySelector('.modChat'));
-			if (modChat) modChat.style.position = 'fixed';
-		}, 500);
-
 		/**
 		 * @param {string} selector
 		 * @param {boolean} value
@@ -264,7 +187,8 @@
 			return el ? el.checked : value;
 		};
 
-		const settings = () => {
+		/** @param {boolean} accessSigmod */
+		const settings = accessSigmod => {
 			try {
 				// current skin is saved in localStorage
 				aux.settings = JSON.parse(localStorage.getItem('settings') ?? '');
@@ -272,10 +196,9 @@
 				aux.settings = /** @type {any} */ ({});
 			}
 
-			// sigmod forces dark theme to be enabled
-			if (aux.sigmodSettings) {
-				// sigmod doesn't have a checkbox for dark theme, so we infer it from the custom map color
-				const { mapColor } = aux.sigmodSettings;
+			// sigmod doesn't have a checkbox for dark theme, so we infer it from the custom map color
+			const { mapColor } = accessSigmod ? sigmod.settings : {};
+			if (mapColor) {
 				aux.settings.darkTheme
 					= mapColor ? (mapColor[0] < 0.6 && mapColor[1] < 0.6 && mapColor[2] < 0.6) : true;
 			} else {
@@ -295,8 +218,8 @@
 		/** @type {{ darkTheme: boolean, jellyPhysics: boolean, showBorder: boolean, showClanmates: boolean,
 		 showGrid: boolean, showMass: boolean, showMinimap: boolean, showSkins: boolean, zoomout: boolean,
 		 gamemode: any, skin: any }} */
-		aux.settings = settings();
-		setInterval(settings, 250);
+		aux.settings = settings(false);
+		setInterval(() => settings(true), 250);
 		// apply saved gamemode because sigmally fixes connects before the main game even loads
 		if (aux.settings?.gamemode) {
 			/** @type {HTMLSelectElement | null} */
@@ -305,7 +228,6 @@
 				gamemode.value = aux.settings.gamemode;
 		}
 
-		// tab scan
 		let caught = false;
 		const tabScan = new BroadcastChannel('sigfix-tabscan');
 		tabScan.addEventListener('message', () => {
@@ -507,6 +429,150 @@
 		return destructor;
 	})();
 
+
+
+	//////////////////////////////////
+	// Apply Complex SigMod Patches //
+	//////////////////////////////////
+	const sigmod = (() => {
+		const sigmod = {};
+
+		/** @type {{
+		 * 	cellColor?: [number, number, number, number],
+		 * 	foodColor?: [number, number, number, number],
+		 * 	mapColor?: [number, number, number, number],
+		 * 	outlineColor?: [number, number, number, number],
+		 * 	nameColor1?: [number, number, number, number],
+		 * 	nameColor2?: [number, number, number, number],
+		 * 	hidePellets?: boolean,
+		 * 	rapidFeedKey?: string,
+		 * 	removeOutlines?: boolean,
+		 * 	showNames?: boolean,
+		 * 	skinReplacement?: { original: string | null, replacement?: string | null, replaceImg?: string | null },
+		 * 	tripleKey?: string,
+		 * 	virusImage?: string,
+		 * }} */
+		sigmod.settings = {};
+		setInterval(() => {
+			// @ts-expect-error
+			const real = window.sigmod?.settings;
+			if (!real) return;
+			/**
+			 * @param {'cellColor' | 'foodColor' | 'mapColor' | 'outlineColor' | 'nameColor1' | 'nameColor2'} prop
+			 * @param {any[]} lookups
+			 */
+			const applyColor = (prop, lookups) => {
+				for (const lookup of lookups) {
+					if (lookup) {
+						sigmod.settings[prop] = aux.hex2rgba(lookup);
+						return;
+					}
+				}
+			};
+			applyColor('cellColor', [real.game?.cellColor]);
+			applyColor('foodColor', [real.game?.foodColor]);
+			applyColor('mapColor', [real.game?.map?.color, real.mapColor]);
+			// sigmod treats the map border as cell borders for some reason
+			if (!['#00f', '#00f0', '#0000ff', '#000000ffff'].includes(real.game?.borderColor))
+				applyColor('outlineColor', [real.game?.borderColor]);
+			// note: singular nameColor takes priority
+			applyColor('nameColor1', [
+				real.game?.name?.color,
+				real.game?.name?.gradient?.enabled && real.game.name.gradient.left,
+			]);
+			applyColor('nameColor2', [
+				real.game?.name?.color,
+				real.game?.name?.gradient?.enabled && real.game.name.gradient.right,
+			]);
+			// v10 does not have a 'hide food' setting; check food's transparency
+			sigmod.settings.hidePellets = real.settings.foodColor?.[3] === 0;
+			sigmod.settings.removeOutlines = real.game?.removeOutlines;
+			sigmod.settings.skinReplacement = real.game?.skins;
+			sigmod.settings.virusImage = real.game?.virusImage;
+			sigmod.settings.rapidFeedKey = real.macros?.keys?.rapidFeed;
+			// sigmod's showNames setting is always "true" interally (i think??)
+			sigmod.settings.showNames = aux.setting('input#showNames', true);
+
+			sigmod.settings.tripleKey = real.macros?.keys?.splits?.triple || undefined; // blank keys are ''
+		}, 200);
+
+		// patch sigmod when it's ready; typically sigmod loads first, but i can't guarantee that
+		sigmod.proxy = {};
+		let patchInterval;
+		patchInterval = setInterval(() => {
+			const real = /** @type {any} */ (window).sigmod;
+			if (!real) return;
+
+			clearInterval(patchInterval);
+
+			// anchor chat and minimap to the screen, so scrolling to zoom doesn't move them
+			// it's possible that cursed will change something at any time so i'm being safe here
+			const minimapContainer = /** @type {HTMLElement | null} */ (document.querySelector('.minimapContainer'));
+			if (minimapContainer) minimapContainer.style.position = 'fixed';
+
+			const modChat = /** @type {HTMLElement | null} */ (document.querySelector('.modChat'));
+			if (modChat) modChat.style.position = 'fixed';
+
+			// sigmod keeps track of the # of displayed messages with a counter, but it doesn't reset on clear
+			// therefore, if the chat gets cleared with 200 (the maximum) messages in it, it will stay permanently*
+			// blank
+			const modMessages = /** @type {HTMLElement | null} */ (document.querySelector('#mod-messages'));
+			if (modMessages) {
+				const old = modMessages.removeChild;
+				modMessages.removeChild = node => {
+					if (modMessages.children.length > 200) return old.call(modMessages, node);
+					else return node;
+				};
+			}
+
+			// create a fake sigmally proxy for sigmod, which properly relays some packets (because SigMod does not
+			// support one-tab technology). it should also fix chat bugs due to disconnects and stuff
+			// we do this by hooking into the SigWsHandler object
+			{
+				/** @type {object | undefined} */
+				let handler;
+				const old = Function.prototype.bind;
+				Function.prototype.bind = function(obj) {
+					if (obj.constructor?.name === 'SigWsHandler') handler = obj;
+					return old.call(this, obj);
+				}
+				new destructor.realWebSocket('//0/sigmally.com');
+				Function.prototype.bind = old;
+				// handler is expected to be a "SigWsHandler", but it might be something totally different
+				if (handler && 'sendPacket' in handler && 'handleMessage' in handler) {
+					// first, set up the handshake (opcode not-really-a-shuffle)
+					handler.handshake = true;
+					handler.R = handler.C = new Uint8Array(256); // R and C are linked
+					for (let i = 0; i < 256; ++i) handler.C[i] = i;
+
+					// expose some functions here, don't directly access the handler anywhere else
+					sigmod.proxy = {
+						/** @param {DataView} dat */
+						handleMessage: dat => handler.handleMessage({ data: dat.buffer })
+					};
+
+					// override sendPacket to properly handle what sigmod expects
+					/** @param {object} buf */
+					handler.sendPacket = buf => {
+						if ('build' in buf) buf = buf.build(); // convert sigmod/sigmally Writer class to a buffer
+						if ('buffer' in buf) buf = buf.buffer;
+						const dat = new DataView(/** @type {ArrayBuffer} */ (buf));
+						switch (dat.getUint8(0)) {
+							// case 0x00, sendPlay, isn't really used outside of secret tournaments
+							case 0x10: { // used for linesplits and such
+								net.move(world.selected, dat.getInt32(1, true), dat.getInt32(5, true));
+								break;
+							}
+							// case 0x63, sendChat, already goes directly to sigfix.net.chat
+							// case 0xdc, sendFakeCaptcha, is not used outside of secret tournaments
+						}
+					};
+				}
+			}
+		}, 500);
+
+		return sigmod;
+	})();
 
 
 	/////////////////////
@@ -1047,6 +1113,7 @@
 		};
 
 		// sigmod quick fix
+		// TODO does this work?
 		(() => {
 			// the play timer is inserted below the top-left stats, but because we offset them, we need to offset this
 			// too
@@ -2011,9 +2078,11 @@
 		const connect = view => {
 			if (net.connections.get(view)?.ws) return; // already being handled by another process
 
+			// do not allow sigmod's args[0].includes('sigmally.com') check to pass
+			const fakeUrl = /** @type {any} */ ({ includes: () => false, toString: () => net.url() });
 			let ws;
 			try {
-				ws = new destructor.realWebSocket(net.url());
+				ws = new destructor.realWebSocket(fakeUrl);
 			} catch (err) {
 				console.error('can\'t make WebSocket:', err);
 				aux.require(null, 'The server address is invalid. Try changing the server, reloading the page, and ' +
@@ -2073,9 +2142,12 @@
 					return;
 				}
 
+				// do this so the packet can easily be sent to sigmod afterwards
+				dat.setUint8(0, connection.handshake.unshuffle[dat.getUint8(0)]);
+
 				const now = performance.now();
 				let o = 1;
-				switch (connection.handshake.unshuffle[dat.getUint8(0)]) {
+				switch (dat.getUint8(0)) {
 					case 0x10: { // world update
 						if (connection.respawnBlock?.status === 'left') connection.respawnBlock = undefined;
 
@@ -2345,6 +2417,8 @@
 						break;
 					}
 				}
+
+				sigmod.proxy.handleMessage?.(dat);
 			});
 			ws.addEventListener('open', e => {
 				const connection = net.connections.get(view);
@@ -2714,7 +2788,7 @@
 
 			// if fast feed is rebound, only allow the spoofed W's from sigmod
 			let fastFeeding = e.code === 'KeyW';
-			if (aux.sigmodSettings?.rapidFeedKey && aux.sigmodSettings?.rapidFeedKey !== 'w') {
+			if (sigmod.settings.rapidFeedKey && sigmod.settings.rapidFeedKey !== 'w') {
 				fastFeeding &&= !e.isTrusted;
 			}
 			if (fastFeeding) inputs.forceW = inputs.w = true;
@@ -2741,7 +2815,7 @@
 				}
 			}
 
-			if (e.isTrusted && e.key.toLowerCase() === aux.sigmodSettings?.tripleKey?.toLowerCase()) {
+			if (e.isTrusted && e.key.toLowerCase() === sigmod.settings.tripleKey?.toLowerCase()) {
 				// do not allow sigmod to trigger mouse locks
 				// if you triple twice for some reason, it should use the new mouse position
 				inputs.lock = {
@@ -3817,7 +3891,7 @@
 		 * @param {number=} now
 		 */
 		render.upload = (key, now) => {
-			if ((key === 'pellets' && aux.sigmodSettings?.hidePellets)
+			if ((key === 'pellets' && sigmod.settings.hidePellets)
 				|| performance.now() - render.lastFrame > 45_000) {
 				// do not render pellets on inactive windows (very laggy!)
 				uploadedPellets = 0;
@@ -3858,7 +3932,7 @@
 				}
 			}
 
-			const color = key === 'pellets' ? aux.sigmodSettings?.foodColor : aux.sigmodSettings?.cellColor;
+			const color = key === 'pellets' ? sigmod.settings.foodColor : sigmod.settings.cellColor;
 			const foodBlank = key === 'pellets' && color?.[0] === 0 && color?.[1] === 0 && color?.[2] === 0;
 
 			let i = 0;
@@ -3950,11 +4024,11 @@
 
 			// get settings
 			const defaultVirusSrc = '/assets/images/viruses/2.png';
-			const virusSrc = aux.sigmodSettings?.virusImage ?? defaultVirusSrc;
+			const virusSrc = sigmod.settings.virusImage || defaultVirusSrc;
 
-			const showNames = aux.sigmodSettings?.showNames ?? true;
+			const showNames = sigmod.settings.showNames ?? true;
 
-			const { cellColor, foodColor, outlineColor, skinReplacement } = aux.sigmodSettings ?? {};
+			const { cellColor, foodColor, outlineColor, skinReplacement } = sigmod.settings;
 
 			/** @type {HTMLInputElement | null} */
 			const nickElement = document.querySelector('input#nick');
@@ -3991,8 +4065,8 @@
 			})();
 
 			(function background() {
-				if (aux.sigmodSettings?.mapColor) {
-					gl.clearColor(...aux.sigmodSettings.mapColor);
+				if (sigmod.settings.mapColor) {
+					gl.clearColor(...sigmod.settings.mapColor);
 				} else if (aux.settings.darkTheme) {
 					gl.clearColor(0x11 / 255, 0x11 / 255, 0x11 / 255, 1); // #111
 				} else {
@@ -4211,8 +4285,7 @@
 					}
 
 					if (name === nick) {
-						const nameColor1 = aux.sigmodSettings?.nameColor1;
-						const nameColor2 = aux.sigmodSettings?.nameColor2;
+						const { nameColor1, nameColor2 } = sigmod.settings;
 						if (nameColor1) {
 							textUboFloats[0] = nameColor1[0]; textUboFloats[1] = nameColor1[1];
 							textUboFloats[2] = nameColor1[2]; textUboFloats[3] = nameColor1[3];
@@ -4602,6 +4675,6 @@
 
 	// @ts-expect-error for debugging purposes and other scripts. dm me on discord @ 8y8x to guarantee stability
 	window.sigfix = {
-		destructor, aux, ui, settings, world, net, input, glconf, render,
+		destructor, aux, sigmod, ui, settings, world, net, input, glconf, render,
 	};
 })();
