@@ -1071,7 +1071,7 @@
 
 				const msg = document.createElement('span');
 				if (server) msg.style.cssText = `color: ${aux.rgba2hex(...rgb)}`;
-				msg.textContent = aux.trim(text);
+				msg.textContent = server ? text : aux.trim(text); // /help text can get cut off
 				container.appendChild(msg);
 
 				while (list.children.length > 100)
