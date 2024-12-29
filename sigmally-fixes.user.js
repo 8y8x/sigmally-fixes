@@ -2751,23 +2751,6 @@
 				return;
 			}
 
-			if (settings.blockBrowserKeybinds) {
-				if (e.code === 'F11') {
-					// force true fullscreen to make sure Ctrl+W and other binds are caught.
-					// not well supported on safari
-					if (!document.fullscreenElement) {
-						document.body.requestFullscreen?.()?.catch(() => {});
-						/** @type {any} */ (navigator).keyboard?.lock()?.catch(() => {});
-					} else {
-						document.exitFullscreen?.()?.catch(() => {});
-						/** @type {any} */ (navigator).keyboard?.unlock()?.catch(() => {});
-					}
-				}
-				e.preventDefault();
-			} else if (e.ctrlKey && e.code === 'KeyW') {
-				e.preventDefault(); // doesn't seem to work for me, but works for others
-			}
-
 			if (e.code === 'Escape') {
 				if (document.activeElement === ui.chat.input)
 					ui.chat.input.blur();
@@ -2784,6 +2767,23 @@
 				}
 
 				return;
+			}
+
+			if (settings.blockBrowserKeybinds) {
+				if (e.code === 'F11') {
+					// force true fullscreen to make sure Ctrl+W and other binds are caught.
+					// not well supported on safari
+					if (!document.fullscreenElement) {
+						document.body.requestFullscreen?.()?.catch(() => {});
+						/** @type {any} */ (navigator).keyboard?.lock()?.catch(() => {});
+					} else {
+						document.exitFullscreen?.()?.catch(() => {});
+						/** @type {any} */ (navigator).keyboard?.unlock()?.catch(() => {});
+					}
+				}
+				e.preventDefault();
+			} else if (e.ctrlKey && e.code === 'KeyW') {
+				e.preventDefault(); // doesn't seem to work for me, but works for others
 			}
 
 			// if fast feed is rebound, only allow the spoofed W's from sigmod
