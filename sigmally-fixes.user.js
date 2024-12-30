@@ -1741,7 +1741,12 @@
 			}]]),
 		};
 		Object.defineProperty(fakeEntry, 'nr', {
-			get: () => Math.sqrt(world.score(world.selected) * 100),
+			get: () => {
+				// only let sigmod block respawns if we're in a main server
+				if (['ca0.sigmally.com', 'ca1.sigmally.com', 'eu0.sigmally.com'].some(url => net.url().includes(url)))
+					return Math.sqrt(world.score(world.selected) * 100);
+				else return 0;
+			},
 			set: () => {},
 		});
 		world.cells.set(/** @type {any} */ (world.mine[0]), fakeEntry);
