@@ -283,8 +283,10 @@
 						if (url.includes('/userdata/')) {
 							// when holding down the respawn key, you can easily make 30+ requests a second,
 							// bombing you into ratelimit hell
-							if (performance.now() - lastUserData < 500) return new Promise(() => {});
+							const now = performance.now();
+							if (now - lastUserData < 500) return new Promise(() => {});
 							url = url.replace('///', '//eu0.sigmally.com/server/');
+							lastUserData = now;
 						}
 
 						// patch the current token in the url and body of the request
