@@ -28,7 +28,7 @@
 
 (async () => {
 	const sfVersion = '2.5.2-BETA';
-	const undefined = window.undefined; // yes, this actually makes a significant difference
+	const undefined = void 0; // yes, this actually makes a significant difference
 
 	////////////////////////////////
 	// Define Auxiliary Functions //
@@ -407,12 +407,16 @@
 						if (performance.now() - (con.respawnBlock?.started ?? -Infinity) < 500) return;
 						con.respawnBlock = undefined;
 						// trying to respawn; see if we are nearby an alive multi-tab
-						if (world.score(view) > 0) {
+						if (world.score(view) > 0 && vision.border) {
+							const { border } = vision;
+							// use a smaller respawn radius on EU servers
+							const radius = Math.min(border.r - border.l, border.b - border.t) / 5;
 							for (const [otherView, otherVision] of world.views) {
 								if (vision === otherVision) continue;
 								if (world.score(otherView) <= 0) continue;
-								if (Math.hypot(vision.camera.tx - otherVision.camera.tx,
-									vision.camera.ty - otherVision.camera.ty) <= 7500)
+								const dx = vision.camera.tx - otherVision.camera.tx;
+								const dy = vision.camera.ty - otherVision.camera.ty;
+								if (Math.hypot(dx, dy) <= radius)
 									return;
 							}
 						}
@@ -2648,7 +2652,7 @@
 		input.current = [0, 0];
 		/** @type {Map<number, {
 		 * 		forceW: boolean,
-		 * 		lock: { mouse: [number, number], world: [number, number], from: number } | undefined,
+		 * 		lock: { mouse: [number, number], world: [number, number], until: number } | undefined,
 		 * 		mouse: [number, number], // between -1 and 1
 		 * 		w: boolean,
 		 * 		world: [number, number], // world position; only updates when tab is selected
@@ -2700,14 +2704,20 @@
 		input.move = (view, forceUpdate) => {
 			const now = performance.now();
 			const inputs = input.views.get(view) ?? create(view);
-			if (inputs.lock && now - inputs.lock.from < 650) {
-				net.move(view, ...inputs.lock.world);
-			} else {
-				if (world.selected === view || forceUpdate) {
-					inputs.world = input.toWorld(view, inputs.mouse = input.current);
+			if (inputs.lock && now <= inputs.lock.until) {
+				const d = Math.hypot(input.current[0] - inputs.lock.mouse[0], input.current[1] - inputs.lock.mouse[1]);
+				// only lock the mouse as long as the mouse has not moved further than 25% (of 2) of the screen away
+				if (d < 0.5) {
+					net.move(view, ...inputs.lock.world);
+					return;
 				}
-				net.move(view, ...inputs.world);
 			}
+			
+			inputs.lock = undefined;
+			if (world.selected === view || forceUpdate) {
+				inputs.world = input.toWorld(view, inputs.mouse = input.current);
+			}
+			net.move(view, ...inputs.world);
 		};
 
 		setInterval(() => {
@@ -2850,12 +2860,10 @@
 			}
 
 			if (e.isTrusted && e.key.toLowerCase() === sigmod.settings.tripleKey?.toLowerCase()) {
-				// do not allow sigmod to trigger mouse locks
-				// if you triple twice for some reason, it should use the new mouse position
-				inputs.lock = {
+				inputs.lock ||= {
 					mouse: inputs.mouse,
 					world: input.toWorld(world.selected, inputs.mouse),
-					from: performance.now(),
+					until: performance.now() + 650,
 				};
 			}
 		});
@@ -4503,7 +4511,7 @@
 					const inputs = input.views.get(world.selected);
 					if (inputs) {
 						let mouse;
-						if (inputs.lock && now - inputs.lock.from < 650) mouse = inputs.lock.world;
+						if (inputs.lock && now <= inputs.lock.until) mouse = inputs.lock.world;
 						else mouse = input.toWorld(world.selected, input.current);
 						[tracerUboFloats[2], tracerUboFloats[3]] = mouse; // tracer_pos2.xy
 					}
