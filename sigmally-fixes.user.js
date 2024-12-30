@@ -331,9 +331,6 @@
 			}),
 		});
 
-		/** @param {number} ms */
-		aux.wait = ms => new Promise(resolve => setTimeout(resolve, ms));
-
 		return aux;
 	})();
 
@@ -431,10 +428,7 @@
 		};
 
 		// #3 : prevent keys from being registered by the game
-		setInterval(() => {
-			onkeydown = null;
-			onkeyup = null;
-		}, 50);
+		setInterval(() => onkeydown = onkeyup = null, 200);
 
 		return destructor;
 	})();
@@ -820,9 +814,7 @@
 			let lastLb;
 			setInterval(() => { // update leaderboard frequently
 				const currentLb = world.views.get(world.selected)?.leaderboard;
-				if (currentLb !== lastLb) {
-					update((lastLb = currentLb) ?? []);
-				}
+				if (currentLb !== lastLb) update((lastLb = currentLb) ?? []);
 			});
 		})();
 
@@ -2724,7 +2716,7 @@
 			create(world.selected);
 			for (const [view, inputs] of input.views) {
 				input.move(view, false);
-				// if holding w with sigmod, tabbing out, then tabbing in, avoid spitting out only one W
+				// if tapping W very fast, make sure at least one W is ejected
 				if (inputs.forceW || inputs.w) net.w(view);
 				inputs.forceW = false;
 			}
@@ -2769,6 +2761,9 @@
 		// this apparently just works perfectly in vanilla and sigmod
 		nickElement.parentElement?.appendChild(secondaryNickElement);
 
+		// sigmod probably won't apply this to the second nick element, so we do it ourselves too
+		nickElement.maxLength = secondaryNickElement.maxLength = 50;
+
 		addEventListener('keydown', e => {
 			const view = world.selected;
 			const inputs = input.views.get(view) ?? create(view);
@@ -2796,10 +2791,8 @@
 			}
 
 			if (e.code === 'Escape') {
-				if (document.activeElement === ui.chat.input)
-					ui.chat.input.blur();
-				else
-					ui.toggleEscOverlay();
+				if (document.activeElement === ui.chat.input) ui.chat.input.blur();
+				else ui.toggleEscOverlay();
 				return;
 			}
 
