@@ -723,7 +723,14 @@
 
 				const con = net.connections.get(view);
 				let measuresText = `${Math.floor(render.fps)} FPS`;
-				if (con?.latency !== undefined) measuresText += ` ${Math.floor(con.latency)}ms ping`;
+				if (con?.latency !== undefined) {
+					const spectateCon = net.connections.get(world.viewId.spectate);
+					if (settings.spectatorLatency && spectateCon?.latency !== undefined) {
+						measuresText += ` ${Math.floor(con.latency)}ms (${Math.floor(spectateCon.latency)}ms) ping`;
+					} else {
+						measuresText += ` ${Math.floor(con.latency)}ms ping`;
+					}
+				}
 				measures.textContent = measuresText;
 			};
 
@@ -1173,7 +1180,7 @@
 			selfSkinMulti: '',
 			showStats: true,
 			spectator: false,
-			syncSkin: true,
+			spectatorLatency: false,
 			textOutlinesFactor: 1,
 			tracer: false,
 			unsplittableOpacity: 1,
@@ -1654,8 +1661,8 @@
 			'player count and server uptime.');
 		checkbox('spectator', 'Connect spectating tab', 'Automatically connects an extra tab and sets it to spectate ' +
 			'#1.');
-		checkbox('syncSkin', 'Show self skin on other tabs',
-			'Whether your custom skin should be shown on your other tabs too.');
+		checkbox('spectatorLatency', 'Spectator tab latency', 'When enabled, shows another ping measurement for your ' +
+			'spectator tab.');
 
 		// #3 : create options for sigmod
 		let sigmodInjection;
