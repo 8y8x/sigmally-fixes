@@ -716,10 +716,18 @@
 				measures.style.opacity = settings.showStats ? '1' : '0.5';
 				misc.style.opacity = settings.showStats ? '0.5' : '0';
 
-				let scoreVal = world.score(world.selected);
-				if (typeof aux.userData?.boost === 'number' && aux.userData.boost > Date.now()) scoreVal *= 2;
-				if (scoreVal > world.stats.highestScore) world.stats.highestScore = scoreVal;
-				score.textContent = scoreVal > 0 ? ('Score: ' + Math.floor(scoreVal)) : '';
+				const scoreVal = world.score(world.selected);
+				const multiplier = (typeof aux.userData?.boost === 'number' && aux.userData.boost > Date.now()) ? 2 : 1;
+				if (scoreVal * multiplier > world.stats.highestScore) world.stats.highestScore = scoreVal * multiplier;
+				let scoreHtml;
+				if (scoreVal <= 0) scoreHtml = '';
+				else if (settings.separateBoost) {
+					scoreHtml = `Score: ${Math.floor(scoreVal)}`;
+					if (multiplier > 1) scoreHtml += ` <span style="color: #fc6;">(X${multiplier})</span>`;
+				} else {
+					scoreHtml = 'Score: ' + Math.floor(scoreVal * multiplier);
+				}
+				score.innerHTML = scoreHtml;
 
 				const con = net.connections.get(view);
 				let measuresText = `${Math.floor(render.fps)} FPS`;
@@ -1178,6 +1186,7 @@
 			scrollFactor: 1,
 			selfSkin: '',
 			selfSkinMulti: '',
+			separateBoost: false,
 			showStats: true,
 			spectator: false,
 			spectatorLatency: false,
@@ -1663,6 +1672,8 @@
 			'#1.');
 		checkbox('spectatorLatency', 'Spectator tab latency', 'When enabled, shows another ping measurement for your ' +
 			'spectator tab.');
+		checkbox('separateBoost', 'Separate XP boost from score', 'If you have an XP boost, your score will be ' +
+			'doubled. If you don\'t want that, you can separate the XP boost from your score.');
 
 		// #3 : create options for sigmod
 		let sigmodInjection;
