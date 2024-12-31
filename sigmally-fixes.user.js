@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.5.2
+// @version      2.5.3
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.5.2';
+	const sfVersion = '2.5.3';
 	const undefined = void 0; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -1158,6 +1158,8 @@
 			/** @type {'flawless' | 'alpha'} */
 			mergeStrategy: 'flawless',
 			multibox: '',
+			/** @type {'natural' | 'delta' | 'weighted' | 'none'} */
+			multiCamera: 'natural',
 			nameBold: false,
 			nameScaleFactor: 1,
 			outlineMulti: 0.2,
@@ -1581,11 +1583,22 @@
 			'this browser tab. When this key is set, a weighted camera will be used. You can unbind the key by ' +
 			'setting it to Escape or Backspace. If you\'re used to Ctrl+Tab, consider enabling &quot;Block all ' +
 			'browser keybinds&quot;.');
+		dropdown('multiCamera', 'Camera style',
+			[['natural', 'Merge weighted (natural)'], ['delta', 'Merge Delta-style'],
+				['weighted', 'No merge, weighted'], ['none', 'No merge, not weighted']],
+			'How the camera should move when multiboxing.\n' +
+			'- &quot;Merge weighted (natural)&quot; is the default. Your camera will be put at the center of your ' +
+			'total mass. Use this if you\'re not sure.\n' +
+			'- &quot;Merge Delta-style&quot; places the camera in between each tab\'s center of mass. This is ' +
+			'how Delta positions its camera.\n' +
+			'- &quot;No merge, weighted&quot; puts the camera at the center of mass of your current tab.\n' +
+			'- &quot;No merge, not weighted&quot; uses the default non-multiboxing camera. Use this if you\'re used ' +
+			'two-tab multiboxing.');
 		dropdown('mergeStrategy', 'Vision merging strategy',
-			[['flawless', 'Flawless - sync tabs'], ['alpha', 'Compatibility - prefer primary']],
+			[['flawless', 'Synchronize - flawless'], ['alpha', 'Compatibility - stable']],
 			'Which algorithm to use when combining visible cells between tabs.\n' +
-			'- &quot;Flawless - sync tabs&quot; synchronizes all connections and prevents warping. However, if any ' +
-			'tab starts lagging, the rest will freeze too. Default for Sigmally Fixes.\n' +
+			'- &quot;Synchronize - flawless&quot; synchronizes all connections and prevents warping. However, if any ' +
+			'tab starts lagging, the rest will freeze too. Default for Sigmally Fixes. Highly recommended.\n' +
 			'- &quot;Compatibility - prefer primary&quot; uses the primary tab\'s cells if possible, though the most ' +
 			'opaque cell will be chosen. Cells may warp around, but will stay usable if your internet is unstable. ' +
 			'Similar to Delta.');
@@ -1768,7 +1781,7 @@
 		 * @param {number} view
 		 * @param {number} weightExponent
 		 * @param {number} now
-		 * @returns {{ r: number, sumX: number, sumY: number, weight: number }}
+		 * @returns {{ scale: number, sumX: number, sumY: number, weight: number }}
 		 */
 		world.singleCamera = (view, weightExponent, now) => {
 			let r = 0;
@@ -1785,7 +1798,8 @@
 				weight += (cell.nr ** weightExponent);
 			}
 
-			return { r, sumX, sumY, weight };
+			const scale = Math.min(64 / r, 1) ** 0.4;
+			return { scale, sumX, sumY, weight };
 		};
 
 		/**
@@ -1798,20 +1812,20 @@
 			const vision = world.views.get(view);
 			if (!vision) return;
 
-			const autozoom = !settings.multibox && settings.autoZoom === 'auto';
+			const weighted = settings.multibox && settings.multiCamera !== 'none';
 			/** @type {number[]} */
 			const merging = [];
-			const desc = world.singleCamera(view, settings.multibox ? 2 : 0, now);
+			/** @type {{ scale: number, sumX: number, sumY: number, weight: number }[]} */
+			const mergingCameras = [];
+			const desc = world.singleCamera(view, weighted ? 2 : 0, now);
 			let xyFactor;
 			if (desc.weight > 0) {
-				const mainScale = Math.min(64 / desc.r, 1) ** 0.4;
+				const mainX = desc.sumX / desc.weight;
+				const mainY = desc.sumY / desc.weight;
 				if (settings.multibox) {
-					const mainX = desc.sumX / desc.weight;
-					const mainY = desc.sumY / desc.weight;
 					const mainWeight = desc.weight;
-					const mainWidth = 1920 / 2 / mainScale;
-					const mainHeight = 1080 / 2 / mainScale;
-
+					const mainWidth = 1920 / 2 / desc.scale;
+					const mainHeight = 1080 / 2 / desc.scale;
 					for (const otherView of world.views.keys()) {
 						if (otherView === view) continue;
 						const otherDesc = world.singleCamera(otherView, 2, now);
@@ -1819,26 +1833,56 @@
 
 						const otherX = otherDesc.sumX / otherDesc.weight;
 						const otherY = otherDesc.sumY / otherDesc.weight;
-						const otherScale = Math.min(64 / otherDesc.r, 1) ** 0.4;
-						const otherWidth = 1920 / 2 / otherScale;
-						const otherHeight = 1080 / 2 / otherScale;
+						const otherWidth = 1920 / 2 / otherDesc.scale;
+						const otherHeight = 1080 / 2 / otherDesc.scale;
 
 						// only merge with tabs if their vision regions are close. expand threshold depending on
 						// how much mass each tab has (if both tabs are large, allow them to go pretty far)
 						const threshold = 1000 + Math.min(mainWeight / 100 / 25, otherDesc.weight / 100 / 25);
 						if (Math.abs(otherX - mainX) < mainWidth + otherWidth + threshold
 							&& Math.abs(otherY - mainY) < mainHeight + otherHeight + threshold) {
-							desc.sumX += otherDesc.sumX;
-							desc.sumY += otherDesc.sumY;
-							desc.weight += otherDesc.weight;
 							merging.push(otherView);
+							mergingCameras.push(otherDesc);
 						}
 					}
 				}
 
-				vision.camera.tx = desc.sumX / desc.weight;
-				vision.camera.ty = desc.sumY / desc.weight;
-				vision.camera.tscale = autozoom ? mainScale : 0.25;
+				let targetX, targetY, zoom;
+				if (!settings.multibox || settings.multiCamera === 'none') { // default camera, autozoom
+					targetX = desc.sumX / desc.weight;
+					targetY = desc.sumY / desc.weight;
+					zoom = settings.autoZoom === 'auto' ? desc.scale : 0.25;
+				} else if (settings.multiCamera === 'weighted') { // weighted two-tab camera, no autozoom
+					targetX = desc.sumX / desc.weight;
+					targetY = desc.sumY / desc.weight;
+					zoom = 0.25;
+				} else if (settings.multiCamera === 'delta') {
+					targetX = mainX;
+					targetY = mainY;
+					for (const camera of mergingCameras) {
+						targetX += camera.sumX / camera.weight;
+						targetY += camera.sumY / camera.weight;
+					}
+					targetX /= mergingCameras.length + 1;
+					targetY /= mergingCameras.length + 1;
+					zoom = 0.25;
+				} else { // settings.multiCamera === 'natural'
+					targetX = desc.sumX;
+					targetY = desc.sumY;
+					let totalWeight = desc.weight;
+					for (const camera of mergingCameras) {
+						targetX += camera.sumX;
+						targetY += camera.sumY;
+						totalWeight += camera.weight;
+					}
+					targetX /= totalWeight;
+					targetY /= totalWeight;
+					zoom = 0.25;
+				}
+
+				vision.camera.tx = targetX;
+				vision.camera.ty = targetY;
+				vision.camera.tscale = zoom;
 				xyFactor = 2;
 			} else {
 				xyFactor = 20;
