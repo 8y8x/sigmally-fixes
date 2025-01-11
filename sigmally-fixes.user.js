@@ -1193,7 +1193,7 @@
 			spectatorLatency: false,
 			textOutlinesFactor: 1,
 			tracer: false,
-			unsplittableOpacity: 1,
+			unsplittableColor: /** @type {[number, number, number, number]} */ ([1, 1, 1, 1]),
 		};
 
 		try {
@@ -1203,6 +1203,10 @@
 		// convert old settings
 		if (/** @type {any} */ (settings.multibox) === true) settings.multibox = 'Tab';
 		else if (/** @type {any} */ (settings.multibox) === false) settings.multibox = '';
+		else if (/** @type {any} */ (settings).unsplittableOpacity !== undefined) {
+			settings.unsplittableColor = [1, 1, 1, /** @type {any} */ (settings).unsplittableOpacity];
+			delete settings.unsplittableOpacity;
+		}
 
 		/** @type {Set<() => void>} */
 		const onSaves = new Set();
@@ -1431,10 +1435,10 @@
 			 */
 			const listen = (input, visible) => {
 				input.value = aux.rgba2hex6(...settings[property]);
-				visible.checked = settings[property][3] > 0;
+				visible.value = String(settings[property][3]);
 				const changed = () => {
 					settings[property] = aux.hex2rgba(input.value);
-					settings[property][3] = visible.checked ? 1 : 0;
+					settings[property][3] = Number(visible.value);
 					save();
 				};
 				input.addEventListener('input', changed);
@@ -1442,7 +1446,7 @@
 
 				onSaves.add(() => {
 					input.value = aux.rgba2hex6(...settings[property]);
-					visible.checked = settings[property][3] > 0;
+					visible.value = String(settings[property][3]);
 				});
 			};
 
@@ -1450,7 +1454,8 @@
 				<div style="height: 25px; position: relative;" title="${help}">
 					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">${title}</div>
 					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
-						<input id="sf-${property}-visible" type="checkbox" />
+						<input id="sf-${property}-visible" type="range" min="0" max="1" step="0.01" \
+							style="width: 100px" />
 						<input id="sf-${property}" type="color" />
 					</div>
 				</div>
@@ -1462,11 +1467,9 @@
 			const sigmod = fromHTML(`
 				<div class="modRowItems justify-sb" style="padding: 5px 10px;" title="${help}">
 					<span>${title}</span>
-					<div style="width: 75px; text-align: center;">
-						<div class="modCheckbox" style="display: inline-block;">
-							<input id="sfsm-${property}-visible" type="checkbox" />
-							<label class="cbx" for="sfsm-${property}-visible"></label>
-						</div>
+					<div style="width: 175px; text-align: center;">
+						<input id="sfsm-${property}-visible" type="range" min="0" max="1" step="0.01" \
+							style="width: 100px" />
 						<input id="sfsm-${property}" type="color" />
 					</div>
 				</div>
@@ -1654,7 +1657,7 @@
 			'The multiplier of the thickness of the black stroke around names, mass, and clans on cells. You can set ' +
 			'this to 0 to disable outlines AND text shadows.');
 		separator('• other •');
-		slider('unsplittableOpacity', 'Unsplittable cell outline opacity', 1, 0, 1, 0.01, 2,
+		color('unsplittableColor', 'Unsplittable cell outline',
 			'How visible the white outline around cells that can\'t split should be. 0 = not visible, 1 = fully ' +
 			'visible.');
 		checkbox('jellySkinLag', 'Jelly physics cell size lag',
@@ -4166,7 +4169,7 @@
 				gl.bufferSubData(gl.UNIFORM_BUFFER, 0, new Float32Array([
 					...settings.outlineMultiColor, // cell_active_outline
 					...settings.outlineMultiInactiveColor, // cell_inactive_outline
-					...(aux.settings.darkTheme ? [1, 1, 1, 1] : [0, 0, 0, 1]), // cell_unsplittable_outline
+					...settings.unsplittableColor, // cell_unsplittable_outline
 					...(outlineColor ?? [0, 0, 0, 0]), // cell_subtle_outline_override
 					settings.outlineMulti,
 				]));
@@ -4319,7 +4322,7 @@
 						const myIndex = vision.owned.indexOf(cell.id);
 						if (myIndex !== -1) {
 							if (vision.camera.merging.length > 0) cellUboInts[9] |= 0x04; // active multi outline
-							if (!canSplit[myIndex] && settings.unsplittableOpacity > 0) cellUboInts[9] |= 0x10;
+							if (!canSplit[myIndex]) cellUboInts[9] |= 0x10;
 						}
 						let ownedByOther = false;
 						for (const otherVision of world.views.values()) {
