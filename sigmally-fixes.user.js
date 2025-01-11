@@ -1166,6 +1166,7 @@
 			cellOutlines: true,
 			clans: false,
 			clanScaleFactor: 1,
+			colorUnderSkin: true,
 			drawDelay: 120,
 			jellySkinLag: true,
 			massBold: false,
@@ -1678,6 +1679,8 @@
 			'spectator tab.');
 		checkbox('separateBoost', 'Separate XP boost from score', 'If you have an XP boost, your score will be ' +
 			'doubled. If you don\'t want that, you can separate the XP boost from your score.');
+		checkbox('colorUnderSkin', 'Color under skin', 'When disabled, transparent skins will be see-through and not ' +
+			'show your cell color.');
 
 		// #3 : create options for sigmod
 		let sigmodInjection;
@@ -3469,6 +3472,7 @@
 				flat out vec4 f_active_outline;
 				flat out float f_active_radius;
 				flat out float f_blur;
+				flat out int f_color_under_skin;
 				flat out int f_show_skin;
 				flat out vec4 f_subtle_outline;
 				flat out float f_subtle_radius;
@@ -3479,6 +3483,7 @@
 
 				void main() {
 					f_blur = 0.5 * u_cell_radius * (540.0 * u_camera_scale);
+					f_color_under_skin = u_cell_flags & 0x20;
 					f_show_skin = u_cell_flags & 0x01;
 
 					// subtle outlines (at least 1px wide)
@@ -3522,6 +3527,7 @@
 				flat in vec4 f_active_outline;
 				flat in float f_active_radius;
 				flat in float f_blur;
+				flat in int f_color_under_skin;
 				flat in int f_show_skin;
 				flat in vec4 f_subtle_outline;
 				flat in float f_subtle_radius;
@@ -3537,13 +3543,14 @@
 
 				void main() {
 					float d = length(v_vertex.xy);
+					if (f_show_skin == 0 || f_color_under_skin != 0) {
+						out_color = u_cell_color;
+					}
 
 					// skin; square clipping, outskirts should use the cell color
 					if (f_show_skin != 0 && 0.0 <= min(v_uv.x, v_uv.y) && max(v_uv.x, v_uv.y) <= 1.0) {
 						vec4 tex = texture(u_skin, v_uv);
 						out_color = out_color * (1.0 - tex.a) + tex;
-					} else {
-						out_color = u_cell_color;
 					}
 
 					// subtle outline
@@ -4317,6 +4324,7 @@
 					cellUboFloats[6] = color[2]; cellUboFloats[7] = color[3];
 
 					cellUboInts[9] |= settings.cellOutlines ? 0x02 : 0;
+					cellUboInts[9] |= settings.colorUnderSkin ? 0x20 : 0;
 
 					if (!cell.pellet) {
 						const myIndex = vision.owned.indexOf(cell.id);
