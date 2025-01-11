@@ -2888,7 +2888,8 @@
 					// not well supported on safari
 					if (!document.fullscreenElement) {
 						document.body.requestFullscreen?.()?.catch(() => {});
-						/** @type {any} */ (navigator).keyboard?.lock()?.catch(() => {});
+						// only block Ctrl and Cmd, we want to allow Alt+Tab and the Windows key for example
+						/** @type {any} */ (navigator).keyboard?.lock(['ControlLeft', 'MetaLeft'])?.catch(() => {});
 					} else {
 						document.exitFullscreen?.()?.catch(() => {});
 						/** @type {any} */ (navigator).keyboard?.unlock()?.catch(() => {});
