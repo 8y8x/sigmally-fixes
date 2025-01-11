@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.5.3
+// @version      2.5.4-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.5.3';
+	const sfVersion = '2.5.4-BETA';
 	const undefined = void 0; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -391,14 +391,15 @@
 
 				if (buf && buf.byteLength === '/leaveworld'.length + 3
 					&& new Uint8Array(buf).toString().includes(cmdRepresentation)) {
+					const now = performance.now();
 					let con, view, vision; // cba to put explicit types here
 					for (const [otherView, otherCon] of net.connections) {
-						if (otherCon.ws === this) {
-							con = otherCon;
-							view = otherView;
-							vision = world.views.get(otherView);
-							break;
-						}
+						world.camera(otherView, now); // ensure all tabs update their cameras
+						if (otherCon.ws !== this) continue;
+
+						con = otherCon;
+						view = otherView;
+						vision = world.views.get(otherView);
 					}
 					if (con && view !== undefined && vision) {
 						// block respawns if we haven't actually respawned yet
@@ -1747,6 +1748,7 @@
 		 * 			y: number, ty: number,
 		 * 			scale: number, tscale: number,
 		 * 			merging: number[],
+		 * 			updated: number,
 		 * 		},
 		 * 		leaderboard: { name: string, me: boolean, sub: boolean, place: number | undefined }[],
 		 * 		owned: number[],
@@ -1823,12 +1825,14 @@
 		/**
 		 * @param {number} view
 		 * @param {number} now
-		 * @param {number} dt
 		 */
-		world.camera = (view, now, dt) => {
+		world.camera = (view, now) => {
 			// temporary default camera for now
 			const vision = world.views.get(view);
 			if (!vision) return;
+
+			const dt = (now - vision.camera.updated) / 1000;
+			vision.camera.updated = now;
 
 			const weighted = settings.multibox && settings.multiCamera !== 'none';
 			/** @type {number[]} */
@@ -1919,7 +1923,7 @@
 
 			const vision = {
 				border: undefined,
-				camera: { x: 0, tx: 0, y: 0, ty: 0, scale: 0, tscale: 0, merging: [] },
+				camera: { x: 0, tx: 0, y: 0, ty: 0, scale: 0, tscale: 0, merging: [], updated: performance.now() - 1, },
 				leaderboard: [],
 				owned: [],
 				stats: undefined,
@@ -4143,7 +4147,7 @@
 
 			const vision = aux.require(world.views.get(world.selected), 'no selected vision (BAD BUG)');
 			for (const view of world.views.keys()) {
-				world.camera(view, now, dt);
+				world.camera(view, now);
 			}
 
 			// note: most routines are named, for benchmarking purposes
