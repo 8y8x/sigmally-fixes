@@ -1618,8 +1618,8 @@
 		dropdown('mergeStrategy', 'Vision merging strategy',
 			[['flawless', 'Flawless (best)'], ['alpha', 'Stable (use if laggy)']],
 			'Which algorithm to use when combining visible cells between tabs.\n' +
-			'- &quot;Flawless&quot; synchronizes all connections and prevents warping. However, if any ' +
-			'tab starts lagging, the rest will freeze too. Default for Sigmally Fixes. Highly recommended.\n' +
+			'- &quot;Flawless&quot; synchronizes all connections and prevents warping. If any tab starts lagging, ' +
+			'Stable will be used instead. Default for Sigmally Fixes. Highly recommended.\n' +
 			'- &quot;Stable&quot; uses the primary tab\'s cells if possible, though the most ' +
 			'opaque cell will be chosen. Cells may warp around, but will stay usable if your internet is unstable. ' +
 			'Similar to Delta.');
