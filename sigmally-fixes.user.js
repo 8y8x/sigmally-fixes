@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.5.4
+// @version      2.5.5-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.5.4';
+	const sfVersion = '2.5.5-BETA';
 	const undefined = void 0; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -1616,11 +1616,11 @@
 			'- &quot;No merge, not weighted&quot; uses the default non-multiboxing camera. Use this if you\'re used ' +
 			'two-tab multiboxing.');
 		dropdown('mergeStrategy', 'Vision merging strategy',
-			[['flawless', 'Synchronize - flawless'], ['alpha', 'Compatibility - stable']],
+			[['flawless', 'Flawless (best)'], ['alpha', 'Stable (use if laggy)']],
 			'Which algorithm to use when combining visible cells between tabs.\n' +
-			'- &quot;Synchronize - flawless&quot; synchronizes all connections and prevents warping. However, if any ' +
+			'- &quot;Flawless&quot; synchronizes all connections and prevents warping. However, if any ' +
 			'tab starts lagging, the rest will freeze too. Default for Sigmally Fixes. Highly recommended.\n' +
-			'- &quot;Compatibility - prefer primary&quot; uses the primary tab\'s cells if possible, though the most ' +
+			'- &quot;Stable&quot; uses the primary tab\'s cells if possible, though the most ' +
 			'opaque cell will be chosen. Cells may warp around, but will stay usable if your internet is unstable. ' +
 			'Similar to Delta.');
 		slider('outlineMulti', 'Current tab cell outline thickness', 0.2, 0, 1, 0.01, 2,
@@ -1759,6 +1759,7 @@
 		 * 		leaderboard: { name: string, me: boolean, sub: boolean, place: number | undefined }[],
 		 * 		owned: number[],
 		 * 		stats: object | undefined,
+		 * 		used: number,
 		 * }>} */
 		world.views = new Map();
 
@@ -1854,8 +1855,9 @@
 					const mainWeight = desc.weight;
 					const mainWidth = 1920 / 2 / desc.scale;
 					const mainHeight = 1080 / 2 / desc.scale;
-					for (const otherView of world.views.keys()) {
+					for (const [otherView, otherVision] of world.views) {
 						if (otherView === view) continue;
+						if (now - otherVision.used > 20_000) continue; // don't merge with inactive tabs
 						const otherDesc = world.singleCamera(otherView, 2, now);
 						if (otherDesc.weight <= 0) continue;
 
@@ -1933,12 +1935,16 @@
 				leaderboard: [],
 				owned: [],
 				stats: undefined,
+				used: -Infinity,
 			};
 			world.views.set(view, vision);
 			return vision;
 		};
 
-		world.merge = () => {
+		/** @type {number | undefined} */
+		let disagreementStart = undefined;
+		let dirtyMerged = false;
+		world.merge = (stable = false) => {
 			const now = performance.now();
 			if (world.views.size === 1 && world.views.has(world.viewId.primary)) {
 				// no-merge strategy
@@ -1947,7 +1953,8 @@
 						resolution.merged = resolution.views.get(world.viewId.primary);
 					}
 				}
-			} else if (settings.mergeStrategy === 'alpha') {
+				dirtyMerged = true;
+			} else if (settings.mergeStrategy === 'alpha' || stable) {
 				// maximize alpha, prefer primary tab
 				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
 					for (const resolution of world[key].values()) {
@@ -1966,6 +1973,7 @@
 						resolution.merged = best;
 					}
 				}
+				dirtyMerged = true;
 			} else { // settings.mergeStrategy === 'flawless'
 				// for camera merging to look extremely smooth, we need to merge packets and apply them *ONLY* when all
 				// tabs are synchronized.
@@ -1991,8 +1999,13 @@
 							const cellDisappeared = cell.deadAt !== undefined && cell.deadTo === -1;
 							if (!modelDisappeared && !cellDisappeared) {
 								// both cells are visible; are they at the same place?
-								if (model.nx !== cell.nx || model.ny !== cell.ny || model.nr !== cell.nr)
+								if (model.nx !== cell.nx || model.ny !== cell.ny || model.nr !== cell.nr) {
+									// disagreement! if we haven't agreed for more than 200ms, skip flawless merging
+									// for now, until that pesky tab comes back
+									disagreementStart ??= now;
+									if (now - disagreementStart > 200) world.merge(true);
 									return;
+								}
 							} else if (modelDisappeared && !cellDisappeared) {
 								// model went out of view; prefer the visible cell
 								model = cell;
@@ -2011,6 +2024,18 @@
 				}
 
 				// all views are synced; merge according to the models
+				disagreementStart = undefined;
+				if (dirtyMerged) {
+					// if `merged` uses references from other tabs, then that can cause very bad bugginess when those
+					// cells die!
+					for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+						for (const resolution of world[key].values()) {
+							resolution.merged = undefined;
+						}
+					}
+					dirtyMerged = false;
+				}
+
 				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
 					for (const resolution of world[key].values()) {
 						const { merged, model } = resolution;
@@ -2314,7 +2339,7 @@
 
 							const jagged = !!(flags & 0x11); // spiked or agitated
 							const eject = !!(flags & 0x20);
-							const pellet = r < 75 && !eject; // tourney servers have bigger pellets
+							const pellet = r <= 40 && !eject; // tourney servers have bigger pellets (r=40)
 							const cell = (pellet ? world.pellets : world.cells).get(id)?.views.get(view);
 							if (cell && cell.deadAt === undefined) {
 								const { x: ix, y: iy, r: ir, jr } = world.xyr(cell, undefined, now);
@@ -2897,7 +2922,8 @@
 						/** @type {any} */ (navigator).keyboard?.unlock()?.catch(() => {});
 					}
 				}
-				e.preventDefault();
+
+				if (e.code !== 'Tab') e.preventDefault(); // allow ctrl+tab and alt+tab
 			} else if (e.ctrlKey && e.code === 'KeyW') {
 				e.preventDefault(); // doesn't seem to work for me, but works for others
 			}
@@ -4156,6 +4182,7 @@
 			refreshTextCache();
 
 			const vision = aux.require(world.views.get(world.selected), 'no selected vision (BAD BUG)');
+			vision.used = performance.now();
 			for (const view of world.views.keys()) {
 				world.camera(view, now);
 			}
