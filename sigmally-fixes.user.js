@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.5.5
+// @version      2.5.5-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.5.5';
+	const sfVersion = '2.5.5-BETA';
 	const undefined = void 0; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -898,10 +898,10 @@
 			const bonus = document.querySelector('#menu__bonus');
 			if (bonus) bonus.style.display = 'none';
 
-			let shown = false;
 			deathScreen.check = () => {
 				if (world.stats.spawnedAt === undefined) return;
-				if (!world.alive()) deathScreen.show();
+				if (world.alive()) return;
+				deathScreen.show();
 			};
 
 			deathScreen.show = () => {
@@ -931,23 +931,12 @@
 				statsContainer.classList.remove('line--hidden');
 				ui.toggleEscOverlay(false);
 				if (overlay) overlay.style.display = '';
-				shown = true;
-				world.stats = { foodEaten: 0, highestPosition: 0, highestScore: 0, spawnedAt: undefined };
-
-				// refresh ads... ...yep
-				const { adSlot4, adSlot5, adSlot6, googletag } = /** @type {any} */ (window);
-				if (googletag) {
-					googletag.cmd.push(() => googletag.display(adSlot4));
-					googletag.cmd.push(() => googletag.display(adSlot5));
-					googletag.cmd.push(() => googletag.display(adSlot6));
-				}
+				world.stats = { foodEaten: 0, highestPosition: 200, highestScore: 0, spawnedAt: undefined };
 			};
 
 			deathScreen.hide = () => {
 				statsContainer?.classList.add('line--hidden');
-				const { googletag } = /** @type {any} */ (window);
-				if (shown && googletag) googletag.cmd.push(() => googletag.pubads().refresh());
-				shown = false;
+				// ads are managed by the game client
 			};
 
 			return deathScreen;
@@ -2442,7 +2431,11 @@
 					}
 					case 0x14: { // delete my cells
 						vision.owned = [];
-						ui.deathScreen.check();
+						// only reset spawn time if no other tab is alive.
+						// this could be cheated (if you alternate respawning your tabs, for example) but i don't think
+						// multiboxers ever see the stats menu anyway
+						if (!world.alive()) world.stats.spawnedAt = undefined;
+						ui.deathScreen.check(); // don't trigger death screen on respawn
 						break;
 					}
 
@@ -2487,7 +2480,7 @@
 							lb.push({ name, sub, me, place: undefined });
 						}
 
-						if (myPosition !== undefined) {
+						if (myPosition) { // myPosition could be zero
 							if (myPosition - 1 >= lb.length) {
 								/** @type {HTMLInputElement | null} */
 								const inputName = document.querySelector('input#nick');
