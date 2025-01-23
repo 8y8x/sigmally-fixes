@@ -343,18 +343,20 @@
 	////////////////////////
 	const destructor = (() => {
 		const destructor = {};
-		// #1 : kill the rendering process
-		const oldRQA = requestAnimationFrame;
-		window.requestAnimationFrame = function (fn) {
+
+		const vanillaStack = () => {
 			try {
 				throw new Error();
 			} catch (err) {
 				// prevent drawing the game, but do NOT prevent saving settings (which is called on RQA)
-				if (!err.stack.includes('/game.js') || err.stack.includes('HTML'))
-					return oldRQA(fn);
+				return err.stack.includes('/game.js') && !err.stack.includes('HTML');
 			}
+		};
 
-			return -1;
+		// #1 : kill the rendering process
+		const oldRQA = requestAnimationFrame;
+		window.requestAnimationFrame = function(fn) {
+			return vanillaStack() ? -1 : oldRQA(fn);
 		};
 
 		// #2 : kill access to using a WebSocket
@@ -362,8 +364,8 @@
 		Object.defineProperty(window, 'WebSocket', {
 			value: new Proxy(WebSocket, {
 				construct(_target, argArray, _newTarget) {
-					if (argArray[0]?.includes('sigmally.com')) {
-						throw new Error('Nope :) - hooked by Sigmally Fixes');
+					if (argArray[0].includes('sigmally.com') && vanillaStack()) {
+						throw new Error('sigfix: Preventing new WebSocket() for unknown Sigmally connection');
 					}
 
 					// @ts-expect-error
@@ -373,14 +375,12 @@
 		});
 
 		const cmdRepresentation = new TextEncoder().encode('/leaveworld').toString();
-		/** @type {WeakSet<WebSocket>} */
-		destructor.safeWebSockets = new WeakSet();
 		destructor.realWsSend = WebSocket.prototype.send;
 		WebSocket.prototype.send = function (x) {
-			if (!destructor.safeWebSockets.has(this) && this.url.includes('sigmally.com')) {
+			if (vanillaStack() && this.url.includes('sigmally.com')) {
 				this.onclose = null;
 				this.close();
-				throw new Error('Nope :) - hooked by Sigmally Fixes');
+				throw new Error('sigfix: Preventing .send on unknown Sigmally connection');
 			}
 
 			if (settings.blockNearbyRespawns) {
@@ -543,7 +543,7 @@
 					if (obj.constructor?.name === 'SigWsHandler') handler = obj;
 					return old.call(this, obj);
 				};
-				new destructor.realWebSocket('wss://255.255.255.255/sigmally.com');
+				new WebSocket('wss://255.255.255.255/sigmally.com?sigfix');
 				Function.prototype.bind = old;
 				// handler is expected to be a "SigWsHandler", but it might be something totally different
 				if (handler && 'sendPacket' in handler && 'handleMessage' in handler) {
@@ -2200,18 +2200,18 @@
 			if (net.connections.get(view)?.ws) return; // already being handled by another process
 
 			// do not allow sigmod's args[0].includes('sigmally.com') check to pass
-			const fakeUrl = /** @type {any} */ ({ includes: () => false, toString: () => net.url() });
+			const realUrl = net.url();
+			const fakeUrl = /** @type {any} */ ({ includes: () => false, toString: () => realUrl });
 			let ws;
 			try {
-				ws = new destructor.realWebSocket(fakeUrl);
+				ws = new WebSocket(fakeUrl);
 			} catch (err) {
 				console.error('can\'t make WebSocket:', err);
-				aux.require(null, 'The server address is invalid. Try changing the server, reloading the page, and ' +
-					'clearing your browser cache.');
+				aux.require(null, `The server address "${realUrl}" is invalid. Try changing the server, reloading ` +
+					'the page, and clearing your browser cache.');
 				return; // ts-check is dumb
 			}
 
-			destructor.safeWebSockets.add(ws);
 			ws.binaryType = 'arraybuffer';
 			ws.addEventListener('close', () => {
 				const connection = net.connections.get(view);
