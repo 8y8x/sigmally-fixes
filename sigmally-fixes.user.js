@@ -2260,9 +2260,6 @@
 					}
 
 					connection.handshake = { shuffle, unshuffle };
-					// immediately try to spectate (but don't move or anything);
-					// the game doesn't seem to allow spectating #1 if you spawn twice without spectating
-					net.play(view, { state: 2, name: '', skin: '' });
 					return;
 				}
 
