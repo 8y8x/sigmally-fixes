@@ -3094,16 +3094,18 @@
 					})
 						.then(res => res.json())
 						.then(res => {
+							token = used;
+							play.textContent = playText;
 							if (res.status === 'complete') {
-								token = used;
 								play.disabled = spectate.disabled = false;
-								play.textContent = playText;
 								input.captchaAcceptedAt = performance.now();
-								net.rejected = false; // wait until we try connecting again
+								for (const con of net.connections.values()) {
+									con.rejected = false; // wait until we try connecting again
+								}
 							}
 						})
 						.catch(err => {
-							play.textContent = playText;
+							play.textContent = `${playText} (network error)`;
 							token = undefined;
 							nextTryAt = performance.now() + 400;
 							throw err;
@@ -3134,7 +3136,7 @@
 
 					token = waiting;
 					play.disabled = spectate.disabled = true;
-					play.textContent = `${playText} (getting type)`;
+					play.textContent = `${playText} (getting captcha)`;
 					tokenVariant(url)
 						.then(async variant => {
 							const url2 = net.url();
