@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.5.6
+// @version      2.5.7-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.5.6';
+	const sfVersion = '2.5.7-BETA';
 	const undefined = void 0; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -451,7 +451,6 @@
 		 * 	outlineColor?: [number, number, number, number],
 		 * 	nameColor1?: [number, number, number, number],
 		 * 	nameColor2?: [number, number, number, number],
-		 * 	hidePellets?: boolean,
 		 * 	rapidFeedKey?: string,
 		 * 	removeOutlines?: boolean,
 		 * 	showNames?: boolean,
@@ -475,12 +474,13 @@
 						return;
 					}
 				}
+				sigmod.settings[prop] = undefined;
 			};
 			applyColor('cellColor', [real.game?.cellColor]);
 			applyColor('foodColor', [real.game?.foodColor]);
 			applyColor('mapColor', [real.game?.map?.color, real.mapColor]);
 			// sigmod treats the map border as cell borders for some reason
-			if (!['#00f', '#00f0', '#0000ff', '#000000ffff'].includes(real.game?.borderColor))
+			if (['#00f', '#00f0', '#0000ff', '#000000ffff'].includes(real.game?.borderColor))
 				applyColor('outlineColor', [real.game?.borderColor]);
 			// note: singular nameColor takes priority
 			applyColor('nameColor1', [
@@ -491,8 +491,6 @@
 				real.game?.name?.color,
 				real.game?.name?.gradient?.enabled && real.game.name.gradient.right,
 			]);
-			// v10 does not have a 'hide food' setting; check food's transparency
-			sigmod.settings.hidePellets = real.settings.foodColor?.[3] === 0;
 			sigmod.settings.removeOutlines = real.game?.removeOutlines;
 			sigmod.settings.skinReplacement = real.game?.skins;
 			sigmod.settings.virusImage = real.game?.virusImage;
@@ -4031,8 +4029,7 @@
 		 * @param {number=} now
 		 */
 		render.upload = (key, now) => {
-			if ((key === 'pellets' && sigmod.settings.hidePellets)
-				|| performance.now() - render.lastFrame > 45_000) {
+			if (performance.now() - render.lastFrame > 45_000) {
 				// do not render pellets on inactive windows (very laggy!)
 				uploadedPellets = 0;
 				return;
