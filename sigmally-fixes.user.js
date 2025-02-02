@@ -481,7 +481,8 @@
 			applyColor('mapColor', [real.game?.map?.color, real.mapColor]);
 			// sigmod treats the map border as cell borders for some reason
 			if (['#00f', '#00f0', '#0000ff', '#000000ffff'].includes(real.game?.borderColor))
-				applyColor('outlineColor', [real.game?.borderColor]);
+				sigmod.settings.outlineColor = undefined;
+			else applyColor('outlineColor', [real.game?.borderColor]);
 			// note: singular nameColor takes priority
 			applyColor('nameColor1', [
 				real.game?.name?.color,
