@@ -1160,8 +1160,6 @@
 			massBold: false,
 			massOpacity: 1,
 			massScaleFactor: 1,
-			/** @type {'flawless' | 'alpha'} */
-			mergeStrategy: 'flawless',
 			multibox: '',
 			/** @type {'natural' | 'delta' | 'weighted' | 'none'} */
 			multiCamera: 'natural',
@@ -1288,8 +1286,10 @@
 
 			const datalist = `<datalist id="sf-${property}-markers"> <option value="${initial}"></option> </datalist>`;
 			const vanilla = fromHTML(`
-				<div style="height: 25px; position: relative;" title="${help}">
-					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">${title}</div>
+				<div style="height: 25px; position: relative;">
+					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">
+						<a href="#" onclick="prompt(\`${help}\`, \`${help}\`)">[?]</a> ${title}
+					</div>
 					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
 						<input id="sf-${property}" style="display: block; float: left; height: 25px; line-height: 25px;\
 							margin-left: 5px;" min="${min}" max="${max}" step="${step}" value="${initial}"
@@ -1308,8 +1308,8 @@
 			const datalistSm
 				= `<datalist id="sfsm-${property}-markers"> <option value="${initial}"></option> </datalist>`;
 			const sigmod = fromHTML(`
-				<div class="modRowItems justify-sb" style="padding: 5px 10px;" title="${help}">
-					<span>${title}</span>
+				<div class="modRowItems justify-sb" style="padding: 5px 10px;">
+					<span><a href="#" onclick="prompt(\`${help}\`, \`${help}\`)">[?]</a> ${title}</span>
 					<span class="justify-sb">
 						<input id="sfsm-${property}" style="width: 200px;" type="range" min="${min}" max="${max}"
 							step="${step}" value="${initial}" list="sfsm-${property}-markers" />
@@ -1346,8 +1346,10 @@
 			};
 
 			const vanilla = fromHTML(`
-				<div style="height: 25px; position: relative;" title="${help}">
-					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">${title}</div>
+				<div style="height: 25px; position: relative;">
+					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">
+						<a href="#" onclick="prompt(\`${help}\`, \`${help}\`)">[?]</a> ${title}
+					</div>
 					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
 						<input id="sf-${property}" placeholder="${placeholder}" type="text" />
 					</div>
@@ -1358,7 +1360,7 @@
 
 			const sigmod = fromHTML(`
 				<div class="modRowItems justify-sb" style="padding: 5px 10px;" title="${help}">
-					<span>${title}</span>
+					<span><a href="#" onclick="prompt(\`${help}\`, \`${help}\`)">[?]</a> ${title}</span>
 					<input class="modInput" id="sfsm-${property}" placeholder="${placeholder}" \
 						style="width: 250px;" type="text" />
 				</div>
@@ -1387,8 +1389,10 @@
 			};
 
 			const vanilla = fromHTML(`
-				<div style="height: 25px; position: relative;" title="${help}">
-					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">${title}</div>
+				<div style="height: 25px; position: relative;">
+					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">
+						<a href="#" onclick="prompt(\`${help}\`, \`${help}\`)">[?]</a> ${title}
+					</div>
 					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
 						<input id="sf-${property}" type="checkbox" />
 					</div>
@@ -1398,8 +1402,8 @@
 			vanillaContainer.appendChild(vanilla);
 
 			const sigmod = fromHTML(`
-				<div class="modRowItems justify-sb" style="padding: 5px 10px;" title="${help}">
-					<span>${title}</span>
+				<div class="modRowItems justify-sb" style="padding: 5px 10px;">
+					<span><a href="#" onclick="prompt(\`${help}\`, \`${help}\`)">[?]</a> ${title}</span>
 					<div style="width: 75px; text-align: center;">
 						<div class="modCheckbox" style="display: inline-block;">
 							<input id="sfsm-${property}" type="checkbox" />
@@ -1440,8 +1444,10 @@
 			};
 
 			const vanilla = fromHTML(`
-				<div style="height: 25px; position: relative;" title="${help}">
-					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">${title}</div>
+				<div style="height: 25px; position: relative;">
+					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">
+						<a href="#" onclick="prompt(\`${help}\`, \`${help}\`)">[?]</a> ${title}
+					</div>
 					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
 						<input id="sf-${property}-visible" type="range" min="0" max="1" step="0.01" \
 							style="width: 100px" />
@@ -1454,8 +1460,8 @@
 			vanillaContainer.appendChild(vanilla);
 
 			const sigmod = fromHTML(`
-				<div class="modRowItems justify-sb" style="padding: 5px 10px;" title="${help}">
-					<span>${title}</span>
+				<div class="modRowItems justify-sb" style="padding: 5px 10px;">
+					<span><a href="#" onclick="prompt(\`${help}\`, \`${help}\`)">[?]</a> ${title}</span>
 					<div style="width: 175px; text-align: center;">
 						<input id="sfsm-${property}-visible" type="range" min="0" max="1" step="0.01" \
 							style="width: 100px" />
@@ -1491,8 +1497,10 @@
 			};
 
 			const vanilla = fromHTML(`
-				<div style="height: 25px; position: relative;" title="${help}">
-					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">${title}</div>
+				<div style="height: 25px; position: relative;">
+					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">
+						<a href="#" onclick="prompt(\`${help}\`, \`${help}\`)">[?]</a> ${title}
+					</div>
 					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
 						<select id="sf-${property}">
 							${options.map(([value, name]) => `<option value="${value}">${name}</option>`).join('\n')}
@@ -1504,8 +1512,8 @@
 			vanillaContainer.appendChild(vanilla);
 
 			const sigmod = fromHTML(`
-				<div class="modRowItems justify-sb" style="padding: 5px 10px;" title="${help}">
-					<span>${title}</span>
+				<div class="modRowItems justify-sb" style="padding: 5px 10px;">
+					<span><a href="#" onclick="prompt(\`${help}\`, \`${help}\`)">[?]</a> ${title}</span>
 					<select class="form-control" id="sfsm-${property}" style="width: 250px;">
 						${options.map(([value, name]) => `<option value="${value}">${name}</option>`).join('\n')}
 					</select>
@@ -1542,8 +1550,10 @@
 			};
 
 			const vanilla = fromHTML(`
-				<div style="height: 25px; position: relative;" title="${help}">
-					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">${title}</div>
+				<div style="height: 25px; position: relative;">
+					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">
+						<a href="#" onclick="prompt(\`${help}\`, \`${help}\`)">[?]</a> ${title}
+					</div>
 					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
 						<input id="sf-${property}" placeholder="..." type="text" style="width: 40px;" />
 					</div>
@@ -1553,10 +1563,13 @@
 			vanillaContainer.appendChild(vanilla);
 
 			const sigmod = fromHTML(`
-				<div class="modRowItems justify-sb" style="padding: 5px 10px;" title="${help}">
-					<span>${title}</span>
+				<div class="modRowItems justify-sb" style="padding: 5px 10px; position: relative;">
+					<span><a id="sfsm-${property}-help" style="cursor: help;">(?)</a> ${title}</span>
 					<input class="keybinding" id="sfsm-${property}" placeholder="..." \
 						style="width: 50px;" type="text" />
+					<div id="sfsm-${property}-helpbox" style="display: none; position: absolute; top: calc(100% + 5px); left: 30px; background: #000; border-radius: 4px; border: 1px solid #337ab7; width: calc(100% - 40px); height: fit-content; padding: 10px;">
+						${help}
+					</div>
 				</div>
 			`);
 			listen(/** @type {HTMLSelectElement} */(sigmod.querySelector(`input#sfsm-${property}`)));
@@ -1603,21 +1616,15 @@
 			'- &quot;No merge, weighted&quot; puts the camera at the center of mass of your current tab.\n' +
 			'- &quot;No merge, not weighted&quot; uses the default non-multiboxing camera. Use this if you\'re used ' +
 			'two-tab multiboxing.');
-		dropdown('mergeStrategy', 'Vision merging strategy',
-			[['flawless', 'Flawless (best)'], ['alpha', 'Stable (use if laggy)']],
-			'Which algorithm to use when combining visible cells between tabs.\n' +
-			'- &quot;Flawless&quot; synchronizes all connections and prevents warping. If any tab starts lagging, ' +
-			'Stable will be used instead. Default for Sigmally Fixes. Highly recommended.\n' +
-			'- &quot;Stable&quot; uses the primary tab\'s cells if possible, though the most ' +
-			'opaque cell will be chosen. Cells may warp around, but will stay usable if your internet is unstable. ' +
-			'Similar to Delta.');
 		slider('outlineMulti', 'Current tab cell outline thickness', 0.2, 0, 1, 0.01, 2,
 			'Draws an inverse outline on your cells, the thickness being a % of your cell radius. This only shows ' +
 			'when \'merge camera between tabs\' is enabled and when you\'re near one of your tabs.');
 		color('outlineMultiColor', 'Current tab outline color',
-			'The outline color of your current multibox tab.');
+			'The color of the rings around your current multibox tab. Only shown when near another tab. The slider ' +
+			'is the outline opacity.');
 		color('outlineMultiInactiveColor', 'Other tab outline color',
-			'The outline color for the cells of your other unfocused multibox tabs. Turn off the checkbox to disable.');
+			'The color of the rings around your other inactive multibox tabs. Only shown when near another tab. The ' +
+			'slider is the outline opacity.');
 		separator('• inputs •');
 		slider('scrollFactor', 'Zoom speed', 1, 0.05, 1, 0.05, 2,
 			'A smaller zoom speed lets you fine-tune your zoom.');
@@ -1942,7 +1949,7 @@
 					}
 				}
 				dirtyMerged = true;
-			} else if (settings.mergeStrategy === 'alpha' || stable) {
+			} else if (stable) {
 				// maximize alpha, prefer primary tab
 				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
 					for (const resolution of world[key].values()) {
@@ -1962,7 +1969,7 @@
 					}
 				}
 				dirtyMerged = true;
-			} else { // settings.mergeStrategy === 'flawless'
+			} else { // "flawless" merging
 				// for camera merging to look extremely smooth, we need to merge packets and apply them *ONLY* when all
 				// tabs are synchronized.
 				// if you simply fall back to what the other tabs see, you will get lots of flickering and warping (what
@@ -4030,7 +4037,7 @@
 		 * @param {number=} now
 		 */
 		render.upload = (key, now) => {
-			if (performance.now() - render.lastFrame > 45_000) {
+			if (performance.now() - render.lastFrame > 1_000) {
 				// do not render pellets on inactive windows (very laggy!)
 				uploadedPellets = 0;
 				return;
