@@ -9,28 +9,49 @@
 		"Keep the alert short and unintrusive, as it shifts all the buttons down and out of the main UI.",
 		"No HTML; the < and > characters are stripped."
 	],
+	"2.5.7": {
+		"ok": true
+	},
+	"2.5.6": {
+		"ok": true
+	},
+	"2.5.5": {
+		"ok": true
+	},
+	"2.5.4": {
+		"ok": true
+	},
+	"2.5.3": {
+		"ok": true
+	},
+	"2.5.2": {
+		"ok": true
+	},
+	"2.5.1": {
+		"ok": true
+	},
 	"2.5.0": {
 		"ok": true
 	},
 	"2.4.2.1": {
 		"ok": false,
 		"alert": "Upgrade to Sigmally Fixes v2.5.0 for smooth, fast one-tab multiboxing: {autolink}",
-		"color": "#09f"
+		"color": "#f90"
 	},
 	"2.4.2": {
 		"ok": false,
 		"alert": "Upgrade to Sigmally Fixes v2.5.0 for smooth, fast one-tab multiboxing: {autolink}",
-		"color": "#09f"
+		"color": "#f90"
 	},
 	"2.4.1": {
 		"ok": false,
 		"alert": "Upgrade to Sigmally Fixes v2.5.0 for smooth, fast one-tab multiboxing: {autolink}",
-		"color": "#09f"
+		"color": "#f90"
 	},
 	"2.4.0": {
 		"ok": false,
 		"alert": "Upgrade to Sigmally Fixes v2.5.0 for smooth, fast one-tab multiboxing: {autolink}",
-		"color": "#09f"
+		"color": "#f90"
 	},
 	"2.3.19": {
 		"ok": false,

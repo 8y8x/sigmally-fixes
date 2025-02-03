@@ -1195,13 +1195,18 @@
 			delete settings.unsplittableOpacity;
 		}
 
-		/** @type {Set<() => void>} */
-		const onSaves = new Set();
+		/** @type {(() => void)[]} */
+		const onSyncs = [];
+		/** @type {(() => void)[]} */
+		const onUpdates = [];
 
+		// allow syncing sigfixes settings in case you leave an extra sig tab open for a long time and would lose your
+		// changed settings
 		const channel = new BroadcastChannel('sigfix-settings');
 		channel.addEventListener('message', msg => {
 			Object.assign(settings, msg.data);
-			onSaves.forEach(fn => fn());
+			onSyncs.forEach(fn => fn());
+			onUpdates.forEach(fn => fn());
 		});
 
 		// #1 : define helper functions
@@ -1218,6 +1223,7 @@
 		function save() {
 			localStorage.setItem('sigfix', JSON.stringify(settings));
 			channel.postMessage(settings);
+			onUpdates.forEach(fn => fn());
 		}
 
 		/**
@@ -1236,6 +1242,13 @@
 			</div>
 		`));
 
+		/**
+		 * @template T
+		 * @param {T | null} el
+		 * @returns {T}
+		 */
+		const require = el => /** @type {T} */ (el); // aux.require is unnecessary for requiring our own elements
+
 		const vanillaContainer = document.createElement('div');
 		vanillaContainer.className = 'menu__item';
 		vanillaMenu?.appendChild(vanillaContainer);
@@ -1244,437 +1257,395 @@
 		sigmodContainer.className = 'mod_tab scroll';
 		sigmodContainer.style.display = 'none';
 
+		/** @type {{ container: HTMLElement, help: HTMLElement, helpbox: HTMLElement }[]} */
+		const containers = [];
+
+		/**
+		 * @param {string} title
+		 * @param {{ sigmod: HTMLElement, vanilla: HTMLElement }[]} components
+		 * @param {() => boolean} show
+		 * @param {string} help
+		*/
+		const setting = (title, components, show, help) => {
+			const vanilla = fromHTML(`
+				<div style="height: 25px; position: relative;">
+					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">
+						<a id="sf-help" style="color: #0099ff; cursor: help;">(?)</a> ${title}
+					</div>
+					<div id="sf-components" style="height: 25px; margin-left: 5px; position: absolute; right: 0;
+						bottom: 0;"></div>
+					<div id="sf-helpbox" style="display: none; position: absolute; top: calc(100% + 5px); left: 20px;
+						width: calc(100% - 30px); height: fit-content; padding: 10px; color: #000; background: #fff;
+						border: 1px solid #999; border-radius: 4px; z-index: 2;">
+						${help}
+					</div>
+				</div>
+			`);
+			const sigmod = fromHTML(`
+				<div class="modRowItems justify-sb" style="padding: 5px 10px; position: relative;">
+					<span><a id="sfsm-help" style="color: #6871f1; cursor: help;">(?)</a> ${title}</span>
+					<span class="justify-sb" id="sfsm-components"></span>
+					<div id="sfsm-helpbox" style="display: none; position: absolute; top: calc(100% + 5px); left: 30px;
+						width: calc(100% - 40px); height: fit-content; padding: 10px; color: #fffe; background: #000;
+						border: 1px solid #6871f1; border-radius: 4px; z-index: 2;">${help}</div>
+				</div>
+			`);
+
+			const vanillaComponents = require(vanilla.querySelector('#sf-components'));
+			const sigmodComponents = require(sigmod.querySelector('#sfsm-components'));
+			for (const pair of components) {
+				vanillaComponents.appendChild(pair.vanilla);
+				sigmodComponents.appendChild(pair.sigmod);
+			}
+
+			const reshow = () => void (vanilla.style.display = sigmod.style.display = show() ? '' : 'none');
+			reshow();
+			onUpdates.push(reshow);
+
+			vanillaContainer.appendChild(vanilla);
+			sigmodContainer.appendChild(sigmod);
+			containers.push({
+				container: vanilla,
+				help: require(vanilla.querySelector('#sf-help')),
+				helpbox: require(vanilla.querySelector('#sf-helpbox')),
+			}, {
+				container: sigmod,
+				help: require(sigmod.querySelector('#sfsm-help')),
+				helpbox: require(sigmod.querySelector('#sfsm-helpbox')),
+			});
+		};
+
 		/**
 		 * @param {PropertyOfType<typeof settings, number>} property
-		 * @param {string} title
-		 * @param {number | undefined} initial
+		 * @param {number} initial
 		 * @param {number} min
 		 * @param {number} max
 		 * @param {number} step
 		 * @param {number} decimals
-		 * @param {string} help
 		 */
-		function slider(property, title, initial, min, max, step, decimals, help) {
+		const slider = (property, initial, min, max, step, decimals) => {
 			/**
 			 * @param {HTMLInputElement} slider
 			 * @param {HTMLInputElement} display
 			 */
 			const listen = (slider, display) => {
-				slider.value = settings[property].toString();
-				display.value = settings[property].toFixed(decimals);
+				const change = () => slider.value = display.value = settings[property].toFixed(decimals);
+				onSyncs.push(change);
+				change();
 
-				slider.addEventListener('input', () => {
-					settings[property] = Number(slider.value);
-					display.value = settings[property].toFixed(decimals);
+				/** @param {HTMLInputElement} input */
+				const onInput = input => {
+					const value = Number(input.value);
+					if (Number.isNaN(value)) return;
+
+					settings[property] = value;
+					change();
 					save();
-				});
-
-				display.addEventListener('change', () => {
-					const value = Number(display.value);
-					if (!Number.isNaN(value))
-						settings[property] = value;
-
-					display.value = slider.value = settings[property].toFixed(decimals);
-					save();
-				});
-
-				onSaves.add(() => {
-					slider.value = settings[property].toString();
-					display.value = settings[property].toFixed(decimals);
-				});
+				};
+				slider.addEventListener('input', () => onInput(slider));
+				display.addEventListener('input', () => onInput(display));
 			};
 
 			const datalist = `<datalist id="sf-${property}-markers"> <option value="${initial}"></option> </datalist>`;
 			const vanilla = fromHTML(`
-				<div style="height: 25px; position: relative;">
-					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">
-						<a href="#" onclick="prompt(\`${help}\`, \`${help}\`)">[?]</a> ${title}
-					</div>
-					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
-						<input id="sf-${property}" style="display: block; float: left; height: 25px; line-height: 25px;\
-							margin-left: 5px;" min="${min}" max="${max}" step="${step}" value="${initial}"
-							list="sf-${property}-markers" type="range" />
-						${initial !== undefined ? datalist : ''}
-						<input id="sf-${property}-display" style="display: block; float: left; height: 25px; \
-							line-height: 25px; width: 50px; text-align: right;" />
-					</div>
+				<div>
+					<input id="sf-${property}" style="display: block; float: left; height: 25px; line-height: 25px;
+						margin-left: 5px;" min="${min}" max="${max}" step="${step}" value="${initial}"
+						list="sf-${property}-markers" type="range" />
+					${initial !== undefined ? datalist : ''}
+					<input id="sf-${property}-display" style="display: block; float: left; height: 25px;
+						line-height: 25px; width: 50px; text-align: center; margin-left: 5px;" />
 				</div>
 			`);
-			listen(
-				/** @type {HTMLInputElement} */(vanilla.querySelector(`input#sf-${property}`)),
-				/** @type {HTMLInputElement} */(vanilla.querySelector(`input#sf-${property}-display`)));
-			vanillaContainer.appendChild(vanilla);
-
-			const datalistSm
-				= `<datalist id="sfsm-${property}-markers"> <option value="${initial}"></option> </datalist>`;
 			const sigmod = fromHTML(`
-				<div class="modRowItems justify-sb" style="padding: 5px 10px;">
-					<span><a href="#" onclick="prompt(\`${help}\`, \`${help}\`)">[?]</a> ${title}</span>
-					<span class="justify-sb">
-						<input id="sfsm-${property}" style="width: 200px;" type="range" min="${min}" max="${max}"
-							step="${step}" value="${initial}" list="sfsm-${property}-markers" />
-						${initial !== undefined ? datalistSm : ''}
-						<input id="sfsm-${property}-display" class="text-center form-control" style="border: none; \
-							width: 50px; margin: 0 15px;" />
-					</span>
-				</div>
+				<span class="justify-sb">
+					<input id="sfsm-${property}" style="width: 200px;" type="range" min="${min}" max="${max}"
+						step="${step}" value="${initial}" list="sf-${property}-markers" />
+					${initial !== undefined ? datalist : ''}
+					<input id="sfsm-${property}-display" class="text-center form-control" style="border: none;
+						width: 50px; margin: 0 15px;" />
+				</span>
 			`);
-			listen(
-				/** @type {HTMLInputElement} */(sigmod.querySelector(`input#sfsm-${property}`)),
-				/** @type {HTMLInputElement} */(sigmod.querySelector(`input#sfsm-${property}-display`)));
-			sigmodContainer.appendChild(sigmod);
-		}
 
-		/**
-		 * @param {PropertyOfType<typeof settings, string>} property
-		 * @param {string} title
-		 * @param {string} placeholder
-		 * @param {string} help
-		 */
-		function input(property, title, placeholder, help) {
-			/**
-			 * @param {HTMLInputElement} input
-			 */
+			listen(require(vanilla.querySelector(`#sf-${property}`)),
+				require(vanilla.querySelector(`#sf-${property}-display`)));
+			listen(aux.require(sigmod.querySelector(`#sfsm-${property}`), 'no selector match'),
+				aux.require(sigmod.querySelector(`#sfsm-${property}-display`), 'no selector match'));
+			return { sigmod, vanilla };
+		};
+
+		/** @param {PropertyOfType<typeof settings, boolean>} property */
+		const checkbox = property => {
+			/** @param {HTMLInputElement} input */
 			const listen = input => {
-				input.value = /** @type {never} */ (settings[property]);
-				input.addEventListener('input', () => {
-					settings[property] = /** @type {never} */ (input.value);
-					save();
-				});
-
-				onSaves.add(() => input.value = settings[property]);
-			};
-
-			const vanilla = fromHTML(`
-				<div style="height: 25px; position: relative;">
-					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">
-						<a href="#" onclick="prompt(\`${help}\`, \`${help}\`)">[?]</a> ${title}
-					</div>
-					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
-						<input id="sf-${property}" placeholder="${placeholder}" type="text" />
-					</div>
-				</div>
-			`);
-			listen(/** @type {HTMLInputElement} */(vanilla.querySelector(`input#sf-${property}`)));
-			vanillaContainer.appendChild(vanilla);
-
-			const sigmod = fromHTML(`
-				<div class="modRowItems justify-sb" style="padding: 5px 10px;" title="${help}">
-					<span><a href="#" onclick="prompt(\`${help}\`, \`${help}\`)">[?]</a> ${title}</span>
-					<input class="modInput" id="sfsm-${property}" placeholder="${placeholder}" \
-						style="width: 250px;" type="text" />
-				</div>
-			`);
-			listen(/** @type {HTMLInputElement} */(sigmod.querySelector(`input#sfsm-${property}`)));
-			sigmodContainer.appendChild(sigmod);
-		}
-
-		/**
-		 * @param {PropertyOfType<typeof settings, boolean>} property
-		 * @param {string} title
-		 * @param {string} help
-		 */
-		function checkbox(property, title, help) {
-			/**
-			 * @param {HTMLInputElement} input
-			 */
-			const listen = input => {
+				onSyncs.push(() => input.checked = settings[property]);
 				input.checked = settings[property];
+
 				input.addEventListener('input', () => {
 					settings[property] = input.checked;
 					save();
 				});
-
-				onSaves.add(() => input.checked = settings[property]);
 			};
 
-			const vanilla = fromHTML(`
-				<div style="height: 25px; position: relative;">
-					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">
-						<a href="#" onclick="prompt(\`${help}\`, \`${help}\`)">[?]</a> ${title}
-					</div>
-					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
-						<input id="sf-${property}" type="checkbox" />
-					</div>
-				</div>
-			`);
-			listen(/** @type {HTMLInputElement} */(vanilla.querySelector(`input#sf-${property}`)));
-			vanillaContainer.appendChild(vanilla);
-
+			const vanilla = fromHTML(`<input id="sf-${property}" type="checkbox" />`);
 			const sigmod = fromHTML(`
-				<div class="modRowItems justify-sb" style="padding: 5px 10px;">
-					<span><a href="#" onclick="prompt(\`${help}\`, \`${help}\`)">[?]</a> ${title}</span>
-					<div style="width: 75px; text-align: center;">
-						<div class="modCheckbox" style="display: inline-block;">
-							<input id="sfsm-${property}" type="checkbox" />
-							<label class="cbx" for="sfsm-${property}"></label>
-						</div>
+				<div style="margin-right: 25px;">
+					<div class="modCheckbox" style="display: inline-block;">
+						<input id="sfsm-${property}" type="checkbox" />
+						<label class="cbx" for="sfsm-${property}"></label>
 					</div>
 				</div>
 			`);
-			listen(/** @type {HTMLInputElement} */(sigmod.querySelector(`input#sfsm-${property}`)));
-			sigmodContainer.appendChild(sigmod);
-		}
+			listen(/** @type {HTMLInputElement} */ (vanilla));
+			listen(require(sigmod.querySelector(`#sfsm-${property}`)));
+			return { sigmod, vanilla };
+		};
 
 		/**
-		 * @param {PropertyOfType<typeof settings, [number, number, number, number]>} property
-		 * @param {string} title
-		 * @param {string} help
+		 * @param {PropertyOfType<typeof settings, string>} property
+		 * @param {string} placeholder
 		 */
-		function color(property, title, help) {
+		const text = (property, placeholder) => {
+			/** @param {HTMLInputElement} input */
+			const listen = input => {
+				onSyncs.push(() => input.value = settings[property]);
+				input.value = settings[property];
+
+				input.addEventListener('input', () => {
+					/** @type {string} */ (settings[property]) = input.value;
+					save();
+				});
+			};
+
+			const vanilla = fromHTML(`<input id="sf-${property}" placeholder="${placeholder}" type="text" />`);
+			const sigmod = fromHTML(`<input class="modInput" id="sfsm-${property}" placeholder="${placeholder}"
+				style="width: 250px;" type="text" />`);
+			listen(/** @type {HTMLInputElement} */ (vanilla));
+			listen(/** @type {HTMLInputElement} */ (sigmod));
+			return { sigmod, vanilla };
+		};
+
+		/** @param {PropertyOfType<typeof settings, [number, number, number, number]>} property */
+		const color = property => {
 			/**
 			 * @param {HTMLInputElement} input
-			 * @param {HTMLInputElement} visible
+			 * @param {HTMLInputElement} alpha
 			 */
-			const listen = (input, visible) => {
-				input.value = aux.rgba2hex6(...settings[property]);
-				visible.value = String(settings[property][3]);
+			const listen = (input, alpha) => {
+				const update = () => {
+					input.value = aux.rgba2hex6(...settings[property]);
+					alpha.value = String(settings[property][3]);
+				};
+				onSyncs.push(update);
+				update();
+
 				const changed = () => {
 					settings[property] = aux.hex2rgba(input.value);
-					settings[property][3] = Number(visible.value);
+					settings[property][3] = Number(alpha.value);
 					save();
 				};
 				input.addEventListener('input', changed);
-				visible.addEventListener('input', changed);
-
-				onSaves.add(() => {
-					input.value = aux.rgba2hex6(...settings[property]);
-					visible.value = String(settings[property][3]);
-				});
+				alpha.addEventListener('input', changed);
 			};
 
 			const vanilla = fromHTML(`
-				<div style="height: 25px; position: relative;">
-					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">
-						<a href="#" onclick="prompt(\`${help}\`, \`${help}\`)">[?]</a> ${title}
-					</div>
-					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
-						<input id="sf-${property}-visible" type="range" min="0" max="1" step="0.01" \
-							style="width: 100px" />
-						<input id="sf-${property}" type="color" />
-					</div>
+				<div>
+					<input id="sf-${property}-alpha" type="range" min="0" max="1" step="0.01" style="width: 100px" />
+					<input id="sf-${property}" type="color" />
 				</div>
 			`);
-			listen(/** @type {HTMLInputElement} */(vanilla.querySelector(`input#sf-${property}`)),
-				/** @type {HTMLInputElement} */(vanilla.querySelector(`input#sf-${property}-visible`)));
-			vanillaContainer.appendChild(vanilla);
-
 			const sigmod = fromHTML(`
-				<div class="modRowItems justify-sb" style="padding: 5px 10px;">
-					<span><a href="#" onclick="prompt(\`${help}\`, \`${help}\`)">[?]</a> ${title}</span>
-					<div style="width: 175px; text-align: center;">
-						<input id="sfsm-${property}-visible" type="range" min="0" max="1" step="0.01" \
-							style="width: 100px" />
-						<input id="sfsm-${property}" type="color" />
-					</div>
+				<div>
+					<input id="sfsm-${property}-alpha" type="range" min="0" max="1" step="0.01" \
+						style="width: 100px" />
+					<input id="sfsm-${property}" type="color" />
 				</div>
 			`);
-			listen(/** @type {HTMLInputElement} */(sigmod.querySelector(`input#sfsm-${property}`)),
-				/** @type {HTMLInputElement} */(sigmod.querySelector(`input#sfsm-${property}-visible`)));
-			sigmodContainer.appendChild(sigmod);
-		}
+			listen(require(vanilla.querySelector(`#sf-${property}-alpha`)),
+				require(vanilla.querySelector(`#sf-${property}`)));
+			listen(require(sigmod.querySelector(`#sfsm-${property}-alpha`)),
+				require(sigmod.querySelector(`#sfsm-${property}`)));
+			return { sigmod, vanilla };
+		};
 
 		/**
 		 * @param {PropertyOfType<typeof settings, string>} property
-		 * @param {string} title
 		 * @param {[string, string][]} options
-		 * @param {string} help
 		 */
-		function dropdown(property, title, options, help) {
-			/**
-			 * @param {HTMLSelectElement} input
-			 */
+		const dropdown = (property, options) => {
+			/** @param {HTMLSelectElement} input */
 			const listen = input => {
+				onSyncs.push(() => input.value = settings[property]);
 				input.value = settings[property];
+
 				input.addEventListener('input', () => {
-					settings[property] = /** @type {never} */ (input.value);
+					/** @type {string} */ (settings[property]) = input.value;
 					save();
 				});
-
-				onSaves.add(() => {
-					input.value = settings[property];
-				});
 			};
 
 			const vanilla = fromHTML(`
-				<div style="height: 25px; position: relative;">
-					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">
-						<a href="#" onclick="prompt(\`${help}\`, \`${help}\`)">[?]</a> ${title}
-					</div>
-					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
-						<select id="sf-${property}">
-							${options.map(([value, name]) => `<option value="${value}">${name}</option>`).join('\n')}
-						</select>
-					</div>
-				</div>
+				<select id="sf-${property}">
+					${options.map(([value, name]) => `<option value="${value}">${name}</option>`).join('\n')}
+				</select>
 			`);
-			listen(/** @type {HTMLSelectElement} */(vanilla.querySelector(`select#sf-${property}`)));
-			vanillaContainer.appendChild(vanilla);
-
 			const sigmod = fromHTML(`
-				<div class="modRowItems justify-sb" style="padding: 5px 10px;">
-					<span><a href="#" onclick="prompt(\`${help}\`, \`${help}\`)">[?]</a> ${title}</span>
-					<select class="form-control" id="sfsm-${property}" style="width: 250px;">
-						${options.map(([value, name]) => `<option value="${value}">${name}</option>`).join('\n')}
-					</select>
-				</div>
+				<select class="form-control" id="sfsm-${property}" style="width: 250px;">
+					${options.map(([value, name]) => `<option value="${value}">${name}</option>`).join('\n')}
+				</select>
 			`);
-			listen(/** @type {HTMLSelectElement} */(sigmod.querySelector(`select#sfsm-${property}`)));
-			sigmodContainer.appendChild(sigmod);
-		}
+			listen(/** @type {HTMLSelectElement} */ (vanilla));
+			listen(/** @type {HTMLSelectElement} */ (sigmod));
+			return { sigmod, vanilla };
+		};
 
-		/**
-		 * @param {PropertyOfType<typeof settings, string>} property
-		 * @param {string} title
-		 * @param {string} help
-		 */
-		function keybind(property, title, help) {
-			/**
-			 * @param {HTMLSelectElement} input
-			 */
+		/** @param {PropertyOfType<typeof settings, string>} property */
+		const keybind = property => {
+			/** @param {HTMLInputElement} input */
 			const listen = input => {
+				onSyncs.push(() => input.value = settings[property]);
 				input.value = settings[property];
+
 				input.addEventListener('keydown', e => {
 					if (e.code === 'Escape' || e.code === 'Backspace') {
-						settings[property] = /** @type {never} */ (input.value = '');
+						/** @type {string} */ (settings[property]) = input.value = '';
 					} else {
-						settings[property] = /** @type {never} */ (input.value = e.key);
+						/** @type {string} */ (settings[property]) = input.value = e.key;
 					}
-					e.preventDefault(); // prevent the actual key from being input
 					save();
-				});
-
-				onSaves.add(() => {
-					input.value = settings[property];
+					e.preventDefault(); // prevent the key being typed in
 				});
 			};
 
-			const vanilla = fromHTML(`
-				<div style="height: 25px; position: relative;">
-					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">
-						<a href="#" onclick="prompt(\`${help}\`, \`${help}\`)">[?]</a> ${title}
-					</div>
-					<div style="height: 25px; margin-left: 5px; position: absolute; right: 0; bottom: 0;">
-						<input id="sf-${property}" placeholder="..." type="text" style="width: 40px;" />
-					</div>
-				</div>
-			`);
-			listen(/** @type {HTMLSelectElement} */(vanilla.querySelector(`input#sf-${property}`)));
-			vanillaContainer.appendChild(vanilla);
+			const vanilla = fromHTML(`<input id="sf-${property}" placeholder="..." type="text" style="width: 40px;" />`);
+			const sigmod = fromHTML(`<input class="keybinding" id="sfsm-${property}" placeholder="..." \
+					style="width: 50px;" type="text" />`);
+			listen(/** @type {HTMLInputElement} */ (vanilla));
+			listen(/** @type {HTMLInputElement} */ (sigmod));
+			return { sigmod, vanilla };
+		};
 
-			const sigmod = fromHTML(`
-				<div class="modRowItems justify-sb" style="padding: 5px 10px; position: relative;">
-					<span><a id="sfsm-${property}-help" style="cursor: help;">(?)</a> ${title}</span>
-					<input class="keybinding" id="sfsm-${property}" placeholder="..." \
-						style="width: 50px;" type="text" />
-					<div id="sfsm-${property}-helpbox" style="display: none; position: absolute; top: calc(100% + 5px); left: 30px; background: #000; border-radius: 4px; border: 1px solid #337ab7; width: calc(100% - 40px); height: fit-content; padding: 10px;">
-						${help}
-					</div>
-				</div>
-			`);
-			listen(/** @type {HTMLSelectElement} */(sigmod.querySelector(`input#sfsm-${property}`)));
-			sigmodContainer.appendChild(sigmod);
-		}
+		addEventListener('mousedown', ev => {
+			for (const { container, help, helpbox } of containers) {
+				if (container.contains(/** @type {Node | null} */ (ev.target))) {
+					if (ev.target === help) helpbox.style.display = '';
+				} else {
+					if (helpbox.style.display === '') helpbox.style.display = 'none';
+				}
+			}
+		});
 
-		function separator(text = '•') {
+		const separator = (text = '•') => {
 			vanillaContainer.appendChild(fromHTML(`<div style="text-align: center; width: 100%;">${text}</div>`));
 			sigmodContainer.appendChild(fromHTML(`<span class="text-center">${text}</span>`));
 		}
 
 		// #2 : generate ui for settings
-		separator('Hover over a setting for more info');
-		slider('drawDelay', 'Draw delay', 120, 40, 300, 1, 0,
+		setting('Draw delay', [slider('drawDelay', 120, 40, 300, 1, 0)], () => true,
 			'How long (in ms) cells will lag behind for. Lower values mean cells will very quickly catch up to where ' +
 			'they actually are.');
-		checkbox('cellOutlines', 'Cell outlines', 'Whether the subtle dark outlines around cells (including skins) ' +
-			'should draw.');
-		slider('cellOpacity', 'Cell opacity', undefined, 0.5, 1, 0.005, 3,
+		setting('Cell outlines', [checkbox('cellOutlines')], () => true,
+			'Whether the subtle dark outlines around cells (including skins) should draw.');
+		setting('Cell opacity', [slider('cellOpacity', 1, 0, 1, 0.005, 3)], () => true,
 			'How opaque cells should be. 1 = fully visible, 0 = invisible. It can be helpful to see the size of a ' +
 			'smaller cell under a big cell.');
-		input('selfSkin', 'Self skin URL', 'https://i.imgur.com/...',
+		setting('Self skin URL', [text('selfSkin', 'https://i.imgur.com/...')], () => true,
 			'Direct URL to a custom skin for yourself. Not visible to others.');
-		input('selfSkinMulti', 'Secondary skin URL', 'https://i.imgur.com/...',
+		setting('Secondary skin URL', [text('selfSkinMulti', 'https://i.imgur.com/...')], () => !!settings.multibox,
 			'Direct URL to a custom skin for your secondary multibox tab. Not visible to others.');
-		input('background', 'Map background image', 'https://i.imgur.com/...',
+		setting('Map background', [text('background', 'https://i.imgur.com/...')], () => true,
 			'A square background image to use within the entire map border. Images under 1024x1024 will be treated ' +
 			'as a repeating pattern, where 50 pixels = 1 grid square.');
-		checkbox('tracer', 'Lines between cells and mouse', 'If enabled, draws a line between all of the cells you ' +
+		setting('Lines between cell and mouse', [checkbox('tracer')], () => true,
+			'If enabled, draws a line between all of the cells you ' +
 			'control and your mouse. Useful as a hint to your subconscious about which tab you\'re currently on.');
 		separator('• multibox •');
-		keybind('multibox', 'One-tab multibox key', 'Pressing this key will switch between two game connections in ' +
+		setting('One-tab multibox key', [keybind('multibox')], () => true,
+			'When a key is set, your game will be in multiboxing mode. ' +
+			'Pressing this key will switch between two game connections in ' +
 			'this browser tab. When this key is set, a weighted camera will be used. You can unbind the key by ' +
-			'setting it to Escape or Backspace. If you\'re used to Ctrl+Tab, consider enabling &quot;Block all ' +
-			'browser keybinds&quot;.');
-		dropdown('multiCamera', 'Camera style',
-			[['natural', 'Merge weighted (natural)'], ['delta', 'Merge Delta-style'],
-				['weighted', 'No merge, weighted'], ['none', 'No merge, not weighted']],
-			'How the camera should move when multiboxing.\n' +
+			'setting it to Escape or Backspace. <br>' +
+			'- If you\'re used to Ctrl+Tab, consider enabling &quot;Block all browser keybinds&quot;. <br>' +
+			'- If you\'re used to two-tab multiboxing, you can change the camera style to &quot;No merge, not ' +
+			'weighted&quot;.');
+		setting('Multibox camera style', [dropdown('multiCamera', [['natural', 'Merge weighted (natural)'],
+			['delta', 'Merge Delta-style'], ['weighted', 'No merge, weighted'], ['none', 'No merge, not weighted']])],
+			() => !!settings.multibox,
+			'How the camera should move when multiboxing. <br>' +
 			'- &quot;Merge weighted (natural)&quot; is the default. Your camera will be put at the center of your ' +
-			'total mass. Use this if you\'re not sure.\n' +
+			'total mass. Use this if you\'re not sure. <br>' +
 			'- &quot;Merge Delta-style&quot; places the camera in between each tab\'s center of mass. This is ' +
-			'how Delta positions its camera.\n' +
-			'- &quot;No merge, weighted&quot; puts the camera at the center of mass of your current tab.\n' +
+			'how Delta positions its camera. <br>' +
+			'- &quot;No merge, weighted&quot; puts the camera at the center of mass of your current tab. <br>' +
 			'- &quot;No merge, not weighted&quot; uses the default non-multiboxing camera. Use this if you\'re used ' +
-			'two-tab multiboxing.');
-		slider('outlineMulti', 'Current tab cell outline thickness', 0.2, 0, 1, 0.01, 2,
+			'to two-tab multiboxing.');
+		setting('Current tab cell outline thickness', [slider('outlineMulti', 0.2, 0, 1, 0.01, 2)],
+			() => !!settings.multibox,
 			'Draws an inverse outline on your cells, the thickness being a % of your cell radius. This only shows ' +
 			'when \'merge camera between tabs\' is enabled and when you\'re near one of your tabs.');
-		color('outlineMultiColor', 'Current tab outline color',
+		setting('Current tab outline color', [color('outlineMultiColor')], () => !!settings.multibox,
 			'The color of the rings around your current multibox tab. Only shown when near another tab. The slider ' +
 			'is the outline opacity.');
-		color('outlineMultiInactiveColor', 'Other tab outline color',
+		setting('Other tab outline color', [color('outlineMultiInactiveColor')], () => !!settings.multibox,
 			'The color of the rings around your other inactive multibox tabs. Only shown when near another tab. The ' +
 			'slider is the outline opacity.');
+		setting('Block respawns near other tabs', [checkbox('blockNearbyRespawns')], () => !!settings.multibox,
+			'Disables the respawn keybind (SigMod-only) when near one of your bigger tabs.');
 		separator('• inputs •');
-		slider('scrollFactor', 'Zoom speed', 1, 0.05, 1, 0.05, 2,
+		setting('Zoom speed', [slider('scrollFactor', 1, 0.05, 1, 0.05, 2)], () => true,
 			'A smaller zoom speed lets you fine-tune your zoom.');
-		dropdown('autoZoom', 'Auto-zoom', [['auto', 'When not multiboxing'], ['never', 'Never']],
-			'When enabled, automatically zooms in/out for you based on how big you are. ');
-		checkbox('blockBrowserKeybinds', 'Block all browser keybinds',
+		setting('Auto-zoom', [dropdown('autoZoom', [['auto', 'When multiboxing is disabled'], ['never', 'Never']])],
+			() => true,
+			'When enabled, automatically zooms in/out for you based on how big you are.');
+		setting('Block all browser keybinds', [checkbox('blockBrowserKeybinds')], () => true,
 			'When enabled, only F11 is allowed to be pressed when in fullscreen. Most other browser and system ' +
 			'keybinds will be disabled.');
-		checkbox('blockNearbyRespawns', 'Block respawns near other tabs',
-			'Disables the respawn keybind (SigMod-only) when near one of your bigger tabs.');
 		separator('• text •');
-		slider('nameScaleFactor', 'Name scale factor', 1, 0.5, 2, 0.01, 2, 'The size multiplier of names.');
-		slider('massScaleFactor', 'Mass scale factor', 1, 0.5, 4, 0.01, 2,
-			'The size multiplier of mass (which is half the size of names)');
-		slider('massOpacity', 'Mass opacity', 1, 0, 1, 0.01, 2,
+		setting('Name scale factor', [slider('nameScaleFactor', 1, 0.5, 2, 0.01, 2)], () => true,
+			'The size multiplier of names.');
+		setting('Mass scale factor', [slider('massScaleFactor', 1, 0.5, 4, 0.01, 2)], () => true,
+			'The size multiplier of mass (which is half the size of names).');
+		setting('Mass opacity', [slider('massOpacity', 1, 0, 1, 0.01, 2)], () => true,
 			'The opacity of the mass text. You might find it visually appealing to have mass be a little dimmer than ' +
 			'names.');
-		checkbox('nameBold', 'Bold name text', 'Uses the bold Ubuntu font for names (like Agar.io).');
-		checkbox('massBold', 'Bold mass text', 'Uses a bold font for mass.');
-		checkbox('clans', 'Show clans', 'When enabled, shows the name of the clan a player is in above their name. ' +
+		setting('Bold name / mass text', [checkbox('nameBold'), checkbox('massBold')], () => true,
+			'Uses the bold Ubuntu font (like Agar.io) for names (left checkbox) or mass (right checkbox).');
+		setting('Show clans', [checkbox('clans')], () => true,
+			'When enabled, shows the name of the clan a player is in above their name. ' +
 			'If you turn off names (using SigMod), then player names will be replaced with their clan\'s.');
-		slider('clanScaleFactor', 'Clan scale factor', 1, 0.5, 4, 0.01, 2,
-			'The size multiplier of a player\'s clan displayed above their name (only when \'Show clans\' is ' +
-			'enabled). When names are off, names will be replaced with clans and use the name scale factor instead.');
-		slider('textOutlinesFactor', 'Text outline thickness factor', 1, 0, 2, 0.01, 2,
+		setting('Clan scale factor', [slider('clanScaleFactor', 1, 0.5, 4, 0.01, 2)], () => settings.clans,
+			'The size multiplier of a player\'s clan displayed above their name. When names are off, names will be ' +
+			'replaced with clans and use the name scale factor instead.');
+		setting('Text outline thickness', [slider('textOutlinesFactor', 1, 0, 2, 0.01, 2)], () => true,
 			'The multiplier of the thickness of the black stroke around names, mass, and clans on cells. You can set ' +
 			'this to 0 to disable outlines AND text shadows.');
 		separator('• other •');
-		color('unsplittableColor', 'Unsplittable cell outline',
+		setting('Unsplittable cell outline', [color('unsplittableColor')], () => true,
 			'How visible the white outline around cells that can\'t split should be. 0 = not visible, 1 = fully ' +
 			'visible.');
-		checkbox('jellySkinLag', 'Jelly physics cell size lag',
+		setting('Jelly physics skin size lag', [checkbox('jellySkinLag')], () => true,
 			'Jelly physics causes cells to grow and shrink slower than text and skins, making the game more ' +
 			'satisfying. If you have a skin that looks weird only with jelly physics, try turning this off.');
-		checkbox('cellGlow', 'Cell glow', 'When enabled, makes cells have a slight glow. This could slightly ' +
-			'affect performance.');
-		checkbox('pelletGlow', 'Pellet glow', 'When enabled, gives pellets a slight glow. This should not affect ' +
+		setting('Cell / pellet glow', [checkbox('cellGlow'), checkbox('pelletGlow')], () => true,
+			'When enabled, makes cells or pellets have a slight glow. This is very optimized and should not impact ' +
 			'performance.');
-		checkbox('rainbowBorder', 'Rainbow border', 'Rainbow border');
-		checkbox('boldUi', 'Top UI uses bold text', 'When enabled, the top-left score and stats UI and the ' +
+		setting('Rainbow border', [checkbox('rainbowBorder')], () => true,
+			'Gives the map a rainbow border. So shiny!!!');
+		setting('Top UI uses bold text', [checkbox('boldUi')], () => true,
+			'When enabled, the top-left score and stats UI and the ' +
 			'leaderboard will use the bold Ubuntu font.');
-		checkbox('showStats', 'Show server stats', 'When disabled, hides the top-left server stats including the ' +
+		setting('Show server stats', [checkbox('showStats')], () => true,
+			'When disabled, hides the top-left server stats including the ' +
 			'player count and server uptime.');
-		checkbox('spectator', 'Connect spectating tab', 'Automatically connects an extra tab and sets it to spectate ' +
-			'#1.');
-		checkbox('spectatorLatency', 'Spectator tab latency', 'When enabled, shows another ping measurement for your ' +
-			'spectator tab.');
-		checkbox('separateBoost', 'Separate XP boost from score', 'If you have an XP boost, your score will be ' +
+		setting('Connect spectating tab', [checkbox('spectator')], () => true,
+			'Automatically connects an extra tab and sets it to spectate #1.');
+		setting('Show spectator tab ping', [checkbox('spectatorLatency')], () => true,
+			'When enabled, shows another ping measurement for your spectator tab.');
+		setting('Separate XP boost from score', [checkbox('separateBoost')], () => true,
+			'If you have an XP boost, your score will be ' +
 			'doubled. If you don\'t want that, you can separate the XP boost from your score.');
-		checkbox('colorUnderSkin', 'Color under skin', 'When disabled, transparent skins will be see-through and not ' +
+		setting('Color under skin', [checkbox('colorUnderSkin')], () => true,
+			'When disabled, transparent skins will be see-through and not ' +
 			'show your cell color.');
 
 		// #3 : create options for sigmod
