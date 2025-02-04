@@ -1569,14 +1569,14 @@
 			'- If you\'re used to Ctrl+Tab, consider enabling &quot;Block all browser keybinds&quot;. <br>' +
 			'- If you\'re used to two-tab multiboxing, you can change the camera style to &quot;No merge, not ' +
 			'weighted&quot;.');
-		setting('Multibox camera style', [dropdown('multiCamera', [['natural', 'Merge weighted (natural)'],
-			['delta', 'Merge Delta-style'], ['weighted', 'No merge, weighted'], ['none', 'No merge, not weighted']])],
+		setting('Multibox camera style', [dropdown('multiCamera', [['natural', 'Merge weighted (best)'],
+			['delta', 'Merge centered (like Delta)'], ['weighted', 'No merge, weighted'], ['none', 'No merge, not weighted (like two-tab)']])],
 			() => !!settings.multibox,
 			'How the camera should move when multiboxing. <br>' +
-			'- &quot;Merge weighted (natural)&quot; is the default. Your camera will be put at the center of your ' +
-			'total mass. Use this if you\'re not sure. <br>' +
-			'- &quot;Merge Delta-style&quot; places the camera in between each tab\'s center of mass. This is ' +
-			'how Delta positions its camera. <br>' +
+			'- &quot;Merge weighted&quot; is the default. Your camera will be put at the center of your total mass. ' +
+			'Use this if you\'re not sure. <br>' +
+			'- &quot;Merge centered&quot; places the camera in between each tab\'s center of mass. This is ' +
+			'how Delta positions its camera by default. <br>' +
 			'- &quot;No merge, weighted&quot; puts the camera at the center of mass of your current tab. <br>' +
 			'- &quot;No merge, not weighted&quot; uses the default non-multiboxing camera. Use this if you\'re used ' +
 			'to two-tab multiboxing.');
