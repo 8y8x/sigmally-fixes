@@ -1270,7 +1270,7 @@
 			const vanilla = fromHTML(`
 				<div style="height: 25px; position: relative;">
 					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">
-						<a id="sf-help" style="color: #0099ff; cursor: help;">(?)</a> ${title}
+						<a id="sf-help" style="color: #0009; cursor: help; user-select: none;">(?)</a> ${title}
 					</div>
 					<div id="sf-components" style="height: 25px; margin-left: 5px; position: absolute; right: 0;
 						bottom: 0;"></div>
@@ -1283,7 +1283,8 @@
 			`);
 			const sigmod = fromHTML(`
 				<div class="modRowItems justify-sb" style="padding: 5px 10px; position: relative;">
-					<span><a id="sfsm-help" style="color: #6871f1; cursor: help;">(?)</a> ${title}</span>
+					<span><a id="sfsm-help" style="color: #fff9; cursor: help; user-select: none;">(?)</a> ${title}\
+						</span>
 					<span class="justify-sb" id="sfsm-components"></span>
 					<div id="sfsm-helpbox" style="display: none; position: absolute; top: calc(100% + 5px); left: 30px;
 						width: calc(100% - 40px); height: fit-content; padding: 10px; color: #fffe; background: #000;
@@ -1461,10 +1462,10 @@
 					<input id="sfsm-${property}" type="color" />
 				</div>
 			`);
-			listen(require(vanilla.querySelector(`#sf-${property}-alpha`)),
-				require(vanilla.querySelector(`#sf-${property}`)));
-			listen(require(sigmod.querySelector(`#sfsm-${property}-alpha`)),
-				require(sigmod.querySelector(`#sfsm-${property}`)));
+			listen(require(vanilla.querySelector(`#sf-${property}`)),
+				require(vanilla.querySelector(`#sf-${property}-alpha`)));
+			listen(require(sigmod.querySelector(`#sfsm-${property}`)),
+				require(sigmod.querySelector(`#sfsm-${property}-alpha`)));
 			return { sigmod, vanilla };
 		};
 
@@ -1542,8 +1543,8 @@
 
 		// #2 : generate ui for settings
 		setting('Draw delay', [slider('drawDelay', 120, 40, 300, 1, 0)], () => true,
-			'How long (in ms) cells will lag behind for. Lower values mean cells will very quickly catch up to where ' +
-			'they actually are.');
+			'How long (in milliseconds) cells will lag behind for. Lower values mean cells will very quickly catch ' +
+			'up to where they actually are.');
 		setting('Cell outlines', [checkbox('cellOutlines')], () => true,
 			'Whether the subtle dark outlines around cells (including skins) should draw.');
 		setting('Cell opacity', [slider('cellOpacity', 1, 0, 1, 0.005, 3)], () => true,
@@ -1627,16 +1628,14 @@
 			'Jelly physics causes cells to grow and shrink slower than text and skins, making the game more ' +
 			'satisfying. If you have a skin that looks weird only with jelly physics, try turning this off.');
 		setting('Cell / pellet glow', [checkbox('cellGlow'), checkbox('pelletGlow')], () => true,
-			'When enabled, makes cells or pellets have a slight glow. This is very optimized and should not impact ' +
-			'performance.');
+			'When enabled, gives cells or pellets a slight glow. Basically, shaders for Sigmally. This is very ' +
+			'optimized and should not impact performance.');
 		setting('Rainbow border', [checkbox('rainbowBorder')], () => true,
 			'Gives the map a rainbow border. So shiny!!!');
 		setting('Top UI uses bold text', [checkbox('boldUi')], () => true,
-			'When enabled, the top-left score and stats UI and the ' +
-			'leaderboard will use the bold Ubuntu font.');
+			'When enabled, the top-left score and stats UI and the leaderboard will use the bold Ubuntu font.');
 		setting('Show server stats', [checkbox('showStats')], () => true,
-			'When disabled, hides the top-left server stats including the ' +
-			'player count and server uptime.');
+			'When disabled, hides the top-left server stats including the player count and server uptime.');
 		setting('Connect spectating tab', [checkbox('spectator')], () => true,
 			'Automatically connects an extra tab and sets it to spectate #1.');
 		setting('Show spectator tab ping', [checkbox('spectatorLatency')], () => true,
