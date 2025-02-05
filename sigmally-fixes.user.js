@@ -1508,19 +1508,25 @@
 				input.value = settings[property];
 
 				input.addEventListener('keydown', e => {
+					if (e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
 					if (e.code === 'Escape' || e.code === 'Backspace') {
 						/** @type {string} */ (settings[property]) = input.value = '';
 					} else {
-						/** @type {string} */ (settings[property]) = input.value = e.key;
+						let key = e.key;
+						if (e.ctrlKey && e.key !== 'Control') key = 'Ctrl+' + key;
+						if (e.altKey) key = 'Alt+' + key;
+						if (e.metaKey) key = 'Cmd+' + key;
+						/** @type {string} */ (settings[property]) = input.value = key;
 					}
 					save();
 					e.preventDefault(); // prevent the key being typed in
 				});
 			};
 
-			const vanilla = fromHTML(`<input id="sf-${property}" placeholder="..." type="text" style="width: 40px;" />`);
-			const sigmod = fromHTML(`<input class="keybinding" id="sfsm-${property}" placeholder="..." \
-					style="width: 50px;" type="text" />`);
+			const vanilla = fromHTML(`<input id="sf-${property}" placeholder="..." type="text" style="
+				text-align: center;width: 80px;" />`);
+			const sigmod = fromHTML(`<input class="keybinding" id="sfsm-${property}" placeholder="..."
+				style="width: 100px;" type="text" />`);
 			listen(/** @type {HTMLInputElement} */ (vanilla));
 			listen(/** @type {HTMLInputElement} */ (sigmod));
 			return { sigmod, vanilla };
@@ -1565,13 +1571,10 @@
 			'control and your mouse. Useful as a hint to your subconscious about which tab you\'re currently on.');
 		separator('• multibox •');
 		setting('One-tab multibox key', [keybind('multibox')], () => true,
-			'When a key is set, your game will be in multiboxing mode. ' +
-			'Pressing this key will switch between two game connections in ' +
-			'this browser tab. When this key is set, a weighted camera will be used. You can unbind the key by ' +
-			'setting it to Escape or Backspace. <br>' +
-			'- If you\'re used to Ctrl+Tab, consider enabling &quot;Block all browser keybinds&quot;. <br>' +
-			'- If you\'re used to two-tab multiboxing, you can change the camera style to &quot;No merge, not ' +
-			'weighted&quot;.');
+			'The keybind to use for switching multibox tabs. If a keybind is set, then "multibox mode" is enabled.' +
+			'By default, you get the \'one-tab\' experience, though if you\'re used to two-tab you can change the ' +
+			'camera style and set the keybind to Ctrl+Tab. <br>' +
+			'Sigmally Fixes does not work with multiple browser tabs.');
 		setting('Multibox camera style', [dropdown('multiCamera', [['natural', 'Merge weighted (best)'],
 			['delta', 'Merge centered (like Delta)'], ['weighted', 'No merge, weighted'], ['none', 'No merge, not weighted (like two-tab)']])],
 			() => !!settings.multibox,
@@ -2845,7 +2848,16 @@
 		addEventListener('keydown', e => {
 			const view = world.selected;
 			const inputs = input.views.get(view) ?? create(view);
-			if (settings.multibox && e.key.toLowerCase() === settings.multibox.toLowerCase()) {
+
+			let keybind = e.key;
+			if (e.ctrlKey) keybind = 'Ctrl+' + keybind;
+			if (e.altKey) keybind = 'Alt+' + keybind;
+			if (e.metaKey) keybind = 'Cmd+' + keybind;
+
+			// never allow pressing Tab by itself
+			if (e.code === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) e.preventDefault();
+
+			if (settings.multibox && keybind.toLowerCase() === settings.multibox.toLowerCase()) {
 				e.preventDefault(); // prevent selecting anything on the page
 				if (settings.multibox) {
 					inputs.w = false; // stop current tab from feeding; don't change forceW
