@@ -1541,6 +1541,9 @@
 			sigmodContainer.appendChild(fromHTML(`<span class="text-center">${text}</span>`));
 		}
 
+		const newTag = `<span style="padding: 2px 5px; border-radius: 10px; background: #76f; color: #fff;
+			font-weight: bold; user-select: none;">NEW</span>`;
+
 		// #2 : generate ui for settings
 		setting('Draw delay', [slider('drawDelay', 120, 40, 300, 1, 0)], () => true,
 			'How long (in milliseconds) cells will lag behind for. Lower values mean cells will very quickly catch ' +
@@ -1729,7 +1732,7 @@
 		world.views = new Map();
 
 		// sigmod compatibility; place a fake cell whose radius yields the current score. this is for respawn
-		// blocking and respawn compatibility
+		// functionality for older sigmod versions; not necessary in v10.1.0+
 		/** @type {[symbol]} */
 		world.mine = [Symbol()];
 		const fakeEntry = {
@@ -2308,7 +2311,9 @@
 							const cell = (pellet ? world.pellets : world.cells).get(id)?.views.get(view);
 							if (cell && cell.deadAt === undefined) {
 								const { x: ix, y: iy, r: ir, jr } = world.xyr(cell, undefined, now);
-								cell.ox = ix; cell.oy = iy; cell.or = ir;
+								cell.ox = ix;
+								cell.oy = iy;
+								cell.or = ir;
 								cell.jr = jr;
 								cell.nx = x; cell.ny = y; cell.nr = r;
 								cell.jagged = jagged;
