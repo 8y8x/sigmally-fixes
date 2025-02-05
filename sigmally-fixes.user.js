@@ -333,6 +333,10 @@
 			}),
 		});
 
+		// get the latest game.js version whenever possible
+		// some players are stuck on an older game.js version which does not allow signing in
+		fetch('https://one.sigmally.com/assets/js/game.js', { cache: 'reload' });
+
 		return aux;
 	})();
 
