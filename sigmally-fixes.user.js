@@ -515,9 +515,13 @@
 			sigmod.settings.tripleKey = real.macros?.keys?.splits?.triple || undefined; // blank keys are ''
 			sigmod.settings.font = real.game?.font;
 
-			// automatically load fonts, because sigmod normally only does this on refresh
+			// sigmod does not download the bold variants of fonts, so we have to do that ourselves
 			if (sigmod.settings.font && !loadedFonts.has(sigmod.settings.font)) {
-				document.fonts.add(new FontFace(sigmod.settings.font, `https://fonts.googleapis.com/css2?family=${sigmod.settings.font}&display=swap`));
+				loadedFonts.add(sigmod.settings.font);
+				const link = document.createElement('link');
+                link.href = `https://fonts.googleapis.com/css2?family=${sigmod.settings.font}:wght@700&display=swap`;
+                link.rel = 'stylesheet';
+                document.head.appendChild(link);
 			}
 		}, 200);
 
