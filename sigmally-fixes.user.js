@@ -447,6 +447,7 @@
 		/** @type {{
 		 * 	cellColor?: [number, number, number, number],
 		 * 	foodColor?: [number, number, number, number],
+		 * 	font?: string,
 		 * 	mapColor?: [number, number, number, number],
 		 * 	outlineColor?: [number, number, number, number],
 		 * 	nameColor1?: [number, number, number, number],
@@ -459,6 +460,8 @@
 		 * 	virusImage?: string,
 		 * }} */
 		sigmod.settings = {};
+		/** @type {Set<string>} */
+		const loadedFonts = new Set();
 		setInterval(() => {
 			// @ts-expect-error
 			const real = window.sigmod?.settings;
@@ -500,6 +503,12 @@
 			sigmod.settings.showNames = aux.setting('input#showNames', true);
 
 			sigmod.settings.tripleKey = real.macros?.keys?.splits?.triple || undefined; // blank keys are ''
+			sigmod.settings.font = real.game?.font;
+
+			// automatically load fonts, because sigmod normally only does this on refresh
+			if (sigmod.settings.font && !loadedFonts.has(sigmod.settings.font)) {
+				document.fonts.add(new FontFace(sigmod.settings.font, `https://fonts.googleapis.com/css2?family=${sigmod.settings.font}&display=swap`));
+			}
 		}, 200);
 
 		// patch sigmod when it's ready; typically sigmod loads first, but i can't guarantee that
@@ -688,25 +697,27 @@
 		ui.stats = (() => {
 			const container = document.createElement('div');
 			container.style.cssText = 'position: fixed; top: 10px; left: 10px; width: 400px; height: fit-content; \
-				user-select: none; z-index: 2; transform-origin: top left;';
+				user-select: none; z-index: 2; transform-origin: top left; font-family: Ubuntu;';
 			document.body.appendChild(container);
 
 			const score = document.createElement('div');
-			score.style.cssText = 'font-family: Ubuntu; font-size: 30px; color: #fff; line-height: 1.0;';
+			score.style.cssText = 'font-size: 30px; color: #fff; line-height: 1.0;';
 			container.appendChild(score);
 
 			const measures = document.createElement('div');
-			measures.style.cssText = 'font-family: Ubuntu; font-size: 20px; color: #fff; line-height: 1.1;';
+			measures.style.cssText = 'font-size: 20px; color: #fff; line-height: 1.1;';
 			container.appendChild(measures);
 
 			const misc = document.createElement('div');
 			// white-space: pre; allows using \r\n to insert line breaks
-			misc.style.cssText = 'font-family: Ubuntu; font-size: 14px; color: #fff; white-space: pre; \
-				line-height: 1.1; opacity: 0.5;';
+			misc.style.cssText = 'font-size: 14px; color: #fff; white-space: pre; line-height: 1.1; opacity: 0.5;';
 			container.appendChild(misc);
 
 			/** @param {number} view */
 			const update = view => {
+				if (container.style.fontFamily !== (sigmod.settings.font || 'Ubuntu'))
+					container.style.fontFamily = sigmod.settings.font || 'Ubuntu';
+
 				const color = aux.settings.darkTheme ? '#fff' : '#000';
 				score.style.color = color;
 				measures.style.color = color;
@@ -800,6 +811,9 @@
 			const lines = [];
 			/** @param {{ me: boolean, name: string, sub: boolean, place: number | undefined }[]} lb */
 			function update(lb) {
+				if (linesContainer.style.fontFamily !== (sigmod.settings.font || 'Ubuntu'))
+					linesContainer.style.fontFamily = title.style.fontFamily = sigmod.settings.font || 'Ubuntu';
+
 				const friends = /** @type {any} */ (window).sigmod?.friend_names;
 				const friendSettings = /** @type {any} */ (window).sigmod?.friends_settings;
 				lb.forEach((entry, i) => {
@@ -3781,7 +3795,7 @@
 		let lastMinimapDraw = performance.now();
 		/** @type {{ bg: ImageData, darkTheme: boolean } | undefined} */
 		let minimapCache;
-		document.fonts.ready.then(() => void (minimapCache = undefined)); // make sure minimap is drawn with Ubuntu font
+		document.fonts.addEventListener('loadingdone', () => void (minimapCache = undefined));
 
 
 		// #2 : define helper functions
@@ -3899,7 +3913,7 @@
 				let font = '';
 				if (mass ? settings.massBold : settings.nameBold)
 					font = 'bold';
-				font += ' ' + textSize + 'px Ubuntu';
+				font += ` ${textSize}px ${sigmod.settings.font || 'Ubuntu'}`;
 
 				ctx.font = font;
 				// if rendering an empty string (somehow) then width can be 0 with no outlines
@@ -3955,23 +3969,24 @@
 				while (massTextCache.pop());
 			};
 
-			let drawnMassBold = false;
-			let drawnMassScaleFactor = -1;
-			let drawnNamesBold = false;
-			let drawnNamesScaleFactor = -1;
-			let drawnOutlinesFactor = 1;
+			/** @type {{
+			 * 	massBold: boolean, massScaleFactor: number, nameBold: boolean, nameScaleFactor: number,
+			 * 	outlinesFactor: number, font: string | undefined,
+			 * } | undefined} */
+			let drawn;
 
 			const refreshTextCache = () => {
-				if (drawnMassBold !== settings.massBold || drawnMassScaleFactor !== settings.massScaleFactor
-					|| drawnNamesScaleFactor !== settings.nameScaleFactor || drawnNamesBold !== settings.nameBold
-					|| drawnOutlinesFactor !== settings.textOutlinesFactor
+				if (drawn &&
+					(drawn.massBold !== settings.massBold || drawn.massScaleFactor !== settings.massScaleFactor
+						|| drawn.nameBold !== settings.nameBold || drawn.nameScaleFactor !== settings.nameScaleFactor
+						|| drawn.outlinesFactor !== settings.textOutlinesFactor || drawn.font !== sigmod.settings.font)
 				) {
 					resetTextCache();
-					drawnMassBold = settings.massBold;
-					drawnMassScaleFactor = settings.massScaleFactor;
-					drawnNamesBold = settings.nameBold;
-					drawnNamesScaleFactor = settings.nameScaleFactor;
-					drawnOutlinesFactor = settings.textOutlinesFactor;
+					drawn = {
+						massBold: settings.massBold, massScaleFactor: settings.massScaleFactor,
+						nameBold: settings.nameBold, nameScaleFactor: settings.nameScaleFactor,
+						outlinesFactor: settings.textOutlinesFactor, font: sigmod.settings.font,
+					};
 				}
 			};
 
@@ -4007,7 +4022,8 @@
 			};
 
 			// reload text once Ubuntu has loaded, prevents some serif fonts from being locked in
-			document.fonts.ready.then(() => resetTextCache());
+			// also support loading in new fonts at any time via sigmod
+			document.fonts.addEventListener('loadingdone', () => resetTextCache());
 
 			return { refreshTextCache, massTextFromCache, resetTextCache, textFromCache };
 		})();
@@ -4645,7 +4661,7 @@
 					ctx.putImageData(minimapCache.bg, 0, 0);
 				} else {
 					// draw section names
-					ctx.font = `${Math.floor(sectorSize / 3)}px Ubuntu`;
+					ctx.font = `${Math.floor(sectorSize / 3)}px ${sigmod.settings.font || 'Ubuntu'}`;
 					ctx.fillStyle = '#fff';
 					ctx.globalAlpha = aux.settings.darkTheme ? 0.3 : 0.7;
 					ctx.textAlign = 'center';
