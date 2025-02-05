@@ -289,6 +289,12 @@
 							lastUserData = now;
 						}
 
+						if (url.includes('/server/auth')) {
+							// sigmod must be properly initialized (client can't be null), otherwise it will error
+							// and game.js will never get the account data
+							sigmod.patch();
+						}
+
 						// patch the current token in the url and body of the request
 						if (aux.token) {
 							// 128 hex characters surrounded by non-hex characters (lookahead and lookbehind)
@@ -518,11 +524,12 @@
 		// patch sigmod when it's ready; typically sigmod loads first, but i can't guarantee that
 		sigmod.proxy = {};
 		let patchInterval;
-		patchInterval = setInterval(() => {
+		sigmod.patch = () => {
 			const real = /** @type {any} */ (window).sigmod;
-			if (!real) return;
+			if (!real || patchInterval === undefined) return;
 
 			clearInterval(patchInterval);
+			patchInterval = undefined;
 
 			// anchor chat and minimap to the screen, so scrolling to zoom doesn't move them
 			// it's possible that cursed will change something at any time so i'm being safe here
@@ -590,7 +597,9 @@
 					};
 				}
 			}
-		}, 500);
+		};
+		patchInterval = setInterval(sigmod.patch, 500);
+		sigmod.patch();
 
 		return sigmod;
 	})();
