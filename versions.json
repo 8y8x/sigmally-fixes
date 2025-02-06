@@ -55,7 +55,7 @@
 	},
 	"2.3.19": {
 		"ok": false,
-		"alert": "Sigmally Fixes v2.5.7 now supports Ctrl+Tab for two-tab multiboxing: {autolink} to update",
+		"alert": "Sigmally Fixes v2.5.7 now supports Ctrl+Tab for one-tab multiboxing: {autolink} to update",
 		"color": "#0c0"
 	},
 	"2.3.18": {
