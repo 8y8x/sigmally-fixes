@@ -1556,9 +1556,9 @@
 			};
 
 			const vanilla = fromHTML(`<input id="sf-${property}" placeholder="..." type="text" style="
-				text-align: center;width: 80px;" />`);
+				text-align: center; width: 80px;" />`);
 			const sigmod = fromHTML(`<input class="keybinding" id="sfsm-${property}" placeholder="..."
-				style="width: 100px;" type="text" />`);
+				style="max-width: 100px; width: 100px;" type="text" />`);
 			listen(/** @type {HTMLInputElement} */ (vanilla));
 			listen(/** @type {HTMLInputElement} */ (sigmod));
 			return { sigmod, vanilla };
