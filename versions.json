@@ -55,8 +55,8 @@
 	},
 	"2.3.19": {
 		"ok": false,
-		"alert": "Upgrade to Sigmally Fixes v2.5.0 for smooth, fast one-tab multiboxing: {autolink}",
-		"color": "#09f"
+		"alert": "Sigmally Fixes v2.5.7 now supports Ctrl+Tab for two-tab multiboxing: {autolink} to update",
+		"color": "#0c0"
 	},
 	"2.3.18": {
 		"ok": false,
