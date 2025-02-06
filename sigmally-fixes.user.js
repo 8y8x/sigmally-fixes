@@ -2298,7 +2298,10 @@
 							if (killed) {
 								killed.deadAt = killed.updated = now;
 								killed.deadTo = killerId;
-								if (killed.pellet && vision.owned.includes(killerId)) ++world.stats.foodEaten;
+								if (killed.pellet && vision.owned.includes(killerId)) {
+									++world.stats.foodEaten;
+									net.food(view); // dumbass quest code go brrr
+								}
 							}
 						}
 
@@ -2659,6 +2662,9 @@
 		net.qdown = bindOpcode(18);
 		net.qup = bindOpcode(19);
 		net.split = bindOpcode(17);
+		// quests
+		net.food = bindOpcode(0xc0);
+		net.time = bindOpcode(0xbf);
 
 		// reversed argument order for sigmod compatibility
 		/**
@@ -2739,6 +2745,11 @@
 				}
 			}
 		}, 200);
+
+		// dumbass quest code go brrr
+		setInterval(() => {
+			for (const view of net.connections.keys()) net.time(view);
+		}, 1000);
 
 		return net;
 	})();
