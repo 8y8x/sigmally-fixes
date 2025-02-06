@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.5.7
+// @version      2.5.8
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.5.7';
+	const sfVersion = '2.5.8';
 	const undefined = void 0; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -4276,13 +4276,8 @@
 
 				let borderColor;
 				let borderLrtb;
-				if (aux.settings.showBorder && vision.border) {
-					borderColor = [0, 0, 1, 1]; // #00ff
-					borderLrtb = vision.border;
-				} else {
-					borderColor = [0, 0, 0, 0]; // transparent
-					borderLrtb = { l: 0, r: 0, t: 0, b: 0 };
-				}
+				borderColor = aux.settings.showBorder ? [0, 0, 1, 1] /* #00ff */ : [0, 0, 0, 0] /* transparent */;
+				borderLrtb = vision.border || { l: 0, r: 0, t: 0, b: 0 };
 
 				// u_border_color
 				borderUboFloats[0] = borderColor[0]; borderUboFloats[1] = borderColor[1];
