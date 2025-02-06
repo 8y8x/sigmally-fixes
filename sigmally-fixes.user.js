@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.5.7-BETA
+// @version      2.5.7
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.5.7-BETA';
+	const sfVersion = '2.5.7';
 	const undefined = void 0; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -2846,8 +2846,14 @@
 			}
 		}, 40);
 
+		/** @type {Node | null} */
+		let sigmodChat;
+		setInterval(() => sigmodChat ||= document.querySelector('.modChat'), 500);
 		addEventListener('wheel', e => {
 			if (unfocused()) return;
+			// when scrolling through sigmod chat, don't allow zooming.
+			// for consistency, use the container .modChat and not #mod-messages as #mod-messages can have zero height
+			if (sigmodChat && sigmodChat.contains(/** @type {Node} */ (e.target))) return;
 			// support for the very obscure "scroll by page" setting in windows
 			// i don't think browsers support DOM_DELTA_LINE, so assume DOM_DELTA_PIXEL otherwise
 			const deltaY = e.deltaMode === e.DOM_DELTA_PAGE ? e.deltaY : e.deltaY / 100;
