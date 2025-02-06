@@ -732,8 +732,8 @@
 
 			/** @param {number} view */
 			const update = view => {
-				if (container.style.fontFamily !== (sigmod.settings.font || 'Ubuntu'))
-					container.style.fontFamily = sigmod.settings.font || 'Ubuntu';
+				const fontFamily = `"${sigmod.settings.font || 'Ubuntu'}", Ubuntu`;
+				if (container.style.fontFamily !== fontFamily) container.style.fontFamily = fontFamily;
 
 				const color = aux.settings.darkTheme ? '#fff' : '#000';
 				score.style.color = color;
@@ -828,8 +828,9 @@
 			const lines = [];
 			/** @param {{ me: boolean, name: string, sub: boolean, place: number | undefined }[]} lb */
 			function update(lb) {
-				if (linesContainer.style.fontFamily !== (sigmod.settings.font || 'Ubuntu'))
-					linesContainer.style.fontFamily = title.style.fontFamily = sigmod.settings.font || 'Ubuntu';
+				const fontFamily = `"${sigmod.settings.font || 'Ubuntu'}", Ubuntu`;
+				if (linesContainer.style.fontFamily !== fontFamily)
+					linesContainer.style.fontFamily = title.style.fontFamily = fontFamily;
 
 				const friends = /** @type {any} */ (window).sigmod?.friend_names;
 				const friendSettings = /** @type {any} */ (window).sigmod?.friends_settings;
@@ -3930,7 +3931,7 @@
 				let font = '';
 				if (mass ? settings.massBold : settings.nameBold)
 					font = 'bold';
-				font += ` ${textSize}px ${sigmod.settings.font || 'Ubuntu'}`;
+				font += ` ${textSize}px "${sigmod.settings.font || 'Ubuntu'}", Ubuntu`;
 
 				ctx.font = font;
 				// if rendering an empty string (somehow) then width can be 0 with no outlines
@@ -4678,7 +4679,7 @@
 					ctx.putImageData(minimapCache.bg, 0, 0);
 				} else {
 					// draw section names
-					ctx.font = `${Math.floor(sectorSize / 3)}px ${sigmod.settings.font || 'Ubuntu'}`;
+					ctx.font = `${Math.floor(sectorSize / 3)}px "${sigmod.settings.font || 'Ubuntu'}", Ubuntu`;
 					ctx.fillStyle = '#fff';
 					ctx.globalAlpha = aux.settings.darkTheme ? 0.3 : 0.7;
 					ctx.textAlign = 'center';
