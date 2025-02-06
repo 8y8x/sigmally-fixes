@@ -3999,6 +3999,7 @@
 
 			const resetTextCache = () => {
 				cache.clear();
+				maxMassWidth = 0;
 				while (massTextCache.length > 0) massTextCache.pop();
 			};
 
@@ -4542,7 +4543,7 @@
 							const { height, width, texture } = massTextFromCache(mass[i]);
 							textUboFloats[9] = width / height; // text_aspect_ratio
 							// text_offset.x; kerning is fixed by subtracting most of the padding from lineWidth
-							textUboFloats[12] = (i - (mass.length - 1) / 2) * settings.massScaleFactor
+							textUboFloats[12] = (i - (mass.length - 1) / 2) * settings.massScaleFactor * (maxWidth / width)
 								* (maxWidth - 20 * settings.textOutlinesFactor * settings.massScaleFactor) / maxWidth;
 							textUboFloats[13] = yOffset;
 							gl.bindTexture(gl.TEXTURE_2D, texture);
