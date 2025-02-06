@@ -4389,7 +4389,14 @@
 					}
 
 					cellUboInts[9] = 0;
-					const color = (cell.pellet ? foodColor : cellColor) ?? [cell.Rgb, cell.rGb, cell.rgB, 1];
+					
+					let color = cell.pellet ? foodColor : cellColor;
+					if (cell.pellet && foodColor && foodColor[0] === 0 && foodColor[1] === 0 && foodColor[2] === 0) {
+						color = [cell.Rgb, cell.rGb, cell.rgB, foodColor[3]];
+					} else {
+						color ??= [cell.Rgb, cell.rGb, cell.rgB, 1];
+					}
+
 					cellUboFloats[4] = color[0]; cellUboFloats[5] = color[1];
 					cellUboFloats[6] = color[2]; cellUboFloats[7] = color[3];
 
