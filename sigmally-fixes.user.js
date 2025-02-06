@@ -3866,7 +3866,7 @@
 		})();
 		render.resetTextureCache = resetTextureCache;
 
-		const { maxMassRatio, refreshTextCache, massTextFromCache, resetTextCache, textFromCache } = (() => {
+		const { maxMassWidth, refreshTextCache, massTextFromCache, resetTextCache, textFromCache } = (() => {
 			/**
 			 * @template {boolean} T
 			 * @typedef {{
@@ -3975,7 +3975,7 @@
 				return texture;
 			};
 
-			let maxMassRatio = 0;
+			let maxMassWidth = 0;
 			/** @type {({ height: number, width: number, texture: WebGLTexture | null } | undefined)[]} */
 			const massTextCache = [];
 
@@ -3991,7 +3991,7 @@
 						height: canvas.height, // mind the execution order
 						width: canvas.width,
 					};
-					if (cached.width / cached.height > maxMassRatio) maxMassRatio = cached.width / cached.height;
+					if (cached.width > maxMassWidth) maxMassWidth = cached.width;
 				}
 
 				return cached;
@@ -4058,7 +4058,7 @@
 			// also support loading in new fonts at any time via sigmod
 			document.fonts.addEventListener('loadingdone', () => resetTextCache());
 
-			return { maxMassRatio: () => maxMassRatio, massTextFromCache, refreshTextCache, resetTextCache, textFromCache };
+			return { maxMassWidth: () => maxMassWidth, massTextFromCache, refreshTextCache, resetTextCache, textFromCache };
 		})();
 		render.resetTextCache = resetTextCache;
 		render.textFromCache = textFromCache;
@@ -4537,12 +4537,13 @@
 						// draw each digit separately, as Ubuntu makes them all the same width.
 						// significantly reduces the size of the text cache
 						const mass = Math.floor(cell.nr * cell.nr / 100).toString();
+						const maxWidth = maxMassWidth();
 						for (let i = 0; i < mass.length; ++i) {
 							const { height, width, texture } = massTextFromCache(mass[i]);
 							textUboFloats[9] = width / height; // text_aspect_ratio
-							// text_offset.x; kerning is based on mass ratio minus the padding (10-ish)
-							textUboFloats[12] = (i - (mass.length - 1) / 2) * (maxMassRatio() / (width / height))
-								* (width - 20 * settings.massScaleFactor) / width * settings.massScaleFactor;
+							// text_offset.x; kerning is fixed by subtracting most of the padding from lineWidth
+							textUboFloats[12] = (i - (mass.length - 1) / 2) * settings.massScaleFactor
+								* (maxWidth - 20 * settings.textOutlinesFactor * settings.massScaleFactor) / maxWidth;
 							textUboFloats[13] = yOffset;
 							gl.bindTexture(gl.TEXTURE_2D, texture);
 
