@@ -3855,7 +3855,7 @@
 		})();
 		render.resetTextureCache = resetTextureCache;
 
-		const { refreshTextCache, massTextFromCache, resetTextCache, textFromCache } = (() => {
+		const { maxMassRatio, refreshTextCache, massTextFromCache, resetTextCache, textFromCache } = (() => {
 			/**
 			 * @template {boolean} T
 			 * @typedef {{
@@ -3935,7 +3935,7 @@
 
 				ctx.font = font;
 				// if rendering an empty string (somehow) then width can be 0 with no outlines
-				canvas.width = (ctx.measureText(text).width + lineWidth * 2) || 1;
+				canvas.width = (ctx.measureText(text).width + lineWidth * 4) || 1;
 				canvas.height = textSize * 3;
 				ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -3951,9 +3951,9 @@
 				ctx.shadowColor = lineWidth > 0 ? '#0002' : 'transparent';
 
 				// add a space, which is to prevent sigmod from detecting the name
-				if (lineWidth > 0) ctx.strokeText(text + ' ', lineWidth, textSize * 1.5);
+				if (lineWidth > 0) ctx.strokeText(text + ' ', lineWidth * 2, textSize * 1.5);
 				ctx.shadowColor = 'transparent';
-				ctx.fillText(text + ' ', lineWidth, textSize * 1.5);
+				ctx.fillText(text + ' ', lineWidth * 2, textSize * 1.5);
 
 				const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
@@ -3964,27 +3964,31 @@
 				return texture;
 			};
 
-			let massAspectRatio = 1; // assumption: all mass digits are the same aspect ratio - true in the Ubuntu font
-			/** @type {(WebGLTexture | undefined)[]} */
+			let maxMassRatio = 0;
+			/** @type {({ height: number, width: number, texture: WebGLTexture | null } | undefined)[]} */
 			const massTextCache = [];
 
 			/**
 			 * @param {string} digit
-			 * @returns {{ aspectRatio: number, texture: WebGLTexture | null }}
+			 * @returns {{ height: number, width: number, texture: WebGLTexture | null }}
 			 */
 			const massTextFromCache = digit => {
-				let cached = massTextCache[digit];
+				let cached = massTextCache[/** @type {any} */ (digit)];
 				if (!cached) {
-					cached = massTextCache[digit] = texture(digit, false, true);
-					massAspectRatio = canvas.width / canvas.height;
+					cached = massTextCache[digit] = {
+						texture: texture(digit, false, true),
+						height: canvas.height, // mind the execution order
+						width: canvas.width,
+					};
+					if (cached.width / cached.height > maxMassRatio) maxMassRatio = cached.width / cached.height;
 				}
 
-				return { aspectRatio: massAspectRatio, texture: cached };
+				return cached;
 			};
 
 			const resetTextCache = () => {
 				cache.clear();
-				while (massTextCache.pop());
+				while (massTextCache.length > 0) massTextCache.pop();
 			};
 
 			/** @type {{
@@ -3994,7 +3998,7 @@
 			let drawn;
 
 			const refreshTextCache = () => {
-				if (drawn &&
+				if (!drawn ||
 					(drawn.massBold !== settings.massBold || drawn.massScaleFactor !== settings.massScaleFactor
 						|| drawn.nameBold !== settings.nameBold || drawn.nameScaleFactor !== settings.nameScaleFactor
 						|| drawn.outlinesFactor !== settings.textOutlinesFactor || drawn.font !== sigmod.settings.font)
@@ -4043,7 +4047,7 @@
 			// also support loading in new fonts at any time via sigmod
 			document.fonts.addEventListener('loadingdone', () => resetTextCache());
 
-			return { refreshTextCache, massTextFromCache, resetTextCache, textFromCache };
+			return { maxMassRatio: () => maxMassRatio, massTextFromCache, refreshTextCache, resetTextCache, textFromCache };
 		})();
 		render.resetTextCache = resetTextCache;
 		render.textFromCache = textFromCache;
@@ -4523,14 +4527,11 @@
 						// significantly reduces the size of the text cache
 						const mass = Math.floor(cell.nr * cell.nr / 100).toString();
 						for (let i = 0; i < mass.length; ++i) {
-							const { aspectRatio, texture } = massTextFromCache(mass[i]);
-							textUboFloats[9] = aspectRatio; // text_aspect_ratio
-							// text_offset.x
-							// thickness 0 => 1.00 multiplier
-							// thickness 1 => 0.75
-							// probably a reciprocal function
-							textUboFloats[12] = (i - (mass.length - 1) / 2)
-								* (1 - 0.25 * Math.sqrt(settings.textOutlinesFactor)) * settings.massScaleFactor;
+							const { height, width, texture } = massTextFromCache(mass[i]);
+							textUboFloats[9] = width / height; // text_aspect_ratio
+							// text_offset.x; kerning is based on mass ratio minus the padding (10-ish)
+							textUboFloats[12] = (i - (mass.length - 1) / 2) * (maxMassRatio() / (width / height))
+								* (width - 20 * settings.massScaleFactor) / width * settings.massScaleFactor;
 							textUboFloats[13] = yOffset;
 							gl.bindTexture(gl.TEXTURE_2D, texture);
 
