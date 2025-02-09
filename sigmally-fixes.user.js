@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.5.8
+// @version      2.5.9
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.5.8';
+	const sfVersion = '2.5.9';
 	const undefined = void 0; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -2214,6 +2214,22 @@
 		*/
 		const connect = view => {
 			if (net.connections.get(view)?.ws) return; // already being handled by another process
+
+			if (view === world.viewId.spectate) {
+				// there might be a connection limit per IP, so the spectator tab should only be connected afterwards
+				let anyConnected = false;
+				for (const con of net.connections.values()) {
+					if (con.ws?.readyState === WebSocket.OPEN) {
+						anyConnected = true;
+						break;
+					}
+				}
+
+				if (!anyConnected) {
+					setTimeout(() => connect(view), 500);
+					return;
+				}
+			}
 
 			// do not allow sigmod's args[0].includes('sigmally.com') check to pass
 			const realUrl = net.url();
