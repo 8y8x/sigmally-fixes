@@ -519,9 +519,9 @@
 			if (sigmod.settings.font && !loadedFonts.has(sigmod.settings.font)) {
 				loadedFonts.add(sigmod.settings.font);
 				const link = document.createElement('link');
-                link.href = `https://fonts.googleapis.com/css2?family=${sigmod.settings.font}:wght@700&display=swap`;
-                link.rel = 'stylesheet';
-                document.head.appendChild(link);
+				link.href = `https://fonts.googleapis.com/css2?family=${sigmod.settings.font}:wght@700&display=swap`;
+				link.rel = 'stylesheet';
+				document.head.appendChild(link);
 			}
 		}, 200);
 
@@ -1577,7 +1577,7 @@
 		const separator = (text = '•') => {
 			vanillaContainer.appendChild(fromHTML(`<div style="text-align: center; width: 100%;">${text}</div>`));
 			sigmodContainer.appendChild(fromHTML(`<span class="text-center">${text}</span>`));
-		}
+		};
 
 		const newTag = `<span style="padding: 2px 5px; border-radius: 10px; background: #76f; color: #fff;
 			font-weight: bold; user-select: none;">NEW</span>`;
@@ -1607,8 +1607,10 @@
 			'By default, you get the \'one-tab\' experience, though if you\'re used to two-tab you can change the ' +
 			'camera style and set the keybind to Ctrl+Tab. <br>' +
 			'Sigmally Fixes does not work with multiple browser tabs.');
-		setting('Multibox camera style', [dropdown('multiCamera', [['natural', 'Merge weighted (best)'],
-			['delta', 'Merge centered (like Delta)'], ['weighted', 'No merge, weighted'], ['none', 'No merge, not weighted (like two-tab)']])],
+		setting('Multibox camera style',
+			[dropdown('multiCamera', [['natural', 'Merge weighted (best)'],
+				['delta', 'Merge centered (like Delta)'], ['weighted', 'No merge, weighted'],
+				['none', 'No merge, not weighted (like two-tab)']])],
 			() => !!settings.multibox,
 			'How the camera should move when multiboxing. <br>' +
 			'- &quot;Merge weighted&quot; is the default. Your camera will be put at the center of your total mass. ' +
@@ -1934,7 +1936,7 @@
 
 			const vision = {
 				border: undefined,
-				camera: { x: 0, tx: 0, y: 0, ty: 0, scale: 0, tscale: 0, merging: [], updated: performance.now() - 1, },
+				camera: { x: 0, tx: 0, y: 0, ty: 0, scale: 0, tscale: 0, merging: [], updated: performance.now() - 1 },
 				leaderboard: [],
 				owned: [],
 				stats: undefined,
@@ -4065,7 +4067,13 @@
 			// also support loading in new fonts at any time via sigmod
 			document.fonts.addEventListener('loadingdone', () => resetTextCache());
 
-			return { maxMassWidth: () => maxMassWidth, massTextFromCache, refreshTextCache, resetTextCache, textFromCache };
+			return {
+				maxMassWidth: () => maxMassWidth,
+				massTextFromCache,
+				refreshTextCache,
+				resetTextCache,
+				textFromCache,
+			};
 		})();
 		render.resetTextCache = resetTextCache;
 		render.textFromCache = textFromCache;
@@ -4384,7 +4392,7 @@
 					}
 
 					cellUboInts[9] = 0;
-					
+
 					let color = cell.pellet ? foodColor : cellColor;
 					if (cell.pellet && foodColor && foodColor[0] === 0 && foodColor[1] === 0 && foodColor[2] === 0) {
 						color = [cell.Rgb, cell.rGb, cell.rgB, foodColor[3]];
@@ -4551,7 +4559,8 @@
 							const { height, width, texture } = massTextFromCache(mass[i]);
 							textUboFloats[9] = width / height; // text_aspect_ratio
 							// text_offset.x; kerning is fixed by subtracting most of the padding from lineWidth
-							textUboFloats[12] = (i - (mass.length - 1) / 2) * settings.massScaleFactor * (maxWidth / width)
+							textUboFloats[12] = (i - (mass.length - 1) / 2) * settings.massScaleFactor
+								* (maxWidth / width)
 								* (maxWidth - 20 * settings.textOutlinesFactor * settings.massScaleFactor) / maxWidth;
 							textUboFloats[13] = yOffset;
 							gl.bindTexture(gl.TEXTURE_2D, texture);
