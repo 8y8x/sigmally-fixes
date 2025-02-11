@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.5.9
+// @version      2.5.10-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.5.9';
+	const sfVersion = '2.5.10-BETA';
 	const undefined = void 0; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -2519,11 +2519,11 @@
 
 						if (myPosition) { // myPosition could be zero
 							if (myPosition - 1 >= lb.length) {
-								/** @type {HTMLInputElement | null} */
-								const inputName = document.querySelector('input#nick');
+								const nick = world.selected === world.viewId.primary
+									? input.nick1.value : input.nick2.value;
 								lb.push({
 									me: true,
-									name: aux.parseName(inputName?.value ?? ''),
+									name: aux.parseName(nick),
 									place: myPosition,
 									sub: false, // doesn't matter
 								});
@@ -2901,16 +2901,16 @@
 		};
 
 		/** @type {HTMLInputElement} */
-		const nickElement = aux.require(document.querySelector('input#nick'),
+		input.nick1 = aux.require(document.querySelector('input#nick'),
 			'Can\'t find the nickname element. Try reloading the page?');
-		const secondaryNickElement = /** @type {HTMLInputElement} */ (nickElement?.cloneNode(true));
-		secondaryNickElement.style.display = settings.multibox ? '' : 'none';
-		setInterval(() => secondaryNickElement.style.display = settings.multibox ? '' : 'none', 200);
+		input.nick2 = /** @type {HTMLInputElement} */ (input.nick1?.cloneNode(true));
+		input.nick2.style.display = settings.multibox ? '' : 'none';
+		setInterval(() => input.nick2.style.display = settings.multibox ? '' : 'none', 200);
 		// this apparently just works perfectly in vanilla and sigmod
-		nickElement.parentElement?.appendChild(secondaryNickElement);
+		input.nick1.parentElement?.appendChild(input.nick2);
 
 		// sigmod probably won't apply this to the second nick element, so we do it ourselves too
-		nickElement.maxLength = secondaryNickElement.maxLength = 50;
+		input.nick1.maxLength = input.nick2.maxLength = 50;
 
 		addEventListener('keydown', e => {
 			const view = world.selected;
@@ -2940,8 +2940,7 @@
 
 				// also, press play on the current tab ONLY if any tab is alive
 				if (world.alive()) {
-					const name = world.selected === world.viewId.primary
-						? nickElement.value : secondaryNickElement.value;
+					const name = world.selected === world.viewId.primary ? input.nick1.value : input.nick2.value;
 					net.play(world.selected, playData(name, false));
 				}
 				return;
@@ -3288,7 +3287,7 @@
 
 			/** @param {MouseEvent} e */
 			async function clickHandler(e) {
-				const name = world.selected === world.viewId.primary ? nickElement.value : secondaryNickElement.value;
+				const name = world.selected === world.viewId.primary ? input.nick1.value : input.nick2.value;
 
 				const con = net.connections.get(world.selected);
 				if (!con || con.rejected) return;
@@ -4242,10 +4241,6 @@
 
 			const { cellColor, foodColor, outlineColor, skinReplacement } = sigmod.settings;
 
-			/** @type {HTMLInputElement | null} */
-			const nickElement = document.querySelector('input#nick');
-			const nick = nickElement?.value ?? '?';
-
 			refreshTextCache();
 
 			const vision = aux.require(world.views.get(world.selected), 'no selected vision (BAD BUG)');
@@ -4493,7 +4488,7 @@
 						textUboFloats[4] = textUboFloats[5] = textUboFloats[6] = textUboFloats[7] = 1;
 					}
 
-					if (name === nick) {
+					if (name === input.nick1.value || (settings.multibox && name === input.nick2.value)) {
 						const { nameColor1, nameColor2 } = sigmod.settings;
 						if (nameColor1) {
 							textUboFloats[0] = nameColor1[0]; textUboFloats[1] = nameColor1[1];
