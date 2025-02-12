@@ -3627,8 +3627,8 @@
 						out_color = u_cell_color;
 					}
 
-					// skin; square clipping, outskirts should use the cell color
-					if (f_show_skin != 0 && 0.0 <= min(v_uv.x, v_uv.y) && max(v_uv.x, v_uv.y) <= 1.0) {
+					// skin
+					if (f_show_skin != 0) {
 						vec4 tex = texture(u_skin, v_uv);
 						out_color = out_color * (1.0 - tex.a) + tex;
 					}
@@ -4370,9 +4370,10 @@
 					cellUboFloats[2] = x;
 					cellUboFloats[3] = y;
 					if (aux.settings.jellyPhysics && !cell.jagged && !cell.pellet) {
+						const realR = Math.min(r, jr);
 						const strokeThickness = Math.max(jr * 0.01, 10);
-						cellUboFloats[0] = jr + strokeThickness;
-						cellUboFloats[1] = (settings.jellySkinLag ? r : jr) + strokeThickness;
+						cellUboFloats[0] = realR + strokeThickness;
+						cellUboFloats[1] = (settings.jellySkinLag ? r : realR) + strokeThickness;
 					} else {
 						cellUboFloats[0] = cellUboFloats[1] = r;
 					}
