@@ -478,30 +478,29 @@
 			if (!real) return;
 			/**
 			 * @param {'cellColor' | 'foodColor' | 'mapColor' | 'outlineColor' | 'nameColor1' | 'nameColor2'} prop
+			 * @param {any} initial
 			 * @param {any[]} lookups
 			 */
-			const applyColor = (prop, lookups) => {
+			const applyColor = (prop, initial, lookups) => {
 				for (const lookup of lookups) {
-					if (lookup) {
+					if (lookup && lookup !== initial) {
 						sigmod.settings[prop] = aux.hex2rgba(lookup);
 						return;
 					}
 				}
 				sigmod.settings[prop] = undefined;
 			};
-			applyColor('cellColor', [real.game?.cellColor]);
-			applyColor('foodColor', [real.game?.foodColor]);
-			applyColor('mapColor', [real.game?.map?.color, real.mapColor]);
+			applyColor('cellColor', null, [real.game?.cellColor]);
+			applyColor('foodColor', null, [real.game?.foodColor]);
+			applyColor('mapColor', null, [real.game?.map?.color, real.mapColor]);
 			// sigmod treats the map border as cell borders for some reason
-			if (['#00f', '#00f0', '#0000ff', '#000000ffff'].includes(real.game?.borderColor))
-				sigmod.settings.outlineColor = undefined;
-			else applyColor('outlineColor', [real.game?.borderColor]);
+			applyColor('outlineColor', '#0000ff', [real.game?.borderColor]);
 			// note: singular nameColor takes priority
-			applyColor('nameColor1', [
+			applyColor('nameColor1', '#ffffff', [
 				real.game?.name?.color,
 				real.game?.name?.gradient?.enabled && real.game.name.gradient.left,
 			]);
-			applyColor('nameColor2', [
+			applyColor('nameColor2', '#ffffff', [
 				real.game?.name?.color,
 				real.game?.name?.gradient?.enabled && real.game.name.gradient.right,
 			]);
@@ -4476,12 +4475,12 @@
 
 					let useSilhouette = false;
 					if (cell.sub) {
-						// text_color1 = #eb9500
-						textUboFloats[0] = 0xeb / 255; textUboFloats[1] = 0x95 / 255;
-						textUboFloats[2] = 0x00 / 255; textUboFloats[3] = 1;
-						// text_color2 = #e4b110
-						textUboFloats[4] = 0xe4 / 255; textUboFloats[5] = 0xb1 / 255;
-						textUboFloats[6] = 0x10 / 255; textUboFloats[7];
+						// text_color1 = #eb9500 * 1.2
+						textUboFloats[0] = 0xeb / 255 * 1.2; textUboFloats[1] = 0x95 / 255 * 1.2;
+						textUboFloats[2] = 0x00 / 255 * 1.2; textUboFloats[3] = 1;
+						// text_color2 = #f9bf0d * 1.2
+						textUboFloats[4] = 0xf9 / 255 * 1.2; textUboFloats[5] = 0xbf / 255 * 1.2;
+						textUboFloats[6] = 0x0d / 255 * 1.2; textUboFloats[7];
 						useSilhouette = true;
 					} else {
 						// text_color1 = text_color2 = #fff
