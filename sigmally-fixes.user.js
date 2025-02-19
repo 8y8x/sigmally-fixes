@@ -1187,6 +1187,7 @@
 			clanScaleFactor: 1,
 			colorUnderSkin: true,
 			drawDelay: 120,
+			interpolation: 'linear',
 			jellySkinLag: true,
 			massBold: false,
 			massOpacity: 1,
@@ -1579,12 +1580,15 @@
 		};
 
 		const newTag = `<span style="padding: 2px 5px; border-radius: 10px; background: #76f; color: #fff;
-			font-weight: bold; user-select: none;">NEW</span>`;
+			font-weight: bold; font-size: 0.95rem; user-select: none;">NEW</span>`;
 
 		// #2 : generate ui for settings
 		setting('Draw delay', [slider('drawDelay', 120, 40, 300, 1, 0)], () => true,
 			'How long (in milliseconds) cells will lag behind for. Lower values mean cells will very quickly catch ' +
 			'up to where they actually are.');
+		setting(`Cell movement ${newTag}`, [dropdown('interpolation', [['exp', 'Exponential (Delta)'], ['linear', 'Linear (default)']])],
+			() => true,
+			'TODO');
 		setting('Cell outlines', [checkbox('cellOutlines')], () => true,
 			'Whether the subtle dark outlines around cells (including skins) should draw.');
 		setting('Cell opacity', [slider('cellOpacity', 1, 0, 1, 0.005, 3)], () => true,
@@ -1598,7 +1602,7 @@
 			'A square background image to use within the entire map border. Images under 1024x1024 will be treated ' +
 			'as a repeating pattern, where 50 pixels = 1 grid square.');
 		setting('Lines between cell and mouse', [checkbox('tracer')], () => true,
-			'If enabled, draws a line between all of the cells you ' +
+			'If enabled, draws tracers between all of the cells you ' +
 			'control and your mouse. Useful as a hint to your subconscious about which tab you\'re currently on.');
 		separator('• multibox •');
 		setting('One-tab multibox key', [keybind('multibox')], () => true,
@@ -2120,8 +2124,6 @@
 		 * @returns {{ x: number, y: number, r: number, jr: number }}
 		 */
 		world.xyr = (cell, killer, now) => {
-			let a = (now - cell.updated) / settings.drawDelay;
-			a = a < 0 ? 0 : a > 1 ? 1 : a;
 			let nx = cell.nx;
 			let ny = cell.ny;
 			if (killer && cell.deadAt !== undefined && (killer.deadAt === undefined || cell.deadAt <= killer.deadAt)) {
@@ -2130,11 +2132,30 @@
 				ny = killer.ny;
 			}
 
-			const x = cell.ox + (nx - cell.ox) * a;
-			const y = cell.oy + (ny - cell.oy) * a;
-			const r = cell.or + (cell.nr - cell.or) * a;
-
 			const dt = (now - cell.updated) / 1000;
+
+			let x, y, r;
+			if (cell.pellet && cell.deadAt === undefined) {
+				x = nx;
+				y = ny;
+				r = cell.nr;
+			} else if (settings.interpolation === 'exp') {
+				// derived from f(1/60) = g(1/60) where:
+				// linear interpolation, f(t) = (1000 / dd) * t, which is basically the variable a
+				// exponential interpolation, g(t) = aux.exponentialEase(factor, t), where o=0 and n=1
+				const factor = 60 / 1000 * settings.drawDelay;
+				x = aux.exponentialEase(cell.ox, nx, factor, dt);
+				y = aux.exponentialEase(cell.oy, ny, factor, dt);
+				r = aux.exponentialEase(cell.or, cell.nr, factor, dt);
+			} else {
+				let a = (now - cell.updated) / settings.drawDelay;
+				a = a < 0 ? 0 : a > 1 ? 1 : a;
+
+				x = cell.ox + (nx - cell.ox) * a;
+				y = cell.oy + (ny - cell.oy) * a;
+				r = cell.or + (cell.nr - cell.or) * a;
+			}
+
 			return {
 				x, y, r,
 				jr: aux.exponentialEase(cell.jr, r, 5, dt), // vanilla uses a factor of 10, but it's basically unusable
