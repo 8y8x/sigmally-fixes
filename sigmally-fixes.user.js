@@ -1172,14 +1172,15 @@
 	/////////////////////////
 	// Create Options Menu //
 	/////////////////////////
-	const settings = (() => {
+	const { refreshSettings, settings } = (() => {
 		const settings = {
-			/** @type {'auto' | 'never'} */
-			autoZoom: 'auto',
+			autoZoom: true,
 			background: '',
 			blockBrowserKeybinds: false,
 			blockNearbyRespawns: false,
 			boldUi: false,
+			/** @type {'natural' | 'default'} */
+			camera: 'default',
 			cellGlow: false,
 			cellOpacity: 1,
 			cellOutlines: true,
@@ -1192,9 +1193,8 @@
 			massBold: false,
 			massOpacity: 1,
 			massScaleFactor: 1,
+			mergeCamera: true,
 			multibox: '',
-			/** @type {'natural' | 'delta' | 'weighted' | 'none'} */
-			multiCamera: 'natural',
 			nameBold: false,
 			nameScaleFactor: 1,
 			outlineMulti: 0.2,
@@ -1220,11 +1220,27 @@
 		} catch (_) { }
 
 		// convert old settings
-		if (/** @type {any} */ (settings.multibox) === true) settings.multibox = 'Tab';
-		else if (/** @type {any} */ (settings.multibox) === false) settings.multibox = '';
-		else if (/** @type {any} */ (settings).unsplittableOpacity !== undefined) {
-			settings.unsplittableColor = [1, 1, 1, /** @type {any} */ (settings).unsplittableOpacity];
-			delete settings.unsplittableOpacity;
+		{
+			if (/** @type {any} */ (settings.multibox) === true) settings.multibox = 'Tab';
+			else if (/** @type {any} */ (settings.multibox) === false) settings.multibox = '';
+			
+			if (/** @type {any} */ (settings).unsplittableOpacity !== undefined) {
+				settings.unsplittableColor = [1, 1, 1, /** @type {any} */ (settings).unsplittableOpacity];
+				delete settings.unsplittableOpacity;
+			}
+
+			const { autoZoom, multiCamera } = /** @type {any} */ (settings);
+			if (multiCamera !== undefined) {
+				if (multiCamera === 'natural' || multiCamera === 'delta' || multiCamera === 'weighted') {
+					settings.camera = 'natural';
+				} else if (multiCamera === 'none') settings.camera = 'default';
+
+				settings.mergeCamera = multiCamera !== 'weighted' && multiCamera !== 'none'; // the two-tab settings
+				delete settings.multiCamera;
+			}
+
+			if (autoZoom === 'auto') settings.autoZoom = true;
+			else if (autoZoom === 'never') settings.autoZoom = false;
 		}
 
 		/** @type {(() => void)[]} */
@@ -1232,13 +1248,17 @@
 		/** @type {(() => void)[]} */
 		const onUpdates = [];
 
+		const refreshSettings = () => {
+			onSyncs.forEach(fn => fn());
+			onUpdates.forEach(fn => fn());
+		};
+
 		// allow syncing sigfixes settings in case you leave an extra sig tab open for a long time and would lose your
 		// changed settings
 		const channel = new BroadcastChannel('sigfix-settings');
 		channel.addEventListener('message', msg => {
 			Object.assign(settings, msg.data);
-			onSyncs.forEach(fn => fn());
-			onUpdates.forEach(fn => fn());
+			refreshSettings();
 		});
 
 		// #1 : define helper functions
@@ -1604,25 +1624,28 @@
 		setting('Lines between cell and mouse', [checkbox('tracer')], () => true,
 			'If enabled, draws tracers between all of the cells you ' +
 			'control and your mouse. Useful as a hint to your subconscious about which tab you\'re currently on.');
+
+		separator('• camera •');
+		setting('Camera style', [dropdown('camera', [['natural', 'Natural (weighted)'], ['default', 'Default']])],
+			() => true,
+			'How the camera moves. <br>' +
+			'- A "natural" camera follows your center of mass. If you have a lot of small back pieces, they would ' +
+			'barely affect your camera position. <br>' +
+			'- The "default" camera focuses on every cell equally. If you have a lot of small back pieces, your ' +
+			'camera would focus on those instead.');
+		setting('Zoom speed', [slider('scrollFactor', 1, 0.05, 1, 0.05, 2)], () => true,
+			'A smaller zoom speed lets you fine-tune your zoom.');
+		setting('Auto-zoom', [checkbox('autoZoom')], () => true,
+			'When enabled, automatically zooms in/out for you based on how big you are.');
+
 		separator('• multibox •');
-		setting('One-tab multibox key', [keybind('multibox')], () => true,
-			'The keybind to use for switching multibox tabs. If a keybind is set, then "multibox mode" is enabled.' +
-			'By default, you get the \'one-tab\' experience, though if you\'re used to two-tab you can change the ' +
-			'camera style and set the keybind to Ctrl+Tab. <br>' +
-			'Sigmally Fixes does not work with multiple browser tabs.');
-		setting('Multibox camera style',
-			[dropdown('multiCamera', [['natural', 'Merge weighted (best)'],
-				['delta', 'Merge centered (like Delta)'], ['weighted', 'No merge, weighted'],
-				['none', 'No merge, not weighted (like two-tab)']])],
-			() => !!settings.multibox,
-			'How the camera should move when multiboxing. <br>' +
-			'- &quot;Merge weighted&quot; is the default. Your camera will be put at the center of your total mass. ' +
-			'Use this if you\'re not sure. <br>' +
-			'- &quot;Merge centered&quot; places the camera in between each tab\'s center of mass. This is ' +
-			'how Delta positions its camera by default. <br>' +
-			'- &quot;No merge, weighted&quot; puts the camera at the center of mass of your current tab. <br>' +
-			'- &quot;No merge, not weighted&quot; uses the default non-multiboxing camera. Use this if you\'re used ' +
-			'to two-tab multiboxing.');
+		setting('Multibox keybind', [keybind('multibox')], () => true,
+			'The key to press for switching multibox tabs. "Tab" is recommended, but you can also use "Ctrl+Tab" and ' +
+			'most other keybinds.');
+		setting('One-tab mode', [checkbox('mergeCamera')], () => !!settings.multibox,
+			'When enabled, your camera will focus on both multibox tabs at once. Disable this if you prefer two-tab-' +
+			'style multiboxing. <br>' +
+			'When one-tab multiboxing, you <b>must</b> use the Natural (weighted) camera style.');
 		setting('Current tab cell outline thickness', [slider('outlineMulti', 0.2, 0, 1, 0.01, 2)],
 			() => !!settings.multibox,
 			'Draws an inverse outline on your cells, the thickness being a % of your cell radius. This only shows ' +
@@ -1635,15 +1658,7 @@
 			'slider is the outline opacity.');
 		setting('Block respawns near other tabs', [checkbox('blockNearbyRespawns')], () => !!settings.multibox,
 			'Disables the respawn keybind (SigMod-only) when near one of your bigger tabs.');
-		separator('• inputs •');
-		setting('Zoom speed', [slider('scrollFactor', 1, 0.05, 1, 0.05, 2)], () => true,
-			'A smaller zoom speed lets you fine-tune your zoom.');
-		setting('Auto-zoom', [dropdown('autoZoom', [['auto', 'When multiboxing is disabled'], ['never', 'Never']])],
-			() => true,
-			'When enabled, automatically zooms in/out for you based on how big you are.');
-		setting('Block all browser keybinds', [checkbox('blockBrowserKeybinds')], () => true,
-			'When enabled, only F11 is allowed to be pressed when in fullscreen. Most other browser and system ' +
-			'keybinds will be disabled.');
+
 		separator('• text •');
 		setting('Name scale factor', [slider('nameScaleFactor', 1, 0.5, 2, 0.01, 2)], () => true,
 			'The size multiplier of names.');
@@ -1663,7 +1678,11 @@
 		setting('Text outline thickness', [slider('textOutlinesFactor', 1, 0, 2, 0.01, 2)], () => true,
 			'The multiplier of the thickness of the black stroke around names, mass, and clans on cells. You can set ' +
 			'this to 0 to disable outlines AND text shadows.');
+
 		separator('• other •');
+		setting('Block all browser keybinds', [checkbox('blockBrowserKeybinds')], () => true,
+			'When enabled, only F11 is allowed to be pressed when in fullscreen. Most other browser and system ' +
+			'keybinds will be disabled.');
 		setting('Unsplittable cell outline', [color('unsplittableColor')], () => true,
 			'How visible the white outline around cells that can\'t split should be. 0 = not visible, 1 = fully ' +
 			'visible.');
@@ -1687,8 +1706,8 @@
 			'If you have an XP boost, your score will be ' +
 			'doubled. If you don\'t want that, you can separate the XP boost from your score.');
 		setting('Color under skin', [checkbox('colorUnderSkin')], () => true,
-			'When disabled, transparent skins will be see-through and not ' +
-			'show your cell color.');
+			'When disabled, transparent skins will be see-through and not show your cell color. Turn this off ' +
+			'if using a bubble skin, for example.');
 
 		// #3 : create options for sigmod
 		let sigmodInjection;
@@ -1722,7 +1741,7 @@
 			});
 		}, 100);
 
-		return settings;
+		return { refreshSettings, settings };
 	})();
 
 
@@ -1816,9 +1835,10 @@
 		 * @param {number} view
 		 * @param {number} weightExponent
 		 * @param {number} now
-		 * @returns {{ scale: number, sumX: number, sumY: number, weight: number }}
+		 * @returns {{ mass: number, scale: number, sumX: number, sumY: number, weight: number }}
 		 */
 		world.singleCamera = (view, weightExponent, now) => {
+			let mass = 0;
 			let r = 0;
 			let sumX = 0;
 			let sumY = 0;
@@ -1828,13 +1848,14 @@
 				if (!cell || cell.deadAt !== undefined) continue;
 				const xyr = world.xyr(cell, undefined, now);
 				r += cell.nr;
+				mass += cell.nr * cell.nr / 100;
 				sumX += xyr.x * (cell.nr ** weightExponent);
 				sumY += xyr.y * (cell.nr ** weightExponent);
 				weight += (cell.nr ** weightExponent);
 			}
 
 			const scale = Math.min(64 / r, 1) ** 0.4;
-			return { scale, sumX, sumY, weight };
+			return { mass, scale, sumX, sumY, weight };
 		};
 
 		/**
@@ -1849,17 +1870,17 @@
 			const dt = (now - vision.camera.updated) / 1000;
 			vision.camera.updated = now;
 
-			const weighted = settings.multibox && settings.multiCamera !== 'none';
+			const weighted = settings.camera !== 'default';
 			/** @type {number[]} */
 			const merging = [];
-			/** @type {{ scale: number, sumX: number, sumY: number, weight: number }[]} */
+			/** @type {{ mass: number, sumX: number, sumY: number, weight: number }[]} */
 			const mergingCameras = [];
 			const desc = world.singleCamera(view, weighted ? 2 : 0, now);
 			let xyFactor;
 			if (desc.weight > 0) {
 				const mainX = desc.sumX / desc.weight;
 				const mainY = desc.sumY / desc.weight;
-				if (settings.multibox) {
+				if (settings.multibox && settings.mergeCamera) {
 					const mainWeight = desc.weight;
 					const mainWidth = 1920 / 2 / desc.scale;
 					const mainHeight = 1080 / 2 / desc.scale;
@@ -1885,37 +1906,35 @@
 					}
 				}
 
+				if (settings.multibox && settings.mergeCamera && settings.camera === 'default') {
+					// merging the default camera would be absolutely disastrous. no one would ever use it.
+					settings.camera = 'natural';
+					refreshSettings();
+				}
+
 				let targetX, targetY, zoom;
-				if (!settings.multibox || settings.multiCamera === 'none') { // default camera, autozoom
+				if (settings.camera === 'default') {
+					// default, unweighted, **unmerged** camera
 					targetX = desc.sumX / desc.weight;
 					targetY = desc.sumY / desc.weight;
-					zoom = settings.autoZoom === 'auto' ? desc.scale : 0.25;
-				} else if (settings.multiCamera === 'weighted') { // weighted two-tab camera, no autozoom
-					targetX = desc.sumX / desc.weight;
-					targetY = desc.sumY / desc.weight;
-					zoom = 0.25;
-				} else if (settings.multiCamera === 'delta') {
-					targetX = mainX;
-					targetY = mainY;
-					for (const camera of mergingCameras) {
-						targetX += camera.sumX / camera.weight;
-						targetY += camera.sumY / camera.weight;
-					}
-					targetX /= mergingCameras.length + 1;
-					targetY /= mergingCameras.length + 1;
-					zoom = 0.25;
-				} else { // settings.multiCamera === 'natural'
+					zoom = settings.autoZoom ? desc.scale : 0.25;
+				} else { // settings.camera === 'natural'
+					let mass = desc.mass;
 					targetX = desc.sumX;
 					targetY = desc.sumY;
 					let totalWeight = desc.weight;
-					for (const camera of mergingCameras) {
-						targetX += camera.sumX;
-						targetY += camera.sumY;
-						totalWeight += camera.weight;
+					if (settings.multibox && settings.mergeCamera) {
+						for (const camera of mergingCameras) {
+							mass += camera.mass;
+							targetX += camera.sumX;
+							targetY += camera.sumY;
+							totalWeight += camera.weight;
+						}
 					}
 					targetX /= totalWeight;
 					targetY /= totalWeight;
-					zoom = 0.25;
+					const scale = Math.min(64 / Math.sqrt(100 * mass), 1) ** 0.4;
+					zoom = settings.autoZoom ? scale : 0.25;
 				}
 
 				vision.camera.tx = targetX;
