@@ -1181,6 +1181,7 @@
 			boldUi: false,
 			/** @type {'natural' | 'default'} */
 			camera: 'default',
+			cameraSmoothness: 2,
 			cellGlow: false,
 			cellOpacity: 1,
 			cellOutlines: true,
@@ -1606,9 +1607,10 @@
 		setting('Draw delay', [slider('drawDelay', 120, 40, 300, 1, 0)], () => true,
 			'How long (in milliseconds) cells will lag behind for. Lower values mean cells will very quickly catch ' +
 			'up to where they actually are.');
-		setting(`Cell movement ${newTag}`, [dropdown('interpolation', [['exp', 'Exponential (Delta)'], ['linear', 'Linear (default)']])],
-			() => true,
-			'TODO');
+		setting(`Cell movement ${newTag}`, [dropdown('interpolation', [['exp', 'Exponential (smoother, like Delta)'],
+			['linear', 'Linear (default)']])], () => true,
+			'Some players feel that their game is smoother when using Delta. If you feel that way, try using the ' +
+			'"Exponential" setting.');
 		setting('Cell outlines', [checkbox('cellOutlines')], () => true,
 			'Whether the subtle dark outlines around cells (including skins) should draw.');
 		setting('Cell opacity', [slider('cellOpacity', 1, 0, 1, 0.005, 3)], () => true,
@@ -1633,6 +1635,9 @@
 			'barely affect your camera position. <br>' +
 			'- The "default" camera focuses on every cell equally. If you have a lot of small back pieces, your ' +
 			'camera would focus on those instead.');
+		setting(`Camera smoothness ${newTag}`, [slider('cameraSmoothness', 2, 1, 10, 0.1, 1)], () => true,
+			'How slowly the camera lags behind. The default is 2; using 4 moves the camera about twice as slowly, ' +
+			'for example. Setting to 1 removes all camera smoothness.');
 		setting('Zoom speed', [slider('scrollFactor', 1, 0.05, 1, 0.05, 2)], () => true,
 			'A smaller zoom speed lets you fine-tune your zoom.');
 		setting('Auto-zoom', [checkbox('autoZoom')], () => true,
@@ -1912,6 +1917,7 @@
 					refreshSettings();
 				}
 
+				let mass = desc.mass;
 				let targetX, targetY, zoom;
 				if (settings.camera === 'default') {
 					// default, unweighted, **unmerged** camera
@@ -1919,7 +1925,6 @@
 					targetY = desc.sumY / desc.weight;
 					zoom = settings.autoZoom ? desc.scale : 0.25;
 				} else { // settings.camera === 'natural'
-					let mass = desc.mass;
 					targetX = desc.sumX;
 					targetY = desc.sumY;
 					let totalWeight = desc.weight;
@@ -1940,7 +1945,7 @@
 				vision.camera.tx = targetX;
 				vision.camera.ty = targetY;
 				vision.camera.tscale = zoom;
-				xyFactor = 2;
+				xyFactor = settings.cameraSmoothness;
 			} else {
 				xyFactor = 20;
 			}
@@ -2159,7 +2164,10 @@
 				y = ny;
 				r = cell.nr;
 			} else if (settings.interpolation === 'exp') {
-				// derived from f(1/60) = g(1/60) where:
+				// delta uses """linear interpolation""", except .ox, .oy, and .or are always updated every frame.
+				// at infinite FPS, this is purely exponential (the speed a cell moves at is proportional to itself).
+
+				// the factor is derived from f(1/60) = g(1/60) (so it looks identical to Delta at 60FPS) where:
 				// linear interpolation, f(t) = (1000 / dd) * t, which is basically the variable a
 				// exponential interpolation, g(t) = aux.exponentialEase(factor, t), where o=0 and n=1
 				const factor = 60 / 1000 * settings.drawDelay;
