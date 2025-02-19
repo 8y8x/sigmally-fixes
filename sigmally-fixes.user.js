@@ -1224,7 +1224,7 @@
 		{
 			if (/** @type {any} */ (settings.multibox) === true) settings.multibox = 'Tab';
 			else if (/** @type {any} */ (settings.multibox) === false) settings.multibox = '';
-			
+
 			if (/** @type {any} */ (settings).unsplittableOpacity !== undefined) {
 				settings.unsplittableColor = [1, 1, 1, /** @type {any} */ (settings).unsplittableOpacity];
 				delete settings.unsplittableOpacity;
@@ -1609,7 +1609,7 @@
 			'up to where they actually are.');
 		setting(`Cell movement ${newTag}`, [dropdown('interpolation', [['exp', 'Exponential (smoother, like Delta)'],
 			['linear', 'Linear (default)']])], () => true,
-			'Some players feel that their game is smoother when using Delta. If you feel that way, try using the ' +
+		'Some players feel that their game is smoother when using Delta. If you feel that way, try using the ' +
 			'"Exponential" setting.');
 		setting('Cell outlines', [checkbox('cellOutlines')], () => true,
 			'Whether the subtle dark outlines around cells (including skins) should draw.');
