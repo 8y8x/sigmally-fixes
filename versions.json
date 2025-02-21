@@ -9,59 +9,88 @@
 		"Keep the alert short and unintrusive, as it shifts all the buttons down and out of the main UI.",
 		"No HTML; the < and > characters are stripped."
 	],
-	"2.5.7": {
+	"2.6.0": {
 		"ok": true
+	},
+	"2.5.9": {
+		"ok": false,
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
+		"color": "#09f"
+	},
+	"2.5.8": {
+		"ok": false,
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
+		"color": "#09f"
+	},
+	"2.5.7": {
+		"ok": false,
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
+		"color": "#09f"
 	},
 	"2.5.6": {
-		"ok": true
+		"ok": false,
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
+		"color": "#09f"
 	},
 	"2.5.5": {
-		"ok": true
+		"ok": false,
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
+		"color": "#09f"
 	},
 	"2.5.4": {
-		"ok": true
+		"ok": false,
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
+		"color": "#09f"
 	},
 	"2.5.3": {
-		"ok": true
+		"ok": false,
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
+		"color": "#09f"
 	},
 	"2.5.2": {
-		"ok": true
+		"ok": false,
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
+		"color": "#09f"
 	},
 	"2.5.1": {
-		"ok": true
+		"ok": false,
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
+		"color": "#09f"
 	},
 	"2.5.0": {
-		"ok": true
+		"ok": false,
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
+		"color": "#09f"
 	},
 	"2.4.2.1": {
 		"ok": false,
-		"alert": "Upgrade to Sigmally Fixes v2.5.0 for smooth, fast one-tab multiboxing: {autolink}",
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
 		"color": "#f90"
 	},
 	"2.4.2": {
 		"ok": false,
-		"alert": "Upgrade to Sigmally Fixes v2.5.0 for smooth, fast one-tab multiboxing: {autolink}",
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
 		"color": "#f90"
 	},
 	"2.4.1": {
 		"ok": false,
-		"alert": "Upgrade to Sigmally Fixes v2.5.0 for smooth, fast one-tab multiboxing: {autolink}",
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
 		"color": "#f90"
 	},
 	"2.4.0": {
 		"ok": false,
-		"alert": "Upgrade to Sigmally Fixes v2.5.0 for smooth, fast one-tab multiboxing: {autolink}",
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
 		"color": "#f90"
 	},
 	"2.3.19": {
 		"ok": false,
-		"alert": "Sigmally Fixes v2.5.7 now supports Ctrl+Tab for one-tab multiboxing: {autolink} to update",
-		"color": "#0c0"
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
+		"color": "#f90"
 	},
 	"2.3.18": {
 		"ok": false,
-		"alert": "Upgrade to Sigmally Fixes v2.5.0 for smooth, fast one-tab multiboxing: {autolink}",
-		"color": "#09f"
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
+		"color": "#f90"
 	},
 	"2.3.17": {
 		"ok": false,
@@ -80,7 +109,7 @@
 	},
 	"2.3.14": {
 		"ok": false,
-		"alert": "Captcha flow was updated. Please update Sigmally Fixes to v2.3.18 to play: {autolink}",
+		"alert": "Captcha flow was updated. Please update Sigmally Fixes to play: {autolink}",
 		"color": "#f00"
 	},
 	"2.3.13": {
