@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.6.0
+// @version      2.6.1-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.6.0';
+	const sfVersion = '2.6.1-BETA';
 	const undefined = void 0; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -1182,6 +1182,7 @@
 			/** @type {'natural' | 'default'} */
 			camera: 'default',
 			cameraSmoothness: 2,
+			cameraSpawnAnimation: true,
 			cellGlow: false,
 			cellOpacity: 1,
 			cellOutlines: true,
@@ -1642,6 +1643,9 @@
 			'A smaller zoom speed lets you fine-tune your zoom.');
 		setting('Auto-zoom', [checkbox('autoZoom')], () => true,
 			'When enabled, automatically zooms in/out for you based on how big you are.');
+		setting(`Move camera while spawning ${newTag}`, [checkbox('cameraSpawnAnimation')], () => true,
+			'When spawning, normally the camera will take a bit of time to move to where your cell spawned. This ' +
+			'can be disabled.');
 
 		separator('• multibox •');
 		setting('Multibox keybind', [keybind('multibox')], () => true,
@@ -1790,6 +1794,7 @@
 		 * 		},
 		 * 		leaderboard: { name: string, me: boolean, sub: boolean, place: number | undefined }[],
 		 * 		owned: number[],
+		 * 		spawned: number,
 		 * 		stats: object | undefined,
 		 * 		used: number,
 		 * }>} */
@@ -1945,7 +1950,12 @@
 				vision.camera.tx = targetX;
 				vision.camera.ty = targetY;
 				vision.camera.tscale = zoom;
-				xyFactor = settings.cameraSmoothness;
+
+				// when spawning, move camera quickly (like vanilla), then make it smoother after a bit
+				const aliveFor = (performance.now() - vision.spawned) / 1000;
+				const a = Math.min(Math.max(aliveFor / 0.3 - 0.3, 0), 1);
+				const baseSpeed = settings.cameraSpawnAnimation ? 2 : 1;
+				xyFactor = Math.min(settings.cameraSmoothness, baseSpeed * (1-a) + settings.cameraSmoothness * a);
 			} else {
 				xyFactor = 20;
 			}
@@ -1966,6 +1976,7 @@
 				camera: { x: 0, tx: 0, y: 0, ty: 0, scale: 0, tscale: 0, merging: [], updated: performance.now() - 1 },
 				leaderboard: [],
 				owned: [],
+				spawned: -Infinity,
 				stats: undefined,
 				used: -Infinity,
 			};
@@ -2316,6 +2327,9 @@
 					}
 				}
 
+				world.merge();
+				render.upload('pellets');
+
 				connection.ws = undefined;
 				setTimeout(() => connection.ws = connect(view), connection.rejected ? 1500 : 0);
 			});
@@ -2535,7 +2549,7 @@
 							}
 							if (!first) break;
 						}
-						if (first) world.stats.spawnedAt = now;
+						if (first) world.stats.spawnedAt = vision.spawned = now;
 
 						vision.owned.push(dat.getUint32(o, true));
 						break;
