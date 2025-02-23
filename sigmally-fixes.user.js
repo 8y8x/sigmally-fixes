@@ -2540,16 +2540,19 @@
 					case 0x20: { // new owned cell
 						// check if this is the first owned cell
 						let first = true;
+						let firstThis = true;
 						for (const [otherView, otherVision] of world.views) {
 							for (const id of otherVision.owned) {
 								const cell = world.cells.get(id)?.views.get(otherView);
 								if (!cell || cell.deadAt !== undefined) continue;
 								first = false;
+								if (otherVision === vision) firstThis = false;
 								break;
 							}
 							if (!first) break;
 						}
-						if (first) world.stats.spawnedAt = vision.spawned = now;
+						if (first) world.stats.spawnedAt = now;
+						if (firstThis) vision.spawned = now;
 
 						vision.owned.push(dat.getUint32(o, true));
 						break;
