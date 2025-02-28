@@ -1800,36 +1800,6 @@
 		 * }>} */
 		world.views = new Map();
 
-		// sigmod compatibility; place a fake cell whose radius yields the current score. this is for respawn
-		// functionality for older sigmod versions; not necessary in v10.1.0+
-		/** @type {[symbol]} */
-		world.mine = [Symbol()];
-		const fakeEntry = {
-			deadAt: undefined, // make sure sigmod doesn't skip this cell
-			merged: undefined,
-			model: undefined,
-			views: new Map([ [/** @type {any} */ (Symbol()), {
-				id: NaN,
-				ox: NaN, nx: NaN,
-				oy: NaN, ny: NaN,
-				or: NaN, nr: NaN, jr: NaN,
-				Rgb: 0, rGb: 0, rgB: 0,
-				born: Infinity, updated: NaN, deadAt: undefined, deadTo: -1,
-				name: '', skin: '', clan: '', sub: false,
-				jagged: false, pellet: false,
-			}]]),
-		};
-		Object.defineProperty(fakeEntry, 'nr', {
-			get: () => {
-				// only let sigmod block respawns if we're in a main server
-				if (['ca0.sigmally.com', 'ca1.sigmally.com', 'eu0.sigmally.com'].some(url => net.url().includes(url)))
-					return Math.sqrt(world.score(world.selected) * 100);
-				else return 0;
-			},
-			set: () => {},
-		});
-		world.cells.set(/** @type {any} */ (world.mine[0]), fakeEntry);
-
 		world.alive = () => {
 			for (const vision of world.views.values()) {
 				for (const id of vision.owned) {
