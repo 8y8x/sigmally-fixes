@@ -1953,7 +1953,7 @@
 
 				// when spawning, move camera quickly (like vanilla), then make it smoother after a bit
 				const aliveFor = (performance.now() - vision.spawned) / 1000;
-				const a = Math.min(Math.max(aliveFor / 0.3 - 0.3, 0), 1);
+				const a = Math.min(Math.max((aliveFor - 0.3) / 0.3, 0), 1);
 				const baseSpeed = settings.cameraSpawnAnimation ? 2 : 1;
 				xyFactor = Math.min(settings.cameraSmoothness, baseSpeed * (1-a) + settings.cameraSmoothness * a);
 			} else {
@@ -2549,7 +2549,6 @@
 								if (otherVision === vision) firstThis = false;
 								break;
 							}
-							if (!first) break;
 						}
 						if (first) world.stats.spawnedAt = now;
 						if (firstThis) vision.spawned = now;
