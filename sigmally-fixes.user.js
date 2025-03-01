@@ -2283,7 +2283,6 @@
 
 					if (opcode === 0x10) {
 						// incoming messages can vary in timestamp by A LOT. stabilize if necessary
-						console.log(now, lastUpdate, settings.minimumPacketDelay);
 						if (now < lastUpdate + settings.minimumPacketDelay && queue.length < 8) return;
 						lastUpdate = now;
 					}
@@ -4354,7 +4353,8 @@
 
 				let borderColor;
 				let borderLrtb;
-				borderColor = aux.settings.showBorder ? [0, 0, 1, 1] /* #00ff */ : [0, 0, 0, 0] /* transparent */;
+				borderColor = (aux.settings.showBorder && vision.border) ? [0, 0, 1, 1] /* #00ff */
+					: [0, 0, 0, 0] /* transparent */;
 				borderLrtb = vision.border || { l: 0, r: 0, t: 0, b: 0 };
 
 				// u_border_color
