@@ -2589,7 +2589,8 @@
 					}
 
 					case 0xdd: {
-						net.howarewelosingmoney(view);
+						// request for analytics (idk if used anymore) (previously "howarewelosingmoney")
+						sendJson(view, 0xd0, { session: null });
 						break;
 					}
 
@@ -2732,21 +2733,6 @@
 		 */
 		net.play = (view, data) => {
 			sendJson(view, 0x00, data);
-		};
-
-		/** @param {number} view */
-		net.howarewelosingmoney = view => {
-			// this is a new thing added with the rest of the recent source code obfuscation (2024/02/18)
-			// which collects and links to your sigmally account, seemingly just for light data analysis but probably
-			// just for the fun of it:
-			// - your IP and country
-			// - whether you are under a proxy
-			// - whether you are using sigmod (because it also blocks ads)
-			// - whether you are using a traditional adblocker
-			//
-			// so, no thank you
-			// TODO: this has been updated. check case 221 (which is 0xdd).
-			sendJson(view, 0xd0, { ip: '', country: '', proxy: false, user: null, blocker: 'sigmally fixes @8y8x' });
 		};
 
 		// create initial connection
