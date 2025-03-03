@@ -2320,8 +2320,6 @@
 				let o = 1;
 				switch (dat.getUint8(0)) {
 					case 0x10: { // world update
-						if (connection.respawnBlock?.status === 'left') connection.respawnBlock = undefined;
-
 						// (a) : kills / consumes
 						const killCount = dat.getUint16(o, true);
 						o += 2;
@@ -2454,7 +2452,12 @@
 
 						// (e) : clear own cells that don't exist anymore (NOT on world.clean!)
 						for (let i = 0; i < vision.owned.length; ++i) {
-							if (world.cells.has(vision.owned[i])) continue;
+							if (world.cells.has(vision.owned[i])) {
+								// only disable respawnBlock once we're definitely alive
+								if (connection.respawnBlock?.status === 'left') connection.respawnBlock = undefined;
+								continue;
+							}
+
 							vision.owned.splice(i--, 1);
 						}
 						ui.deathScreen.check();
