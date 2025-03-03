@@ -30,8 +30,6 @@
 	const sfVersion = '2.6.1-BETA';
 	const undefined = void 0; // yes, this actually makes a significant difference
 
-	window.GLOBAL_DELAY = [0, 35, 35];
-
 	////////////////////////////////
 	// Define Auxiliary Functions //
 	////////////////////////////////
@@ -1198,7 +1196,6 @@
 			massOpacity: 1,
 			massScaleFactor: 1,
 			mergeCamera: true,
-			minimumPacketDelay: 0,
 			multibox: '',
 			nameBold: false,
 			nameScaleFactor: 1,
@@ -1720,8 +1717,6 @@
 		setting('Color under skin', [checkbox('colorUnderSkin')], () => true,
 			'When disabled, transparent skins will be see-through and not show your cell color. Turn this off ' +
 			'if using a bubble skin, for example.');
-		setting(`Minimum packet delay ${newTag}`, [slider('minimumPacketDelay', 0, 0, 35, 1, 0)], () => true,
-			'TODO');
 
 		// #3 : create options for sigmod
 		let sigmodInjection;
@@ -1797,7 +1792,6 @@
 		 * 			merging: number[],
 		 * 			updated: number,
 		 * 		},
-		 * 		CONSUMED_MERGE_BAD_NAME: boolean,
 		 * 		leaderboard: { name: string, me: boolean, sub: boolean, place: number | undefined }[],
 		 * 		owned: number[],
 		 * 		spawned: number,
@@ -1950,7 +1944,6 @@
 			const vision = {
 				border: undefined,
 				camera: { x: 0, tx: 0, y: 0, ty: 0, scale: 0, tscale: 0, merging: [], updated: performance.now() - 1 },
-				CONSUMED_MERGE_BAD_NAME: false,
 				leaderboard: [],
 				owned: [],
 				spawned: -Infinity,
@@ -1966,11 +1959,31 @@
 		let dirtyMerged = false;
 		world.merge = (stable = false) => {
 			const now = performance.now();
-			if ((world.views.size === 1 && world.views.has(world.viewId.primary)) || stable) {
+			if (world.views.size === 1 && world.views.has(world.viewId.primary)) {
 				// no-merge strategy
 				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
 					for (const resolution of world[key].values()) {
-						resolution.merged = resolution.views.get(world.selected);
+						resolution.merged = resolution.views.get(world.viewId.primary);
+					}
+				}
+				dirtyMerged = true;
+			} else if (stable) {
+				// maximize alpha, prefer primary tab
+				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+					for (const resolution of world[key].values()) {
+						let alpha = 0;
+						/** @type {Cell | undefined} */
+						let best;
+						for (const [view, cell] of resolution.views) {
+							let thisAlpha = now - cell.born;
+							if (cell.deadAt !== undefined) thisAlpha = Math.min(thisAlpha, 100 - (now - cell.deadAt));
+							thisAlpha = Math.min(thisAlpha, 100);
+							if (!best || thisAlpha > alpha || (thisAlpha === alpha && view === world.viewId.primary)) {
+								alpha = thisAlpha;
+								best = cell;
+							}
+						}
+						resolution.merged = best;
 					}
 				}
 				dirtyMerged = true;
@@ -2093,10 +2106,6 @@
 							}
 						}
 					}
-				}
-
-				for (const vision of world.views.values()) {
-					vision.CONSUMED_MERGE_BAD_NAME = true;
 				}
 			}
 		};
@@ -2263,322 +2272,6 @@
 				return; // ts-check is dumb
 			}
 
-			let lastUpdate = -Infinity;
-			/** @type {MessageEvent<ArrayBuffer>[]} */
-			const queue = [];
-			/** @type {number} */
-			let processQueueInterval;
-			const processQueue = () => {
-				while (queue.length > 0) {
-					const e = queue[0];
-					if (!e) return;
-
-					const connection = net.connections.get(view);
-					const vision = world.views.get(view);
-					if (!connection?.handshake || !vision || ws.readyState !== WebSocket.OPEN) return ws.close();
-
-					const dat = new DataView(e.data);
-					const opcode = connection.handshake.unshuffle[dat.getUint8(0)];
-					const now = performance.now();
-
-					if (opcode === 0x10) {
-						// incoming messages can vary in timestamp by A LOT. stabilize if necessary
-						if (now < lastUpdate + settings.minimumPacketDelay && queue.length < 8) return;
-						lastUpdate = now;
-					}
-
-					queue.shift(); // now processing
-
-					let o = 1;
-					switch (opcode) {
-						case 0x10: { // world update
-							if (connection.respawnBlock?.status === 'left') connection.respawnBlock = undefined;
-
-							// (a) : kills / consumes
-							const killCount = dat.getUint16(o, true);
-							o += 2;
-							for (let i = 0; i < killCount; ++i) {
-								const killerId = dat.getUint32(o, true);
-								const killedId = dat.getUint32(o + 4, true);
-								o += 8;
-
-								const killed = (world.pellets.get(killedId) ?? world.cells.get(killedId))?.views.get(view);
-								if (killed) {
-									killed.deadAt = killed.updated = now;
-									killed.deadTo = killerId;
-									if (killed.pellet && vision.owned.includes(killerId)) {
-										++world.stats.foodEaten;
-										net.food(view); // dumbass quest code go brrr
-									}
-								}
-							}
-
-							// (b) : updates
-							do {
-								const id = dat.getUint32(o, true);
-								o += 4;
-								if (id === 0) break;
-
-								const x = dat.getInt16(o, true);
-								const y = dat.getInt16(o + 2, true);
-								const r = dat.getUint16(o + 4, true);
-								const flags = dat.getUint8(o + 6);
-								// (void 1 byte, "isUpdate")
-								// (void 1 byte, "isPlayer")
-								const sub = !!dat.getUint8(o + 9);
-								o += 10;
-
-								let clan; [clan, o] = aux.readZTString(dat, o);
-
-								/** @type {number | undefined} */
-								let Rgb, rGb, rgB;
-								if (flags & 0x02) { // update color
-									Rgb = dat.getUint8(o++) / 255;
-									rGb = dat.getUint8(o++) / 255;
-									rgB = dat.getUint8(o++) / 255;
-								}
-
-								let skin = '';
-								if (flags & 0x04) { // update skin
-									[skin, o] = aux.readZTString(dat, o);
-									skin = aux.parseSkin(skin);
-								}
-
-								let name = '';
-								if (flags & 0x08) { // update name
-									[name, o] = aux.readZTString(dat, o);
-									name = aux.parseName(name);
-									if (name) render.textFromCache(name, sub); // make sure the texture is ready on render
-								}
-
-								const jagged = !!(flags & 0x11); // spiked or agitated
-								const eject = !!(flags & 0x20);
-								const pellet = r <= 40 && !eject; // tourney servers have bigger pellets (r=40)
-								const cell = (pellet ? world.pellets : world.cells).get(id)?.views.get(view);
-								if (cell && cell.deadAt === undefined) {
-									const { x: ix, y: iy, r: ir, jr } = world.xyr(cell, undefined, now);
-									cell.ox = ix;
-									cell.oy = iy;
-									cell.or = ir;
-									cell.jr = jr;
-									cell.nx = x; cell.ny = y; cell.nr = r;
-									cell.jagged = jagged;
-									cell.updated = now;
-
-									cell.clan = clan;
-									if (Rgb !== undefined) {
-										cell.Rgb = Rgb;
-										cell.rGb = /** @type {number} */ (rGb);
-										cell.rgB = /** @type {number} */ (rgB);
-									}
-									if (skin) cell.skin = skin;
-									if (name) cell.name = name;
-									cell.sub = sub;
-								} else {
-									if (cell?.deadAt !== undefined) {
-										// when respawning, OgarII does not send the description of cells if you spawn in
-										// the same area, despite those cells being deleted from your view area
-										if (Rgb === undefined) ({ Rgb, rGb, rgB} = cell);
-										name ||= cell.name; // note the || and not ??
-										skin ||= cell.skin;
-									}
-
-									/** @type {Cell} */
-									const ncell = {
-										id,
-										ox: x, nx: x,
-										oy: y, ny: y,
-										or: r, nr: r, jr: r,
-										Rgb: Rgb ?? 1, rGb: rGb ?? 1, rgB: rgB ?? 1,
-										jagged, pellet,
-										updated: now, born: now,
-										deadAt: undefined, deadTo: -1,
-										name, skin, sub, clan,
-									};
-									let resolution = world[pellet ? 'pellets' : 'cells'].get(id);
-									if (!resolution) {
-										resolution = { merged: undefined, model: undefined, views: new Map() };
-										world[pellet ? 'pellets' : 'cells'].set(id, resolution);
-									}
-									resolution.views.set(view, ncell);
-								}
-							} while (true);
-
-							// (c) : deletes
-							const deleteCount = dat.getUint16(o, true);
-							o += 2;
-							for (let i = 0; i < deleteCount; ++i) {
-								const deletedId = dat.getUint32(o, true);
-								o += 4;
-
-								const deleted
-									= (world.pellets.get(deletedId) ?? world.cells.get(deletedId))?.views.get(view);
-								if (deleted && deleted.deadAt === undefined) {
-									deleted.deadAt = now;
-									deleted.deadTo = -1;
-								}
-							}
-
-							// (d) : finalize, upload data
-							vision.CONSUMED_MERGE_BAD_NAME = false;
-							world.merge();
-							world.clean();
-							render.upload('pellets');
-
-							// (e) : clear own cells that don't exist anymore (NOT on world.clean!)
-							for (let i = 0; i < vision.owned.length; ++i) {
-								if (world.cells.has(vision.owned[i])) continue;
-								vision.owned.splice(i--, 1);
-							}
-							ui.deathScreen.check();
-							break;
-						}
-
-						case 0x11: { // update camera pos
-							vision.camera.tx = dat.getFloat32(o, true);
-							vision.camera.ty = dat.getFloat32(o + 4, true);
-							vision.camera.tscale = dat.getFloat32(o + 8, true);
-							break;
-						}
-
-						case 0x12: { // delete all cells
-							// happens every time you respawn
-							if (connection.respawnBlock?.status === 'pending') connection.respawnBlock.status = 'left';
-
-							// DO NOT just clear the maps! when respawning, OgarII will not resend cell data if we spawn
-							// nearby.
-							for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-								for (const resolution of world[key].values()) {
-									const cell = resolution.views.get(view);
-									if (cell && cell.deadAt === undefined) cell.deadAt = now;
-								}
-							}
-							world.merge();
-							render.upload('pellets');
-							// passthrough
-						}
-						case 0x14: { // delete my cells
-							vision.owned = [];
-							// only reset spawn time if no other tab is alive.
-							// this could be cheated (if you alternate respawning your tabs, for example) but i don't think
-							// multiboxers ever see the stats menu anyway
-							if (!world.alive()) world.stats.spawnedAt = undefined;
-							ui.deathScreen.check(); // don't trigger death screen on respawn
-							break;
-						}
-
-						case 0x20: { // new owned cell
-							// check if this is the first owned cell
-							let first = true;
-							let firstThis = true;
-							for (const [otherView, otherVision] of world.views) {
-								for (const id of otherVision.owned) {
-									const cell = world.cells.get(id)?.views.get(otherView);
-									if (!cell || cell.deadAt !== undefined) continue;
-									first = false;
-									if (otherVision === vision) firstThis = false;
-									break;
-								}
-							}
-							if (first) world.stats.spawnedAt = now;
-							if (firstThis) vision.spawned = now;
-
-							vision.owned.push(dat.getUint32(o, true));
-							break;
-						}
-
-						// case 0x30 is a text list (not a numbered list), leave unsupported
-						case 0x31: { // ffa leaderboard list
-							const lb = [];
-							const count = dat.getUint32(o, true);
-							o += 4;
-
-							/** @type {number | undefined} */
-							let myPosition;
-							for (let i = 0; i < count; ++i) {
-								const me = !!dat.getUint32(o, true);
-								o += 4;
-
-								let name; [name, o] = aux.readZTString(dat, o);
-								name = aux.parseName(name);
-
-								// why this is copied into every leaderboard entry is beyond my understanding
-								myPosition = dat.getUint32(o, true);
-								const sub = !!dat.getUint32(o + 4, true);
-								o += 8;
-
-								lb.push({ name, sub, me, place: undefined });
-							}
-
-							if (myPosition) { // myPosition could be zero
-								if (myPosition - 1 >= lb.length) {
-									const nick = world.selected === world.viewId.primary
-										? input.nick1.value : input.nick2.value;
-									lb.push({
-										me: true,
-										name: aux.parseName(nick),
-										place: myPosition,
-										sub: false, // doesn't matter
-									});
-								}
-
-								world.stats.highestPosition = Math.min(world.stats.highestPosition, myPosition);
-							}
-
-							vision.leaderboard = lb;
-							break;
-						}
-
-						case 0x40: { // border update
-							vision.border = {
-								l: dat.getFloat64(o, true),
-								t: dat.getFloat64(o + 8, true),
-								r: dat.getFloat64(o + 16, true),
-								b: dat.getFloat64(o + 24, true),
-							};
-							break;
-						}
-
-						case 0x63: { // chat message
-							// only handle chat messages on the primary tab, to prevent duplicate messages
-							// this means that command responses won't be shown on the secondary tab but who actually cares
-							if (view !== world.viewId.primary) return;
-							const flags = dat.getUint8(o++);
-							const rgb = /** @type {[number, number, number, number]} */
-								([dat.getUint8(o++) / 255, dat.getUint8(o++) / 255, dat.getUint8(o++) / 255, 1]);
-
-							let name; [name, o] = aux.readZTString(dat, o);
-							let msg; [msg, o] = aux.readZTString(dat, o);
-							ui.chat.add(name, rgb, msg, !!(flags & 0x80));
-							break;
-						}
-
-						case 0xb4: { // incorrect password alert
-							ui.error('Password is incorrect');
-							break;
-						}
-
-						case 0xdd: {
-							net.howarewelosingmoney(view);
-							break;
-						}
-
-						case 0xfe: { // server stats (in response to a ping)
-							let statString; [statString, o] = aux.readZTString(dat, o);
-							vision.stats = JSON.parse(statString);
-							if (connection.pinged === -1) connection.latency = -1;
-							else if (connection.pinged !== undefined) connection.latency = now - connection.pinged;
-							connection.pinged = undefined;
-							break;
-						}
-					}
-
-					dat.setUint8(0, opcode); // sigmod injections don't do any opcode shuffling
-					sigmod.proxy.handleMessage?.(dat);
-				}
-			};
-			processQueueInterval = setInterval(processQueue);
-
 			ws.binaryType = 'arraybuffer';
 			ws.addEventListener('close', () => {
 				const connection = net.connections.get(view);
@@ -2608,25 +2301,9 @@
 				render.upload('pellets');
 
 				connection.ws = undefined;
-				clearInterval(processQueueInterval);
 				setTimeout(() => connection.ws = connect(view), connection.rejected ? 1500 : 0);
 			});
 			ws.addEventListener('error', err => console.error('WebSocket error:', err));
-			ws.addEventListener('open', e => {
-				const connection = net.connections.get(view);
-				const vision = world.views.get(view);
-				if (!connection || !vision) return ws.close();
-
-				connection.rejected = false;
-				connection.opened = true;
-
-				vision.camera.x = vision.camera.tx = 0;
-				vision.camera.y = vision.camera.ty = 0;
-				vision.camera.scale = input.zoom;
-				vision.camera.tscale = 1;
-				ws.send(aux.textEncoder.encode('SIG 0.0.1\x00'));
-			});
-
 			ws.addEventListener('message', e => {
 				const connection = net.connections.get(view);
 				const vision = world.views.get(view);
@@ -2649,10 +2326,308 @@
 					return;
 				}
 
-				setTimeout(() => {
-					queue.push(e);
-					processQueue();
-				}, window.GLOBAL_DELAY[view]);
+				// do this so the packet can easily be sent to sigmod afterwards
+				dat.setUint8(0, connection.handshake.unshuffle[dat.getUint8(0)]);
+
+				const now = performance.now();
+				let o = 1;
+				switch (dat.getUint8(0)) {
+					case 0x10: { // world update
+						if (connection.respawnBlock?.status === 'left') connection.respawnBlock = undefined;
+
+						// (a) : kills / consumes
+						const killCount = dat.getUint16(o, true);
+						o += 2;
+						for (let i = 0; i < killCount; ++i) {
+							const killerId = dat.getUint32(o, true);
+							const killedId = dat.getUint32(o + 4, true);
+							o += 8;
+
+							const killed = (world.pellets.get(killedId) ?? world.cells.get(killedId))?.views.get(view);
+							if (killed) {
+								killed.deadAt = killed.updated = now;
+								killed.deadTo = killerId;
+								if (killed.pellet && vision.owned.includes(killerId)) {
+									++world.stats.foodEaten;
+									net.food(view); // dumbass quest code go brrr
+								}
+							}
+						}
+
+						// (b) : updates
+						do {
+							const id = dat.getUint32(o, true);
+							o += 4;
+							if (id === 0) break;
+
+							const x = dat.getInt16(o, true);
+							const y = dat.getInt16(o + 2, true);
+							const r = dat.getUint16(o + 4, true);
+							const flags = dat.getUint8(o + 6);
+							// (void 1 byte, "isUpdate")
+							// (void 1 byte, "isPlayer")
+							const sub = !!dat.getUint8(o + 9);
+							o += 10;
+
+							let clan; [clan, o] = aux.readZTString(dat, o);
+
+							/** @type {number | undefined} */
+							let Rgb, rGb, rgB;
+							if (flags & 0x02) { // update color
+								Rgb = dat.getUint8(o++) / 255;
+								rGb = dat.getUint8(o++) / 255;
+								rgB = dat.getUint8(o++) / 255;
+							}
+
+							let skin = '';
+							if (flags & 0x04) { // update skin
+								[skin, o] = aux.readZTString(dat, o);
+								skin = aux.parseSkin(skin);
+							}
+
+							let name = '';
+							if (flags & 0x08) { // update name
+								[name, o] = aux.readZTString(dat, o);
+								name = aux.parseName(name);
+								if (name) render.textFromCache(name, sub); // make sure the texture is ready on render
+							}
+
+							const jagged = !!(flags & 0x11); // spiked or agitated
+							const eject = !!(flags & 0x20);
+							const pellet = r <= 40 && !eject; // tourney servers have bigger pellets (r=40)
+							const cell = (pellet ? world.pellets : world.cells).get(id)?.views.get(view);
+							if (cell && cell.deadAt === undefined) {
+								const { x: ix, y: iy, r: ir, jr } = world.xyr(cell, undefined, now);
+								cell.ox = ix;
+								cell.oy = iy;
+								cell.or = ir;
+								cell.jr = jr;
+								cell.nx = x; cell.ny = y; cell.nr = r;
+								cell.jagged = jagged;
+								cell.updated = now;
+
+								cell.clan = clan;
+								if (Rgb !== undefined) {
+									cell.Rgb = Rgb;
+									cell.rGb = /** @type {number} */ (rGb);
+									cell.rgB = /** @type {number} */ (rgB);
+								}
+								if (skin) cell.skin = skin;
+								if (name) cell.name = name;
+								cell.sub = sub;
+							} else {
+								if (cell?.deadAt !== undefined) {
+									// when respawning, OgarII does not send the description of cells if you spawn in
+									// the same area, despite those cells being deleted from your view area
+									if (Rgb === undefined) ({ Rgb, rGb, rgB} = cell);
+									name ||= cell.name; // note the || and not ??
+									skin ||= cell.skin;
+								}
+
+								/** @type {Cell} */
+								const ncell = {
+									id,
+									ox: x, nx: x,
+									oy: y, ny: y,
+									or: r, nr: r, jr: r,
+									Rgb: Rgb ?? 1, rGb: rGb ?? 1, rgB: rgB ?? 1,
+									jagged, pellet,
+									updated: now, born: now,
+									deadAt: undefined, deadTo: -1,
+									name, skin, sub, clan,
+								};
+								let resolution = world[pellet ? 'pellets' : 'cells'].get(id);
+								if (!resolution) {
+									resolution = { merged: undefined, model: undefined, views: new Map() };
+									world[pellet ? 'pellets' : 'cells'].set(id, resolution);
+								}
+								resolution.views.set(view, ncell);
+							}
+						} while (true);
+
+						// (c) : deletes
+						const deleteCount = dat.getUint16(o, true);
+						o += 2;
+						for (let i = 0; i < deleteCount; ++i) {
+							const deletedId = dat.getUint32(o, true);
+							o += 4;
+
+							const deleted
+								= (world.pellets.get(deletedId) ?? world.cells.get(deletedId))?.views.get(view);
+							if (deleted && deleted.deadAt === undefined) {
+								deleted.deadAt = now;
+								deleted.deadTo = -1;
+							}
+						}
+
+						// (d) : finalize, upload data
+						world.merge();
+						world.clean();
+						render.upload('pellets');
+
+						// (e) : clear own cells that don't exist anymore (NOT on world.clean!)
+						for (let i = 0; i < vision.owned.length; ++i) {
+							if (world.cells.has(vision.owned[i])) continue;
+							vision.owned.splice(i--, 1);
+						}
+						ui.deathScreen.check();
+						break;
+					}
+
+					case 0x11: { // update camera pos
+						vision.camera.tx = dat.getFloat32(o, true);
+						vision.camera.ty = dat.getFloat32(o + 4, true);
+						vision.camera.tscale = dat.getFloat32(o + 8, true);
+						break;
+					}
+
+					case 0x12: { // delete all cells
+						// happens every time you respawn
+						if (connection.respawnBlock?.status === 'pending') connection.respawnBlock.status = 'left';
+
+						// DO NOT just clear the maps! when respawning, OgarII will not resend cell data if we spawn
+						// nearby.
+						for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+							for (const resolution of world[key].values()) {
+								const cell = resolution.views.get(view);
+								if (cell && cell.deadAt === undefined) cell.deadAt = now;
+							}
+						}
+						world.merge();
+						render.upload('pellets');
+						// passthrough
+					}
+					case 0x14: { // delete my cells
+						vision.owned = [];
+						// only reset spawn time if no other tab is alive.
+						// this could be cheated (if you alternate respawning your tabs, for example) but i don't think
+						// multiboxers ever see the stats menu anyway
+						if (!world.alive()) world.stats.spawnedAt = undefined;
+						ui.deathScreen.check(); // don't trigger death screen on respawn
+						break;
+					}
+
+					case 0x20: { // new owned cell
+						// check if this is the first owned cell
+						let first = true;
+						let firstThis = true;
+						for (const [otherView, otherVision] of world.views) {
+							for (const id of otherVision.owned) {
+								const cell = world.cells.get(id)?.views.get(otherView);
+								if (!cell || cell.deadAt !== undefined) continue;
+								first = false;
+								if (otherVision === vision) firstThis = false;
+								break;
+							}
+						}
+						if (first) world.stats.spawnedAt = now;
+						if (firstThis) vision.spawned = now;
+
+						vision.owned.push(dat.getUint32(o, true));
+						break;
+					}
+
+					// case 0x30 is a text list (not a numbered list), leave unsupported
+					case 0x31: { // ffa leaderboard list
+						const lb = [];
+						const count = dat.getUint32(o, true);
+						o += 4;
+
+						/** @type {number | undefined} */
+						let myPosition;
+						for (let i = 0; i < count; ++i) {
+							const me = !!dat.getUint32(o, true);
+							o += 4;
+
+							let name; [name, o] = aux.readZTString(dat, o);
+							name = aux.parseName(name);
+
+							// why this is copied into every leaderboard entry is beyond my understanding
+							myPosition = dat.getUint32(o, true);
+							const sub = !!dat.getUint32(o + 4, true);
+							o += 8;
+
+							lb.push({ name, sub, me, place: undefined });
+						}
+
+						if (myPosition) { // myPosition could be zero
+							if (myPosition - 1 >= lb.length) {
+								const nick = world.selected === world.viewId.primary
+									? input.nick1.value : input.nick2.value;
+								lb.push({
+									me: true,
+									name: aux.parseName(nick),
+									place: myPosition,
+									sub: false, // doesn't matter
+								});
+							}
+
+							world.stats.highestPosition = Math.min(world.stats.highestPosition, myPosition);
+						}
+
+						vision.leaderboard = lb;
+						break;
+					}
+
+					case 0x40: { // border update
+						vision.border = {
+							l: dat.getFloat64(o, true),
+							t: dat.getFloat64(o + 8, true),
+							r: dat.getFloat64(o + 16, true),
+							b: dat.getFloat64(o + 24, true),
+						};
+						break;
+					}
+
+					case 0x63: { // chat message
+						// only handle chat messages on the primary tab, to prevent duplicate messages
+						// this means that command responses won't be shown on the secondary tab but who actually cares
+						if (view !== world.viewId.primary) return;
+						const flags = dat.getUint8(o++);
+						const rgb = /** @type {[number, number, number, number]} */
+							([dat.getUint8(o++) / 255, dat.getUint8(o++) / 255, dat.getUint8(o++) / 255, 1]);
+
+						let name; [name, o] = aux.readZTString(dat, o);
+						let msg; [msg, o] = aux.readZTString(dat, o);
+						ui.chat.add(name, rgb, msg, !!(flags & 0x80));
+						break;
+					}
+
+					case 0xb4: { // incorrect password alert
+						ui.error('Password is incorrect');
+						break;
+					}
+
+					case 0xdd: {
+						net.howarewelosingmoney(view);
+						break;
+					}
+
+					case 0xfe: { // server stats (in response to a ping)
+						let statString; [statString, o] = aux.readZTString(dat, o);
+						vision.stats = JSON.parse(statString);
+						if (connection.pinged === -1) connection.latency = -1;
+						else if (connection.pinged !== undefined) connection.latency = now - connection.pinged;
+						connection.pinged = undefined;
+						break;
+					}
+				}
+
+				sigmod.proxy.handleMessage?.(dat);
+			});
+			ws.addEventListener('open', e => {
+				const connection = net.connections.get(view);
+				const vision = world.views.get(view);
+				if (!connection || !vision) return ws.close();
+
+				connection.rejected = false;
+				connection.opened = true;
+
+				vision.camera.x = vision.camera.tx = 0;
+				vision.camera.y = vision.camera.ty = 0;
+				vision.camera.scale = input.zoom;
+				vision.camera.tscale = 1;
+				ws.send(aux.textEncoder.encode('SIG 0.0.1\x00'));
 			});
 
 			return ws;
