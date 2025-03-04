@@ -1954,31 +1954,11 @@
 		let dirtyMerged = false;
 		world.merge = (stable = false) => {
 			const now = performance.now();
-			if (world.views.size === 1 && world.views.has(world.viewId.primary)) {
-				// no-merge strategy
+			if ((world.views.size === 1 && world.views.has(world.viewId.primary)) || stable) {
+				// no-merge strategy (stable)
 				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
 					for (const resolution of world[key].values()) {
-						resolution.merged = resolution.views.get(world.viewId.primary);
-					}
-				}
-				dirtyMerged = true;
-			} else if (stable) {
-				// maximize alpha, prefer primary tab
-				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-					for (const resolution of world[key].values()) {
-						let alpha = 0;
-						/** @type {Cell | undefined} */
-						let best;
-						for (const [view, cell] of resolution.views) {
-							let thisAlpha = now - cell.born;
-							if (cell.deadAt !== undefined) thisAlpha = Math.min(thisAlpha, 100 - (now - cell.deadAt));
-							thisAlpha = Math.min(thisAlpha, 100);
-							if (!best || thisAlpha > alpha || (thisAlpha === alpha && view === world.viewId.primary)) {
-								alpha = thisAlpha;
-								best = cell;
-							}
-						}
-						resolution.merged = best;
+						resolution.merged = resolution.views.get(world.viewId.selected);
 					}
 				}
 				dirtyMerged = true;
