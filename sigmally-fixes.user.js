@@ -1855,7 +1855,7 @@
 			if (desc.weight > 0) {
 				const mainX = desc.sumX / desc.weight;
 				const mainY = desc.sumY / desc.weight;
-				if (settings.multibox && settings.mergeCamera) {
+				if (settings.multibox) {
 					const mainWeight = desc.weight;
 					const mainWidth = 1920 / 2 / desc.scale;
 					const mainHeight = 1080 / 2 / desc.scale;
@@ -2290,7 +2290,7 @@
 				connection.ws = undefined;
 				setTimeout(() => connection.ws = connect(view), connection.rejected ? 1500 : 0);
 			});
-			ws.addEventListener('error', err => console.error('WebSocket error:', err));
+			ws.addEventListener('error', () => {});
 			ws.addEventListener('message', e => {
 				const connection = net.connections.get(view);
 				const vision = world.views.get(view);
