@@ -1397,7 +1397,7 @@
 					save();
 				};
 				slider.addEventListener('input', () => onInput(slider));
-				display.addEventListener('input', () => onInput(display));
+				display.addEventListener('change', () => onInput(display));
 			};
 
 			const datalist = `<datalist id="sf-${property}-markers"> <option value="${initial}"></option> </datalist>`;
