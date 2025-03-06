@@ -1954,11 +1954,11 @@
 		let dirtyMerged = false;
 		world.merge = (stable = false) => {
 			const now = performance.now();
-			if ((world.views.size === 1 && world.views.has(world.viewId.primary)) || stable) {
+			if (world.views.size <= 1 || stable) {
 				// no-merge strategy (stable)
 				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
 					for (const resolution of world[key].values()) {
-						resolution.merged = resolution.views.get(world.viewId.selected);
+						resolution.merged = resolution.views.get(world.selected);
 					}
 				}
 				dirtyMerged = true;
