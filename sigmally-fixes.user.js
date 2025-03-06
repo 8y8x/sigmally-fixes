@@ -1462,23 +1462,52 @@
 
 		/**
 		 * @param {PropertyOfType<typeof settings, string>} property
-		 * @param {string} placeholder
 		 */
-		const text = (property, placeholder) => {
+		const image = property => {
 			/** @param {HTMLInputElement} input */
 			const listen = input => {
 				onSyncs.push(() => input.value = settings[property]);
 				input.value = settings[property];
+				if (!input.value.startsWith('🖼️')) {
+					localStorage.removeItem(`sigfix-${property}`);
+				}
 
-				input.addEventListener('input', () => {
+				input.addEventListener('input', e => {
+					if (input.value.startsWith('🖼️')) {
+						input.value = settings[property];
+						e.preventDefault(); // TODO idk if needed
+						return;
+					}
+
 					/** @type {string} */ (settings[property]) = input.value;
+					localStorage.removeItem(`sigfix-${property}`);
+					save();
+				});
+				input.addEventListener('dragenter', () => void (input.style.border = '1px solid #00ccff'));
+				input.addEventListener('dragleave', () => void (input.style.border = '1px solid transparent'));
+				input.addEventListener('drop', e => {
+					input.style.border = '1px solid transparent';
+					e.preventDefault();
+
+					const file = e.dataTransfer?.files[0];
+					if (!file) return;
+
+					const reader = new FileReader();
+					reader.addEventListener('load', e => {
+						localStorage.setItem(`sigfix-${property}`, String(e.target?.result));
+					});
+					reader.readAsDataURL(file);
+
+					/** @type {string} */ (settings[property]) = input.value = `🖼️ ${file.name}`;
 					save();
 				});
 			};
 
-			const vanilla = fromHTML(`<input id="sf-${property}" placeholder="${placeholder}" type="text" />`);
+			const placeholder = 'https://i.imgur.com/... or drag here';
+			const vanilla = fromHTML(`<input id="sf-${property}" placeholder="${placeholder}" type="text"
+				style="border: 1px solid transparent;" />`);
 			const sigmod = fromHTML(`<input class="modInput" id="sfsm-${property}" placeholder="${placeholder}"
-				style="width: 250px;" type="text" />`);
+				style="border: 1px solid transparent; width: 250px;" type="text" />`);
 			listen(/** @type {HTMLInputElement} */ (vanilla));
 			listen(/** @type {HTMLInputElement} */ (sigmod));
 			return { sigmod, vanilla };
@@ -1617,11 +1646,11 @@
 		setting('Cell opacity', [slider('cellOpacity', 1, 0, 1, 0.005, 3)], () => true,
 			'How opaque cells should be. 1 = fully visible, 0 = invisible. It can be helpful to see the size of a ' +
 			'smaller cell under a big cell.');
-		setting('Self skin URL', [text('selfSkin', 'https://i.imgur.com/...')], () => true,
+		setting('Self skin URL', [image('selfSkin')], () => true,
 			'Direct URL to a custom skin for yourself. Not visible to others.');
-		setting('Secondary skin URL', [text('selfSkinMulti', 'https://i.imgur.com/...')], () => !!settings.multibox,
+		setting('Secondary skin URL', [image('selfSkinMulti')], () => !!settings.multibox,
 			'Direct URL to a custom skin for your secondary multibox tab. Not visible to others.');
-		setting('Map background', [text('background', 'https://i.imgur.com/...')], () => true,
+		setting('Map background', [image('background')], () => true,
 			'A square background image to use within the entire map border. Images under 1024x1024 will be treated ' +
 			'as a repeating pattern, where 50 pixels = 1 grid square.');
 		setting('Lines between cell and mouse', [checkbox('tracer')], () => true,
@@ -4425,12 +4454,14 @@
 						}
 
 						let skin = '';
-						if (myIndex !== -1) {
-							skin = (world.selected === world.viewId.primary)
-								? settings.selfSkin : settings.selfSkinMulti;
-						} else if (ownedByOther) {
-							skin = (world.selected === world.viewId.secondary)
-								? settings.selfSkin : settings.selfSkinMulti;
+						if ((myIndex !== -1 && world.selected === world.viewId.primary)
+							|| (ownedByOther && world.selected !== world.viewId.primary)) {
+							skin = settings.selfSkin;
+							if (skin.startsWith('🖼️')) skin = localStorage.getItem('sigfix-selfSkin') ?? skin;
+						} else if ((myIndex !== -1 && world.selected !== world.viewId.primary)
+							|| (ownedByOther && world.selected === world.viewId.primary)) {
+							skin = settings.selfSkinMulti;
+							if (skin.startsWith('🖼️')) skin = localStorage.getItem('sigfix-selfSkinMulti') ?? skin;
 						}
 						if (!skin && aux.settings.showSkins && cell.skin) {
 							if (skinReplacement && cell.skin.includes(skinReplacement.original + '.png'))
