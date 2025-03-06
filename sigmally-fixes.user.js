@@ -2611,8 +2611,7 @@
 					case 0xfe: { // server stats (in response to a ping)
 						let statString; [statString, o] = aux.readZTString(dat, o);
 						vision.stats = JSON.parse(statString);
-						if (connection.pinged === -1) connection.latency = -1;
-						else if (connection.pinged !== undefined) connection.latency = now - connection.pinged;
+						if (connection.pinged !== undefined) connection.latency = now - connection.pinged;
 						connection.pinged = undefined;
 						break;
 					}
@@ -4304,7 +4303,10 @@
 
 				let texture;
 				if (settings.background) {
-					texture = textureFromCache(settings.background);
+					if (settings.background.startsWith('🖼️'))
+						texture = textureFromCache(String(localStorage.getItem('sigfix-background')));
+					else
+						texture = textureFromCache(settings.background);
 				} else if (aux.settings.showGrid) {
 					texture = textureFromCache(aux.settings.darkTheme ? darkGridSrc : lightGridSrc);
 				}
