@@ -2731,6 +2731,7 @@
 				if (now - lastChangedSpectate > 1000) {
 					if (vision.camera.tscale > 0.39) { // when roaming, the spectate scale is set to ~0.4
 						net.qdown(world.viewId.spectate);
+						lastChangedSpectate = now;
 					}
 				} else {
 					net.qup(world.viewId.spectate); // doubly serves as anti-afk
