@@ -1154,6 +1154,11 @@
 				modal.style.display = 'block';
 		};
 
+		// make sure nothing gets cut off on the center menu panel
+		const style = document.createElement('style');
+		style.innerHTML = '#menu-wrapper > .menu-center { height: fit-content !important; }';
+		document.head.appendChild(style);
+
 		// sigmod quick fix
 		// TODO does this work?
 		(() => {
@@ -2870,38 +2875,6 @@
 			input.zoom = Math.min(Math.max(input.zoom, minZoom), 0.8 ** -21);
 		});
 
-		/**
-		 * @param {string} name
-		 * @param {boolean} spectating
-		 */
-		const playData = (name, spectating) => {
-			/** @type {HTMLInputElement | null} */
-			const password = document.querySelector('input#password');
-
-			return {
-				state: spectating ? 2 : undefined,
-				name,
-				skin: aux.settings.skin,
-				token: aux.token?.token,
-				sub: (aux.userData?.subscription ?? 0) > Date.now(),
-				clan: aux.userData?.clan,
-				showClanmates: aux.settings.showClanmates,
-				password: password?.value,
-			};
-		};
-
-		/** @type {HTMLInputElement} */
-		input.nick1 = aux.require(document.querySelector('input#nick'),
-			'Can\'t find the nickname element. Try reloading the page?');
-		input.nick2 = /** @type {HTMLInputElement} */ (input.nick1?.cloneNode(true));
-		input.nick2.style.display = settings.multibox ? '' : 'none';
-		setInterval(() => input.nick2.style.display = settings.multibox ? '' : 'none', 200);
-		// this apparently just works perfectly in vanilla and sigmod
-		input.nick1.parentElement?.appendChild(input.nick2);
-
-		// sigmod probably won't apply this to the second nick element, so we do it ourselves too
-		input.nick1.maxLength = input.nick2.maxLength = 50;
-
 		addEventListener('keydown', e => {
 			const view = world.selected;
 			const inputs = input.views.get(view) ?? create(view);
@@ -3030,6 +3003,44 @@
 
 
 		// #2 : play and spectate buttons, and captcha
+		/**
+		 * @param {string} name
+		 * @param {boolean} spectating
+		 */
+		const playData = (name, spectating) => {
+			/** @type {HTMLInputElement | null} */
+			const password = document.querySelector('input#password');
+
+			return {
+				state: spectating ? 2 : undefined,
+				name,
+				skin: aux.settings.skin,
+				token: aux.token?.token,
+				sub: (aux.userData?.subscription ?? 0) > Date.now(),
+				clan: aux.userData?.clan,
+				showClanmates: aux.settings.showClanmates,
+				password: password?.value,
+			};
+		};
+
+		/** @type {HTMLInputElement} */
+		input.nick1 = aux.require(document.querySelector('input#nick'),
+			'Can\'t find the nickname element. Try reloading the page?');
+
+		input.nick2 = /** @type {HTMLInputElement} */ (input.nick1?.cloneNode(true));
+		input.nick2.style.display = settings.multibox ? '' : 'none';
+		setInterval(() => input.nick2.style.display = settings.multibox ? '' : 'none', 200);
+		input.nick2.placeholder = 'Nickname #2';
+		// sigmod probably won't apply this to the second nick element, so we do it ourselves too
+		input.nick1.maxLength = input.nick2.maxLength = 50;
+		
+		// place nick2 on a separate row
+		const row = /** @type {Element | null} */ (input.nick1.parentElement?.cloneNode());
+		if (row) {
+			row.appendChild(input.nick2);
+			input.nick1.parentElement?.insertAdjacentElement('afterend', row);
+		}
+
 		/** @type {HTMLButtonElement} */
 		const play = aux.require(document.querySelector('button#play-btn'),
 			'Can\'t find the play button. Try reloading the page?');
@@ -3282,18 +3293,6 @@
 				const con = net.connections.get(world.selected);
 				if (!con || con.rejected) return;
 				ui.toggleEscOverlay(false);
-				if (e.currentTarget === spectate) {
-					// you should be able to escape sigmod auto-respawn and spectate as long as you don't have mass
-					const score = world.score(world.selected);
-					if (0 < score && score < 5500) {
-						world.stats.spawnedAt = undefined; // prevent death screen from appearing
-						net.chat('/leaveworld', world.selected); // instant respawn
-						net.play(world.selected, playData(name, true)); // required, idk why
-						// spectating doesn't automatically put you back into the world
-						net.chat('/joinworld 1', world.selected);
-					}
-				}
-
 				net.play(world.selected, playData(name, e.currentTarget === spectate));
 			}
 
