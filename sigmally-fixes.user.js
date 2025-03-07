@@ -1177,7 +1177,7 @@
 	/////////////////////////
 	// Create Options Menu //
 	/////////////////////////
-	const { refreshSettings, settings } = (() => {
+	const settings = (() => {
 		const settings = {
 			autoZoom: true,
 			background: '',
@@ -1221,6 +1221,9 @@
 			unsplittableColor: /** @type {[number, number, number, number]} */ ([1, 1, 1, 1]),
 		};
 
+		const settingsExt = {};
+		Object.setPrototypeOf(settings, settingsExt);
+
 		try {
 			Object.assign(settings, JSON.parse(localStorage.getItem('sigfix') ?? ''));
 		} catch (_) { }
@@ -1254,7 +1257,7 @@
 		/** @type {(() => void)[]} */
 		const onUpdates = [];
 
-		const refreshSettings = () => {
+		settingsExt.refresh = () => {
 			onSyncs.forEach(fn => fn());
 			onUpdates.forEach(fn => fn());
 		};
@@ -1264,7 +1267,16 @@
 		const channel = new BroadcastChannel('sigfix-settings');
 		channel.addEventListener('message', msg => {
 			Object.assign(settings, msg.data);
-			refreshSettings();
+			settingsExt.refresh();
+		});
+
+		/** @type {IDBDatabase | undefined} */
+		settingsExt.database = undefined;
+		const dbReq = indexedDB.open('sigfix', 1);
+		dbReq.addEventListener('success', () => void (settingsExt.database = dbReq.result));
+		dbReq.addEventListener('upgradeneeded', () => {
+			settingsExt.database = dbReq.result;
+			settingsExt.database.createObjectStore('images');
 		});
 
 		// #1 : define helper functions
@@ -1468,9 +1480,6 @@
 			const listen = input => {
 				onSyncs.push(() => input.value = settings[property]);
 				input.value = settings[property];
-				if (!input.value.startsWith('🖼️')) {
-					localStorage.removeItem(`sigfix-${property}`);
-				}
 
 				input.addEventListener('input', e => {
 					if (input.value.startsWith('🖼️')) {
@@ -1480,7 +1489,6 @@
 					}
 
 					/** @type {string} */ (settings[property]) = input.value;
-					localStorage.removeItem(`sigfix-${property}`);
 					save();
 				});
 				input.addEventListener('dragenter', () => void (input.style.border = '1px solid #00ccff'));
@@ -1492,14 +1500,23 @@
 					const file = e.dataTransfer?.files[0];
 					if (!file) return;
 
-					const reader = new FileReader();
-					reader.addEventListener('load', e => {
-						localStorage.setItem(`sigfix-${property}`, String(e.target?.result));
-					});
-					reader.readAsDataURL(file);
+					const { database } = settingsExt;
+					if (!database) return;
 
-					/** @type {string} */ (settings[property]) = input.value = `🖼️ ${file.name}`;
-					save();
+					input.value = '(importing)';
+
+					const transaction = database.transaction('images', 'readwrite');
+					transaction.objectStore('images').put(file, property);
+
+					transaction.addEventListener('complete', () => {
+						/** @type {string} */ (settings[property]) = input.value = `🖼️ ${file.name}`;
+						save();
+						render.resetDatabaseCache();
+					});
+					transaction.addEventListener('error', err => {
+						input.value = '(failed to load image)';
+						console.warn('sigfix database error:', err);
+					});
 				});
 			};
 
@@ -1779,7 +1796,7 @@
 			});
 		}, 100);
 
-		return { refreshSettings, settings };
+		return settings;
 	})();
 
 
@@ -1918,7 +1935,7 @@
 				if (settings.multibox && settings.mergeCamera && settings.camera === 'default') {
 					// merging the default camera would be absolutely disastrous. no one would ever use it.
 					settings.camera = 'natural';
-					refreshSettings();
+					settings.refresh();
 				}
 
 				let mass = desc.mass;
@@ -3868,10 +3885,13 @@
 
 
 		// #2 : define helper functions
-		const { resetTextureCache, textureFromCache } = (() => {
+		const { resetDatabaseCache, resetTextureCache, textureFromCache, textureFromDatabase } = (() => {
 			/** @type {Map<string, { texture: WebGLTexture, width: number, height: number } | null>} */
 			const cache = new Map();
 			render.textureCache = cache;
+
+			/** @type {Map<string, { texture: WebGLTexture, width: number, height: number } | null>} */
+			const dbCache = new Map();
 
 			return {
 				resetTextureCache: () => cache.clear(),
@@ -3887,7 +3907,7 @@
 					cache.set(src, null);
 
 					const image = new Image();
-					image.crossOrigin = 'anonymous';
+					image.crossOrigin = '';
 					image.addEventListener('load', () => {
 						const texture = /** @type {WebGLTexture} */ (gl.createTexture());
 						if (!texture) return;
@@ -3902,8 +3922,48 @@
 
 					return undefined;
 				},
+				resetDatabaseCache: () => dbCache.clear(),
+				/**
+				 * @param {string} property
+				 * @returns {{ texture: WebGLTexture, width: number, height: number } | undefined}
+				 */
+				textureFromDatabase: property => {
+					const cached = dbCache.get(property);
+					if (cached !== undefined)
+						return cached ?? undefined;
+
+					/** @type {IDBDatabase | undefined} */
+					const database = settings.database;
+					if (!database) return undefined;
+
+					dbCache.set(property, null);
+					const req = database.transaction('images').objectStore('images').get(property);
+					req.addEventListener('success', () => {
+						const reader = new FileReader();
+						reader.addEventListener('load', () => {
+							const image = new Image();
+							// this can cause a lot of lag (~500ms) when loading a large image for the first time
+							image.addEventListener('load', () => {
+								const texture = gl.createTexture();
+								if (!texture) return;
+
+								gl.bindTexture(gl.TEXTURE_2D, texture);
+								gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+								gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
+								gl.generateMipmap(gl.TEXTURE_2D);
+								dbCache.set(property, { texture, width: image.width, height: image.height });
+							});
+							image.src = /** @type {string} */ (reader.result);
+						});
+						reader.readAsDataURL(req.result);
+					});
+					req.addEventListener('error', err => {
+						console.warn(`sigfix database failed to get ${property}:`, err);
+					});
+				},
 			};
 		})();
+		render.resetDatabaseCache = resetDatabaseCache;
 		render.resetTextureCache = resetTextureCache;
 
 		const { maxMassWidth, refreshTextCache, massTextFromCache, resetTextCache, textFromCache } = (() => {
@@ -4304,7 +4364,7 @@
 				let texture;
 				if (settings.background) {
 					if (settings.background.startsWith('🖼️'))
-						texture = textureFromCache(String(localStorage.getItem('sigfix-background')));
+						texture = textureFromDatabase('background');
 					else
 						texture = textureFromCache(settings.background);
 				} else if (aux.settings.showGrid) {
@@ -4455,29 +4515,32 @@
 							break;
 						}
 
-						let skin = '';
-						if ((myIndex !== -1 && world.selected === world.viewId.primary)
-							|| (ownedByOther && world.selected !== world.viewId.primary)) {
-							skin = settings.selfSkin;
-							if (skin.startsWith('🖼️')) skin = localStorage.getItem('sigfix-selfSkin') ?? skin;
-						} else if ((myIndex !== -1 && world.selected !== world.viewId.primary)
-							|| (ownedByOther && world.selected === world.viewId.primary)) {
-							skin = settings.selfSkinMulti;
-							if (skin.startsWith('🖼️')) skin = localStorage.getItem('sigfix-selfSkinMulti') ?? skin;
-						}
-						if (!skin && aux.settings.showSkins && cell.skin) {
-							if (skinReplacement && cell.skin.includes(skinReplacement.original + '.png'))
-								skin = skinReplacement.replacement ?? skinReplacement.replaceImg ?? '';
-							else
-								skin = cell.skin;
+						// 🖼️
+						let texture;
+						if (myIndex !== -1 || ownedByOther) {
+							// owned by primary === selected primary => use primary skin
+							// else use multi skin
+							const prop = (myIndex !== -1) === (world.selected === world.viewId.primary)
+								? 'selfSkin' : 'selfSkinMulti';
+							if (settings[prop]) {
+								if (settings[prop].startsWith('🖼️')) texture = textureFromDatabase(prop);
+								else texture = textureFromCache(settings[prop]);
+							}
 						}
 
-						if (skin) {
-							const texture = textureFromCache(skin);
-							if (texture) {
-								cellUboInts[9] |= 0x01; // skin
-								gl.bindTexture(gl.TEXTURE_2D, texture.texture);
+						// allow turning off sigmally skins while still using custom skins
+						if (!texture && aux.settings.showSkins && cell.skin) {
+							if (skinReplacement && cell.skin.includes(`${skinReplacement.original}.png`)) {
+								texture = textureFromCache(
+									skinReplacement.replacement ?? skinReplacement.replaceImg ?? '');
+							} else {
+								texture = textureFromCache(cell.skin);
 							}
+						}
+
+						if (texture) {
+							cellUboInts[9] |= 0x01; // skin
+							gl.bindTexture(gl.TEXTURE_2D, texture.texture);
 						}
 					}
 
