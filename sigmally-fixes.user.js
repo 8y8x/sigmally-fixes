@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.6.1
+// @version      2.6.2-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -3767,6 +3767,16 @@
 				uniform sampler2D u_silhouette;
 				out vec4 out_color;
 
+				float f(float x) {
+					// a cubic function with turning points at (0,0) and (1,0)
+					// meant to sharpen out blurry linear interpolation
+					return x * x * (3.0 - 2.0*x);
+				}
+
+				vec4 fv(vec4 v) {
+					return vec4(f(v.x), f(v.y), f(v.z), f(v.w));
+				}
+
 				void main() {
 					vec4 normal = texture(u_texture, v_uv);
 
@@ -3777,9 +3787,9 @@
 						// #fff - #fff => #fff (respect emoji)
 						// #888 - #888 => #888 (respect emoji)
 						// #fff - #888 => #888 + color/2 (blur/antialias)
-						out_color = silhouette + (normal - silhouette) * v_color;
+						out_color = silhouette + fv(normal - silhouette) * v_color;
 					} else {
-						out_color = normal * v_color;
+						out_color = fv(normal) * v_color;
 					}
 
 					out_color.a *= u_text_alpha;
@@ -4070,7 +4080,7 @@
 
 				gl.bindTexture(gl.TEXTURE_2D, texture);
 				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, data);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST_MIPMAP_LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
 				gl.generateMipmap(gl.TEXTURE_2D);
 				return texture;
 			};
