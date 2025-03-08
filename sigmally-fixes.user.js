@@ -2779,7 +2779,8 @@
 				// only press Q to toggle once in a while, in case ping is above 200
 				const now = performance.now();
 				if (now - lastChangedSpectate > 1000) {
-					if (vision.camera.tscale > 0.39) { // when roaming, the spectate scale is set to ~0.4
+					// when roaming, the spectate scale is set to ~0.4; only spectate #1 if we're not using this tab
+					if (vision.camera.tscale > 0.39 && world.selected !== world.viewId.spectate) {
 						net.qdown(world.viewId.spectate);
 						lastChangedSpectate = now;
 					}
@@ -3341,8 +3342,31 @@
 				net.play(world.selected, playData(name, e.currentTarget === spectate));
 			}
 
-			play.addEventListener('click', clickHandler);
-			spectate.addEventListener('click', clickHandler);
+			play.addEventListener('click', () => {
+				const name = world.selected === world.viewId.primary ? input.nick1.value : input.nick2.value;
+				const tab = world.selected === world.viewId.spectate ? world.viewId.primary : world.selected;
+
+				const con = net.connections.get(tab);
+				if (!con || con.rejected) return;
+				world.selected = tab;
+				ui.toggleEscOverlay(false);
+				net.play(tab, playData(name, false));
+			});
+			spectate.addEventListener('click', () => {
+				const spectator = net.connections.get(world.viewId.spectate);
+				if (!spectator || spectator.rejected) {
+					const tab = world.selected === world.viewId.spectate ? world.viewId.primary : world.selected;
+
+					const con = net.connections.get(tab);
+					if (!con || con.rejected) return;
+					ui.toggleEscOverlay(false);
+					net.play(tab, playData('', true));
+					return;
+				}
+
+				ui.toggleEscOverlay(false);
+				world.selected = world.viewId.spectate;
+			});
 		})();
 
 		return input;
