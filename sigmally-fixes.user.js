@@ -2788,6 +2788,8 @@
 					net.qup(world.viewId.spectate); // doubly serves as anti-afk
 				}
 			} else {
+				if (world.selected === world.viewId.spectate) world.selected = world.viewId.primary;
+
 				const con = net.connections.get(world.viewId.spectate);
 				if (con?.ws && con?.ws.readyState !== WebSocket.CLOSED && con?.ws.readyState !== WebSocket.CLOSING) {
 					con?.ws.close();
