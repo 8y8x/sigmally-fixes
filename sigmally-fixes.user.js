@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.6.2
+// @version      2.6.3
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.6.2';
+	const sfVersion = '2.6.3';
 	const undefined = void 0; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -2779,8 +2779,7 @@
 				// only press Q to toggle once in a while, in case ping is above 200
 				const now = performance.now();
 				if (now - lastChangedSpectate > 1000) {
-					// when roaming, the spectate scale is set to ~0.4; only spectate #1 if we're not using this tab
-					if (vision.camera.tscale > 0.39 && world.selected !== world.viewId.spectate) {
+					if (vision.camera.tscale > 0.39) { // when roaming, the spectate scale is set to ~0.4
 						net.qdown(world.viewId.spectate);
 						lastChangedSpectate = now;
 					}
@@ -2788,8 +2787,6 @@
 					net.qup(world.viewId.spectate); // doubly serves as anti-afk
 				}
 			} else {
-				if (world.selected === world.viewId.spectate) world.selected = world.viewId.primary;
-
 				const con = net.connections.get(world.viewId.spectate);
 				if (con?.ws && con?.ws.readyState !== WebSocket.CLOSED && con?.ws.readyState !== WebSocket.CLOSING) {
 					con?.ws.close();
@@ -3344,31 +3341,8 @@
 				net.play(world.selected, playData(name, e.currentTarget === spectate));
 			}
 
-			play.addEventListener('click', () => {
-				const name = world.selected === world.viewId.primary ? input.nick1.value : input.nick2.value;
-				const tab = world.selected === world.viewId.spectate ? world.viewId.primary : world.selected;
-
-				const con = net.connections.get(tab);
-				if (!con || con.rejected) return;
-				world.selected = tab;
-				ui.toggleEscOverlay(false);
-				net.play(tab, playData(name, false));
-			});
-			spectate.addEventListener('click', () => {
-				const spectator = net.connections.get(world.viewId.spectate);
-				if (!spectator || spectator.rejected) {
-					const tab = world.selected === world.viewId.spectate ? world.viewId.primary : world.selected;
-
-					const con = net.connections.get(tab);
-					if (!con || con.rejected) return;
-					ui.toggleEscOverlay(false);
-					net.play(tab, playData('', true));
-					return;
-				}
-
-				ui.toggleEscOverlay(false);
-				world.selected = world.viewId.spectate;
-			});
+			play.addEventListener('click', clickHandler);
+			spectate.addEventListener('click', clickHandler);
 		})();
 
 		return input;
