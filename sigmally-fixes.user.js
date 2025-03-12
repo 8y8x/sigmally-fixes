@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.6.3
+// @version      2.6.4-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.6.3';
+	const sfVersion = '2.6.4-BETA';
 	const undefined = void 0; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -3611,14 +3611,6 @@
 						f_subtle_outline = vec4(0, 0, 0, 0);
 					}
 
-					// active multibox outlines (thick, a % of the visible cell radius)
-					f_active_radius = 1.0 - u_cell_active_outline_thickness;
-					if ((u_cell_flags & 0x0c) != 0) {
-						f_active_outline = (u_cell_flags & 0x04) != 0 ? u_cell_active_outline : u_cell_inactive_outline;
-					} else {
-						f_active_outline = vec4(0, 0, 0, 0);
-					}
-
 					// unsplittable cell outline, 2x the subtle thickness
 					// (except at small sizes, it shouldn't look overly thick)
 					float unsplittable_thickness = max(max(u_cell_radius * 0.04, 4.0 / (540.0 * u_camera_scale)), 10.0);
@@ -3627,6 +3619,16 @@
 						f_unsplittable_outline = u_cell_unsplittable_outline;
 					} else {
 						f_unsplittable_outline = vec4(0, 0, 0, 0);
+					}
+
+					// active multibox outlines (thick, a % of the visible cell radius)
+					// or at minimum, 3x the subtle thickness
+					float active_thickness = max(max(u_cell_radius * 0.06, 6.0 / (540.0 * u_camera_scale)), 10.0);
+					f_active_radius = 1.0 - max(active_thickness / u_cell_radius, u_cell_active_outline_thickness);
+					if ((u_cell_flags & 0x0c) != 0) {
+						f_active_outline = (u_cell_flags & 0x04) != 0 ? u_cell_active_outline : u_cell_inactive_outline;
+					} else {
+						f_active_outline = vec4(0, 0, 0, 0);
 					}
 
 					v_vertex = a_vertex;

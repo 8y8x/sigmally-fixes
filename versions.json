@@ -9,8 +9,20 @@
 		"Keep the alert short and unintrusive, as it shifts all the buttons down and out of the main UI.",
 		"No HTML; the < and > characters are stripped."
 	],
+	"2.6.2": {
+		"ok": false,
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
+		"color": "#09f"
+	},
+	"2.6.1": {
+		"ok": false,
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
+		"color": "#09f"
+	},
 	"2.6.0": {
-		"ok": true
+		"ok": false,
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
+		"color": "#09f"
 	},
 	"2.5.9": {
 		"ok": false,
