@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.6.4-BETA
+// @version      2.6.5
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.6.4-BETA';
+	const sfVersion = '2.6.5';
 	const undefined = void 0; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -1212,6 +1212,7 @@
 			scrollFactor: 1,
 			selfSkin: '',
 			selfSkinMulti: '',
+			slowerJellyPhysics: false,
 			separateBoost: false,
 			showStats: true,
 			spectator: false,
@@ -1744,6 +1745,9 @@
 		setting('Jelly physics skin size lag', [checkbox('jellySkinLag')], () => true,
 			'Jelly physics causes cells to grow and shrink slower than text and skins, making the game more ' +
 			'satisfying. If you have a skin that looks weird only with jelly physics, try turning this off.');
+		setting('Slower jelly physics', [checkbox('slowerJellyPhysics')], () => true,
+			'Sigmally Fixes normally speeds up the jelly physics animation for it to be tolerable when splitrunning. ' +
+			'If you prefer how it was in the vanilla client (really slow but satisfying), enable this setting.');
 		setting('Cell / pellet glow', [checkbox('cellGlow'), checkbox('pelletGlow')], () => true,
 			'When enabled, gives cells or pellets a slight glow. Basically, shaders for Sigmally. This is very ' +
 			'optimized and should not impact performance.');
@@ -2184,7 +2188,7 @@
 
 			return {
 				x, y, r,
-				jr: aux.exponentialEase(cell.jr, r, 5, dt), // vanilla uses a factor of 10, but it's basically unusable
+				jr: aux.exponentialEase(cell.jr, r, settings.slowerJellyPhysics ? 10 : 5, dt),
 			};
 		};
 
@@ -3059,7 +3063,7 @@
 			return {
 				state: spectating ? 2 : undefined,
 				name,
-				skin: aux.settings.skin,
+				skin: aux.userData ? aux.settings.skin : '',
 				token: aux.token?.token,
 				sub: (aux.userData?.subscription ?? 0) > Date.now(),
 				clan: aux.userData?.clan,
@@ -3094,7 +3098,6 @@
 			'Can\'t find the spectate button. Try reloading the page?');
 
 		play.disabled = spectate.disabled = true;
-		const playText = play.textContent;
 
 		(async () => {
 			const mount = document.createElement('div');
@@ -3168,19 +3171,14 @@
 			};
 
 			/** @type {unique symbol} */
-			const used = Symbol();
-			/** @type {unique symbol} */
 			const waiting = Symbol();
 			let nextTryAt = 0;
-			/** @type {undefined | typeof waiting | typeof used
-			 * | { variant: string, token: string | undefined }} */
+			/** @type {undefined | typeof waiting | { variant: string, token: string | undefined }} */
 			let token = undefined;
 			/** @type {string | undefined} */
 			let turnstileHandle;
 			/** @type {number | undefined} */
 			let v2Handle;
-
-			input.captchaAcceptedAt = undefined;
 
 			/**
 			 * @param {string} url
@@ -3189,35 +3187,45 @@
 			 */
 			const publishToken = (url, variant, captchaToken) => {
 				const url2 = net.url();
-				play.textContent = `${playText} (validating)`;
-				if (url === url2) {
-					const host = new URL(url).host;
-					aux.oldFetch(`https://${host}/server/recaptcha/v3`, {
-						method: 'POST',
-						headers: { 'content-type': 'application/json' },
-						body: JSON.stringify({ token: captchaToken }),
-					})
-						.then(res => res.json())
-						.then(res => {
-							token = used;
-							play.textContent = playText;
-							if (res.status === 'complete') {
-								play.disabled = spectate.disabled = false;
-								input.captchaAcceptedAt = performance.now();
-								for (const con of net.connections.values()) {
-									con.rejected = false; // wait until we try connecting again
-								}
-							}
-						})
-						.catch(err => {
-							play.textContent = `${playText} (network error)`;
-							token = undefined;
-							nextTryAt = performance.now() + 400;
-							throw err;
-						});
-				} else {
+				if (url !== url2) {
 					token = { variant, token: captchaToken };
+					return;
 				}
+
+				const complete = () => {
+					token = undefined;
+					play.disabled = spectate.disabled = false;
+					for (const con of net.connections.values()) {
+						con.rejected = false; // wait until we try connecting again
+					}
+				};
+
+				if (variant === 'none') {
+					complete();
+					return;
+				}
+
+				const host = new URL(url).host;
+				aux.oldFetch(`https://${host}/server/recaptcha/v3`, {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ token: captchaToken }),
+				})
+					.then(res => res.json())
+					.then(res => {
+						if (res.status === 'complete') {
+							complete();
+						} else if (res.status === 'wait') {
+							setTimeout(() => publishToken(url, variant, captchaToken), 1000);
+						} else {
+							token = undefined;
+						}
+					})
+					.catch(err => {
+						token = undefined;
+						nextTryAt = performance.now() + 3000;
+						throw err;
+					});
 			};
 
 			setInterval(() => {
@@ -3227,7 +3235,6 @@
 				const canPlay = !net.rejected && con?.ws?.readyState === WebSocket.OPEN;
 				if (play.disabled !== !canPlay) {
 					play.disabled = spectate.disabled = !canPlay;
-					play.textContent = playText;
 				}
 
 				if (token === waiting) return;
@@ -3241,7 +3248,6 @@
 
 					token = waiting;
 					play.disabled = spectate.disabled = true;
-					play.textContent = `${playText} (getting captcha)`;
 					tokenVariant(url)
 						.then(async variant => {
 							const url2 = net.url();
@@ -3254,7 +3260,6 @@
 							if (variant === 'v2') {
 								mount.style.display = 'block';
 								play.style.display = spectate.style.display = 'none';
-								play.textContent = playText;
 								if (v2Handle !== undefined) {
 									grecaptcha.reset(v2Handle);
 								} else {
@@ -3272,7 +3277,6 @@
 										grecaptcha.ready(cb);
 								}
 							} else if (variant === 'v3') {
-								play.textContent = `${playText} (solving)`;
 								const cb = () => grecaptcha.execute(CAPTCHA3)
 									.then(v3 => publishToken(url, variant, v3));
 								if (onGrecaptchaReady)
@@ -3282,7 +3286,6 @@
 							} else if (variant === 'turnstile') {
 								mount.style.display = 'block';
 								play.style.display = spectate.style.display = 'none';
-								play.textContent = playText;
 								if (turnstileHandle !== undefined) {
 									turnstile.reset(turnstileHandle);
 								} else {
@@ -3302,12 +3305,10 @@
 							} else {
 								// server wants "none" or unknown token variant; don't show a captcha
 								publishToken(url, variant, undefined);
-								play.disabled = spectate.disabled = false;
-								play.textContent = playText;
 							}
 						}).catch(err => {
 							token = undefined;
-							nextTryAt = performance.now() + 400;
+							nextTryAt = performance.now() + 3000;
 							console.warn('Error while getting token variant:', err);
 						});
 				} else {
@@ -3315,7 +3316,6 @@
 					const got = token;
 					token = waiting;
 					play.disabled = spectate.disabled = true;
-					play.textContent = `${playText} (getting type)`;
 					tokenVariant(url)
 						.then(variant2 => {
 							if (got.variant !== variant2) {
@@ -3325,7 +3325,7 @@
 								publishToken(url, got.variant, got.token);
 						}).catch(err => {
 							token = got;
-							nextTryAt = performance.now() + 400;
+							nextTryAt = performance.now() + 3000;
 							console.warn('Error while getting token variant:', err);
 						});
 				}
