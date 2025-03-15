@@ -1745,7 +1745,7 @@
 		setting('Jelly physics skin size lag', [checkbox('jellySkinLag')], () => true,
 			'Jelly physics causes cells to grow and shrink slower than text and skins, making the game more ' +
 			'satisfying. If you have a skin that looks weird only with jelly physics, try turning this off.');
-		setting('Slower jelly physics', [checkbox('slowerJellyPhysics')], () => true,
+		setting(`Slower jelly physics ${newTag}`, [checkbox('slowerJellyPhysics')], () => true,
 			'Sigmally Fixes normally speeds up the jelly physics animation for it to be tolerable when splitrunning. ' +
 			'If you prefer how it was in the vanilla client (really slow but satisfying), enable this setting.');
 		setting('Cell / pellet glow', [checkbox('cellGlow'), checkbox('pelletGlow')], () => true,
