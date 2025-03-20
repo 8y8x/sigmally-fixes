@@ -4463,12 +4463,12 @@
 					cellUboFloats[2] = x;
 					cellUboFloats[3] = y;
 					if (aux.settings.jellyPhysics && !cell.jagged && !cell.pellet) {
-						const realR = Math.min(r, jr);
-						const strokeThickness = Math.max(jr * 0.01, 10);
+						const realR = Math.min(r, jr) + 1;
+						const strokeThickness = Math.max(realR * 0.01, 10);
 						cellUboFloats[0] = realR + strokeThickness;
-						cellUboFloats[1] = (settings.jellySkinLag ? r : realR) + strokeThickness;
+						cellUboFloats[1] = (settings.jellySkinLag ? r + 1 : realR) + strokeThickness;
 					} else {
-						cellUboFloats[0] = cellUboFloats[1] = r;
+						cellUboFloats[0] = cellUboFloats[1] = r + 1;
 					}
 
 					if (cell.jagged) {
