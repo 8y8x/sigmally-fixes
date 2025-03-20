@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.6.5
+// @version      2.6.6-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -4632,7 +4632,7 @@
 						if (text) {
 							textUboFloats[9] = aspectRatio; // text_aspect_ratio
 							textUboFloats[10] = settings.nameScaleFactor; // text_scale
-							textUboInts[11] = Number(silhouette); // text_silhouette_enabled
+							textUboInts[11] = Number(useSilhouette); // text_silhouette_enabled
 							textUboFloats[12] = textUboFloats[13] = 0; // text_offset = (0, 0)
 
 							gl.bindTexture(gl.TEXTURE_2D, text);
