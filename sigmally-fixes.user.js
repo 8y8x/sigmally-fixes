@@ -691,11 +691,14 @@
 			// indicate that we will restore the context
 			newCanvas.addEventListener('webglcontextlost', e => {
 				e.preventDefault(); // signal that we want to restore the context
-				// cleanup old caches (after render), as we can't do this within initWebGL()
+			});
+			newCanvas.addEventListener('webglcontextrestored', () => {
+				glconf.init();
+				// cleanup old caches (after render), as we can't do this within glconf.init()
+				render.resetDatabaseCache();
 				render.resetTextCache();
 				render.resetTextureCache();
 			});
-			newCanvas.addEventListener('webglcontextrestored', () => glconf.init());
 
 			function resize() {
 				// devicePixelRatio does not have very high precision; it could be 0.800000011920929 for example
@@ -1874,7 +1877,8 @@
 			let sumY = 0;
 			let weight = 0;
 			for (const id of (world.views.get(view)?.owned ?? [])) {
-				const cell = world.cells.get(id)?.merged;
+				const resolution = world.cells.get(id);
+				const cell = world.dirtyMerged ? resolution?.views.get(id) : resolution?.merged;
 				if (!cell || cell.deadAt !== undefined) continue;
 				const xyr = world.xyr(cell, undefined, now);
 				r += cell.nr;
@@ -2006,7 +2010,7 @@
 
 		/** @type {number | undefined} */
 		let disagreementStart = undefined;
-		let dirtyMerged = false;
+		world.dirtyMerged = false;
 		world.merge = (stable = false) => {
 			const now = performance.now();
 			if (world.views.size <= 1 || stable) {
@@ -2016,7 +2020,7 @@
 						resolution.merged = resolution.views.get(world.selected);
 					}
 				}
-				dirtyMerged = true;
+				world.dirtyMerged = true;
 			} else { // "flawless" merging
 				// for camera merging to look extremely smooth, we need to merge packets and apply them *ONLY* when all
 				// tabs are synchronized.
@@ -2068,7 +2072,7 @@
 
 				// all views are synced; merge according to the models
 				disagreementStart = undefined;
-				if (dirtyMerged) {
+				if (world.dirtyMerged) {
 					// if `merged` uses references from other tabs, then that can cause very bad bugginess when those
 					// cells die!
 					for (const key of /** @type {const} */ (['cells', 'pellets'])) {
@@ -2076,7 +2080,7 @@
 							resolution.merged = undefined;
 						}
 					}
-					dirtyMerged = false;
+					world.dirtyMerged = false;
 				}
 
 				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
@@ -3082,7 +3086,7 @@
 		input.nick2.placeholder = 'Nickname #2';
 		// sigmod probably won't apply this to the second nick element, so we do it ourselves too
 		input.nick1.maxLength = input.nick2.maxLength = 50;
-		
+
 		// place nick2 on a separate row
 		const row = /** @type {Element | null} */ (input.nick1.parentElement?.cloneNode());
 		if (row) {
