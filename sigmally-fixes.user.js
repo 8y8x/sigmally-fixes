@@ -1688,14 +1688,14 @@
 			'- The "default" camera focuses on every cell equally. If you have a lot of small back pieces, your ' +
 			'camera would focus on those instead. <br>' +
 			'When one-tab multiboxing, you <b>must</b> use the Natural (weighted) camera style.');
-		setting(`Camera smoothness ${newTag}`, [slider('cameraSmoothness', 2, 1, 10, 0.1, 1)], () => true,
+		setting('Camera smoothness', [slider('cameraSmoothness', 2, 1, 10, 0.1, 1)], () => true,
 			'How slowly the camera lags behind. The default is 2; using 4 moves the camera about twice as slowly, ' +
 			'for example. Setting to 1 removes all camera smoothness.');
 		setting('Zoom speed', [slider('scrollFactor', 1, 0.05, 1, 0.05, 2)], () => true,
 			'A smaller zoom speed lets you fine-tune your zoom.');
 		setting('Auto-zoom', [checkbox('autoZoom')], () => true,
 			'When enabled, automatically zooms in/out for you based on how big you are.');
-		setting(`Move camera while spawning ${newTag}`, [checkbox('cameraSpawnAnimation')], () => true,
+		setting('Move camera while spawning', [checkbox('cameraSpawnAnimation')], () => true,
 			'When spawning, normally the camera will take a bit of time to move to where your cell spawned. This ' +
 			'can be disabled.');
 
