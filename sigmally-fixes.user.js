@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.6.5';
+	const sfVersion = '2.6.6-BETA';
 	const undefined = void 0; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -791,11 +791,12 @@
 				}
 
 				misc.textContent = [
-					`${stats.name} (${stats.mode})`,
-					`${stats.playersTotal} / ${stats.playersLimit} players`,
-					`${stats.playersAlive} playing`,
-					`${stats.playersSpect} spectating`,
-					`${(stats.update * 2.5).toFixed(1)}% load @ ${uptime}`,
+					`${stats.name} (${stats.gamemode})`,
+					`${stats.external} / ${stats.limit} players`,
+					// bots do not count towards .playing **except in my private server**
+					`${stats.playing} playing` + (stats.internal > 0 ? ` + ${stats.internal} bots` : ''),
+					`${stats.spectating} spectating`,
+					`${(stats.loadTime / 40 * 100).toFixed(1)}% load @ ${uptime}`,
 				].join('\r\n');
 			};
 
@@ -2315,6 +2316,8 @@
 				// don't reset vision.camera
 				vision.owned = [];
 				vision.leaderboard = [];
+				vision.spawned = -Infinity;
+				vision.stats = undefined;
 
 				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
 					for (const [id, resolution] of world[key]) {
