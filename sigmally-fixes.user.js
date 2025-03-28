@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.6.6
+// @version      2.6.7-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.6.6';
+	const sfVersion = '2.6.7-BETA';
 	const undefined = void 0; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -4587,7 +4587,7 @@
 						textUboFloats[2] = 0x00 / 255 * 1.2; textUboFloats[3] = 1;
 						// text_color2 = #f9bf0d * 1.2
 						textUboFloats[4] = 0xf9 / 255 * 1.2; textUboFloats[5] = 0xbf / 255 * 1.2;
-						textUboFloats[6] = 0x0d / 255 * 1.2; textUboFloats[7];
+						textUboFloats[6] = 0x0d / 255 * 1.2; textUboFloats[7] = 1;
 						useSilhouette = true;
 					} else {
 						// text_color1 = text_color2 = #fff
