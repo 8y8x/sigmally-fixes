@@ -732,7 +732,7 @@
 			misc.style.cssText = 'font-size: 14px; color: #fff; white-space: pre; line-height: 1.1; opacity: 0.5;';
 			container.appendChild(misc);
 
-			/** @param {number} view */
+			/** @param {symbol} view */
 			const update = view => {
 				const fontFamily = `"${sigmod.settings.font || 'Ubuntu'}", Ubuntu`;
 				if (container.style.fontFamily !== fontFamily) container.style.fontFamily = fontFamily;
@@ -1826,24 +1826,24 @@
 		const world = {};
 
 		// #1 : define cell variables and functions
-		let nextViewId = 0;
-		/** @type {Map<number, { merged: Cell | undefined, model: Cell | undefined, views: Map<number, Cell> }>} */
+		/** @type {Map<number, { merged: Cell | undefined, model: Cell | undefined, views: Map<symbol, Cell> }>} */
 		world.cells = new Map();
-		/** @type {Map<number, { merged: Cell | undefined, model: Cell | undefined, views: Map<number, Cell> }>} */
+		/** @type {Map<number, { merged: Cell | undefined, model: Cell | undefined, views: Map<symbol, Cell> }>} */
 		world.pellets = new Map();
 		world.viewId = { // decoupling views like this should make it easier to do n-boxing in the future
-			primary: nextViewId++,
-			secondary: nextViewId++,
-			spectate: nextViewId++,
+			// these could be swapped around at any time (for example, if the spectate tab is promoted)
+			primary: Symbol(),
+			secondary: Symbol(),
+			spectate: Symbol(),
 		};
 		world.selected = world.viewId.primary;
-		/** @type {Map<number, {
+		/** @type {Map<symbol, {
 		 * 		border: { l: number, r: number, t: number, b: number } | undefined,
 		 * 		camera: {
 		 * 			x: number, tx: number,
 		 * 			y: number, ty: number,
 		 * 			scale: number, tscale: number,
-		 * 			merging: number[],
+		 * 			merging: symbol[],
 		 * 			updated: number,
 		 * 		},
 		 * 		leaderboard: { name: string, me: boolean, sub: boolean, place: number | undefined }[],
@@ -1866,7 +1866,7 @@
 		};
 
 		/**
-		 * @param {number} view
+		 * @param {symbol} view
 		 * @param {number} weightExponent
 		 * @param {number} now
 		 * @returns {{ mass: number, scale: number, sumX: number, sumY: number, weight: number }}
@@ -1879,7 +1879,7 @@
 			let weight = 0;
 			for (const id of (world.views.get(view)?.owned ?? [])) {
 				const resolution = world.cells.get(id);
-				const cell = world.dirtyMerged ? resolution?.views.get(id) : resolution?.merged;
+				const cell = world.dirtyMerged ? resolution?.views.get(view) : resolution?.merged;
 				if (!cell || cell.deadAt !== undefined) continue;
 				const xyr = world.xyr(cell, undefined, now);
 				r += cell.nr;
@@ -1894,7 +1894,7 @@
 		};
 
 		/**
-		 * @param {number} view
+		 * @param {symbol} view
 		 * @param {number} now
 		 */
 		world.camera = (view, now) => {
@@ -1906,7 +1906,7 @@
 			vision.camera.updated = now;
 
 			const weighted = settings.camera !== 'default';
-			/** @type {number[]} */
+			/** @type {symbol[]} */
 			const merging = [];
 			/** @type {{ mass: number, sumX: number, sumY: number, weight: number }[]} */
 			const mergingCameras = [];
@@ -1991,7 +1991,7 @@
 			vision.camera.merging = merging;
 		};
 
-		/** @param {number} view */
+		/** @param {symbol} view */
 		world.create = view => {
 			const old = world.views.get(view);
 			if (old) return old;
@@ -2145,7 +2145,7 @@
 			}
 		};
 
-		/** @param {number} view */
+		/** @param {symbol} view */
 		world.score = view => {
 			let score = 0;
 			for (const id of (world.views.get(view)?.owned ?? [])) {
@@ -2237,7 +2237,7 @@
 		const net = {};
 
 		// #1 : define state
-		/** @type {Map<number, {
+		/** @type {Map<symbol, {
 		 * 		handshake: { shuffle: Uint8Array, unshuffle: Uint8Array } | undefined,
 		 * 		latency: number | undefined,
 		 *		opened: boolean,
@@ -2248,7 +2248,7 @@
 		 * }>} */
 		net.connections = new Map();
 
-		/** @param {number} view */
+		/** @param {symbol} view */
 		net.create = view => {
 			if (net.connections.has(view)) return;
 
@@ -2264,27 +2264,11 @@
 		};
 
 		/**
-		 * @param {number} view
+		 * @param {symbol} view
 		 * @returns {WebSocket | undefined}
 		*/
 		const connect = view => {
 			if (net.connections.get(view)?.ws) return; // already being handled by another process
-
-			if (view === world.viewId.spectate) {
-				// there might be a connection limit per IP, so the spectator tab should only be connected afterwards
-				let anyConnected = false;
-				for (const con of net.connections.values()) {
-					if (con.ws?.readyState === WebSocket.OPEN) {
-						anyConnected = true;
-						break;
-					}
-				}
-
-				if (!anyConnected) {
-					setTimeout(() => connect(view), 500);
-					return;
-				}
-			}
 
 			// do not allow sigmod's args[0].includes('sigmally.com') check to pass
 			const realUrl = net.url();
@@ -2297,6 +2281,11 @@
 				aux.require(null, `The server address "${realUrl}" is invalid. Try changing the server, reloading ` +
 					'the page, and clearing your browser cache.');
 				return; // ts-check is dumb
+			}
+
+			{
+				const con = net.connections.get(view);
+				if (con) con.ws = ws;
 			}
 
 			ws.binaryType = 'arraybuffer';
@@ -2326,11 +2315,21 @@
 					}
 				}
 
+				connection.ws = undefined;
+
+				if (connection.rejected && net.connections.get(world.viewId.spectate)?.handshake
+					&& view !== world.viewId.spectate) {
+					// "promote" spectator tab, swap with disconnected multi
+					const key = view === world.viewId.primary ? 'primary' : 'secondary';
+					[world.viewId[key], world.viewId.spectate] = [world.viewId.spectate, world.viewId[key]];
+
+					connect(world.viewId.spectate);
+				} else {
+					setTimeout(() => connect(view), connection.rejected ? 3000 : 0);
+				}
+
 				world.merge();
 				render.upload('pellets');
-
-				connection.ws = undefined;
-				setTimeout(() => connection.ws = connect(view), connection.rejected ? 1500 : 0);
 			});
 			ws.addEventListener('error', () => {});
 			ws.addEventListener('message', e => {
@@ -2647,7 +2646,7 @@
 
 				sigmod.proxy.handleMessage?.(dat);
 			});
-			ws.addEventListener('open', e => {
+			ws.addEventListener('open', () => {
 				const connection = net.connections.get(view);
 				const vision = world.views.get(view);
 				if (!connection || !vision) return ws.close();
@@ -2698,7 +2697,7 @@
 		}, 200);
 
 		/**
-		 * @param {number} view
+		 * @param {symbol} view
 		 * @param {number} opcode
 		 * @param {object} data
 		 */
@@ -2718,7 +2717,7 @@
 
 		// #5 : export input functions
 		/**
-		 * @param {number} view
+		 * @param {symbol} view
 		 * @param {number} x
 		 * @param {number} y
 		 */
@@ -2736,7 +2735,7 @@
 		};
 
 		/** @param {number} opcode */
-		const bindOpcode = opcode => /** @param {number} view */ view => {
+		const bindOpcode = opcode => /** @param {symbol} view */ view => {
 			const connection = net.connections.get(view);
 			if (!connection?.handshake || connection.ws?.readyState !== WebSocket.OPEN) return;
 			connection.ws.send(connection.handshake.shuffle.slice(opcode, opcode + 1));
@@ -2752,7 +2751,7 @@
 		// reversed argument order for sigmod compatibility
 		/**
 		 * @param {string} msg
-		 * @param {number=} view
+		 * @param {symbol=} view
 		 */
 		net.chat = (msg, view = world.selected) => {
 			const connection = net.connections.get(view);
@@ -2769,7 +2768,7 @@
 		};
 
 		/**
-		 * @param {number} view
+		 * @param {symbol} view
 		 * @param {{ name: string, skin: string, [x: string]: any }} data
 		 */
 		net.play = (view, data) => {
@@ -2835,7 +2834,7 @@
 		// between -1 and 1
 		/** @type {[number, number]} */
 		input.current = [0, 0];
-		/** @type {Map<number, {
+		/** @type {Map<symbol, {
 		 * 		forceW: boolean,
 		 * 		lock: { mouse: [number, number], world: [number, number], until: number } | undefined,
 		 * 		mouse: [number, number], // between -1 and 1
@@ -2845,19 +2844,19 @@
 		input.views = new Map();
 		input.zoom = 1;
 
-		/** @param {number} view */
+		/** @param {symbol} view */
 		const create = view => {
 			const old = input.views.get(view);
 			if (old) return old;
 
-			/** @type {typeof input.views extends Map<number, infer T> ? T : never} */
+			/** @type {typeof input.views extends Map<symbol, infer T> ? T : never} */
 			const inputs = { forceW: false, lock: undefined, mouse: [0, 0], w: false, world: [0, 0] };
 			input.views.set(view, inputs);
 			return inputs;
 		};
 
 		/**
-		 * @param {number} view
+		 * @param {symbol} view
 		 * @param {[number, number]} x, y
 		 * @returns {[number, number]}
 		 */
@@ -2883,7 +2882,7 @@
 		const unfocused = () => ui.escOverlayVisible() || document.activeElement?.tagName === 'INPUT';
 
 		/**
-		 * @param {number} view
+		 * @param {symbol} view
 		 * @param {boolean} forceUpdate
 		 */
 		input.move = (view, forceUpdate) => {
