@@ -1686,7 +1686,8 @@
 			'- A "natural" camera follows your center of mass. If you have a lot of small back pieces, they would ' +
 			'barely affect your camera position. <br>' +
 			'- The "default" camera focuses on every cell equally. If you have a lot of small back pieces, your ' +
-			'camera would focus on those instead.');
+			'camera would focus on those instead. <br>' +
+			'When one-tab multiboxing, you <b>must</b> use the Natural (weighted) camera style.');
 		setting(`Camera smoothness ${newTag}`, [slider('cameraSmoothness', 2, 1, 10, 0.1, 1)], () => true,
 			'How slowly the camera lags behind. The default is 2; using 4 moves the camera about twice as slowly, ' +
 			'for example. Setting to 1 removes all camera smoothness.');
@@ -1717,7 +1718,8 @@
 			'The color of the rings around your other inactive multibox tabs. Only shown when near another tab. The ' +
 			'slider is the outline opacity.');
 		setting('Block respawns near other tabs', [checkbox('blockNearbyRespawns')], () => !!settings.multibox,
-			'Disables the respawn keybind (SigMod-only) when near one of your bigger tabs.');
+			'When enabled, the respawn key (using SigMod) will be disabled if your multibox tabs are close. ' +
+			'This means you can spam the respawn key until your multibox tab spawns nearby.');
 
 		separator('• text •');
 		setting('Name scale factor', [slider('nameScaleFactor', 1, 0.5, 2, 0.01, 2)], () => true,
@@ -1763,11 +1765,11 @@
 			'When disabled, hides the top-left server stats including the player count and server uptime.');
 		setting('Connect spectating tab', [checkbox('spectator')], () => true,
 			'Automatically connects an extra tab and sets it to spectate #1.');
-		setting('Show spectator tab ping', [checkbox('spectatorLatency')], () => true,
+		setting('Show spectator tab ping', [checkbox('spectatorLatency')], () => settings.spectator,
 			'When enabled, shows another ping measurement for your spectator tab.');
 		setting('Separate XP boost from score', [checkbox('separateBoost')], () => true,
-			'If you have an XP boost, your score will be ' +
-			'doubled. If you don\'t want that, you can separate the XP boost from your score.');
+			'If you have an XP boost, your score will be doubled. If you don\'t want that, you can separate the XP ' +
+			'boost from your score.');
 		setting('Color under skin', [checkbox('colorUnderSkin')], () => true,
 			'When disabled, transparent skins will be see-through and not show your cell color. Turn this off ' +
 			'if using a bubble skin, for example.');
