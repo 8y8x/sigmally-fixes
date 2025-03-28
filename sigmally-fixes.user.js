@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.6.6-BETA
+// @version      2.6.6
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -8,9 +8,9 @@
 // @grant        none
 // @namespace    https://8y8x.dev/sigmally-fixes
 // @icon         https://raw.githubusercontent.com/8y8x/sigmally-fixes/refs/heads/main/icon.png
-// @compatible   chrome Recommended for all users, works perfectly out of the box
-// @compatible   opera Works fine, multiboxers may need to change some browser keybinds
-// @compatible   edge Works fine, multiboxers may need to change some browser keybinds
+// @compatible   chrome
+// @compatible   opera
+// @compatible   edge
 // ==/UserScript==
 
 // @ts-check
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.6.6-BETA';
+	const sfVersion = '2.6.6';
 	const undefined = void 0; // yes, this actually makes a significant difference
 
 	////////////////////////////////
