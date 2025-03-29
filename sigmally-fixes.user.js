@@ -4303,6 +4303,9 @@
 		const cellUboFloats = new Float32Array(cellUboBuffer);
 		const cellUboInts = new Int32Array(cellUboBuffer);
 
+		gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
+		const circleUboFloats = new Float32Array(gl.getBufferParameter(gl.UNIFORM_BUFFER, gl.BUFFER_SIZE));
+
 		gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Text);
 		const textUboBuffer = new ArrayBuffer(gl.getBufferParameter(gl.UNIFORM_BUFFER, gl.BUFFER_SIZE));
 		const textUboFloats = new Float32Array(textUboBuffer);
@@ -4707,7 +4710,9 @@
 					gl.blendFunc(gl.SRC_ALPHA, gl.ONE); // make sure pellets (and glow) are visible in light theme
 				}
 				gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
-				gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([ 1, 0, -1, -1 ]), gl.STATIC_DRAW);
+				circleUboFloats[0] = 1;
+				circleUboFloats[1] = 0;
+				gl.bufferData(gl.UNIFORM_BUFFER, circleUboFloats, gl.STATIC_DRAW);
 				gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 
 				// draw static pellets
@@ -4716,7 +4721,9 @@
 				if (settings.pelletGlow) {
 					// setup glow for static pellets
 					gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
-					gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([ 0.25, 2, -1, -1 ]), gl.STATIC_DRAW);
+					circleUboFloats[0] = 0.25;
+					circleUboFloats[1] = 2;
+					gl.bufferData(gl.UNIFORM_BUFFER, circleUboFloats, gl.STATIC_DRAW);
 					gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 
 					// draw glow for static pellets
