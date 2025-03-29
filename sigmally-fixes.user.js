@@ -4700,14 +4700,14 @@
 				}
 				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao[0].alphaBuffer);
 				gl.bufferSubData(gl.ARRAY_BUFFER, 0, pelletAlpha);
-				gl.bindBuffer(gl.ARRAY_BUFFER, null); // TODO: necessary unbinding?
+				gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
 				// setup no-glow for static pellets
 				if (settings.pelletGlow && aux.settings.darkTheme) {
 					gl.blendFunc(gl.SRC_ALPHA, gl.ONE); // make sure pellets (and glow) are visible in light theme
 				}
 				gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
-				gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([ 1, 0 ]), gl.STATIC_DRAW);
+				gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([ 1, 0, -1, -1 ]), gl.STATIC_DRAW);
 				gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 
 				// draw static pellets
@@ -4716,7 +4716,7 @@
 				if (settings.pelletGlow) {
 					// setup glow for static pellets
 					gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
-					gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([ 0.25, 2 ]), gl.STATIC_DRAW);
+					gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([ 0.25, 2, -1, -1 ]), gl.STATIC_DRAW);
 					gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 
 					// draw glow for static pellets
