@@ -1678,7 +1678,7 @@
 		setting('Secondary skin URL', [image('selfSkinMulti')], () => !!settings.multibox,
 			'Direct URL to a custom skin for your secondary multibox tab. Not visible to others.');
 		setting('Map background', [image('background')], () => true,
-			'A square background image to use within the entire map border. Images under 1024x1024 will be treated ' +
+			'A square background image to use within the entire map border. Images 512x512 and under will be treated ' +
 			'as a repeating pattern, where 50 pixels = 1 grid square.');
 		setting('Lines between cell and mouse', [checkbox('tracer')], () => true,
 			'If enabled, draws tracers between all of the cells you ' +
@@ -4398,7 +4398,7 @@
 					texture = textureFromCache(aux.settings.darkTheme ? darkGridSrc : lightGridSrc);
 				}
 				gl.bindTexture(gl.TEXTURE_2D, texture?.texture ?? null);
-				const repeating = texture && texture.width <= 1024 && texture.height <= 1024;
+				const repeating = texture && texture.width <= 512 && texture.height <= 512;
 
 				let borderColor;
 				let borderLrtb;
