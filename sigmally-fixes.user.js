@@ -2950,17 +2950,16 @@
 
 			if (settings.multibox && keybind.toLowerCase() === settings.multibox.toLowerCase()) {
 				e.preventDefault(); // prevent selecting anything on the page
-				if (settings.multibox) {
-					inputs.w = false; // stop current tab from feeding; don't change forceW
-					// update mouse immediately (after setTimeout, when mouse events happen)
-					setTimeout(() => inputs.world = input.toWorld(view, inputs.mouse = input.current));
 
-					// swap tabs
-					if (world.selected === world.viewId.primary) world.selected = world.viewId.secondary;
-					else world.selected = world.viewId.primary;
-					world.create(world.selected);
-					net.create(world.selected);
-				}
+				inputs.w = false; // stop current tab from feeding; don't change forceW
+				// update mouse immediately (after setTimeout, when mouse events happen)
+				setTimeout(() => inputs.world = input.toWorld(view, inputs.mouse = input.current));
+
+				// swap tabs
+				if (world.selected === world.viewId.primary) world.selected = world.viewId.secondary;
+				else world.selected = world.viewId.primary;
+				world.create(world.selected);
+				net.create(world.selected);
 
 				// also, press play on the current tab ONLY if any tab is alive
 				if (world.alive()) {
@@ -3963,6 +3962,8 @@
 					dbCache.set(property, null);
 					const req = database.transaction('images').objectStore('images').get(property);
 					req.addEventListener('success', () => {
+						if (!req.result) return;
+
 						const reader = new FileReader();
 						reader.addEventListener('load', () => {
 							const image = new Image();
