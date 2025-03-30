@@ -679,7 +679,9 @@
 			oldCanvas.addEventListener('mousemove', e => dispatchEvent(new MouseEvent('mousemove', e)));
 
 			const gl = aux.require(
-				newCanvas.getContext('webgl2', { alpha: false, depth: false }),
+				newCanvas.getContext('webgl2', {
+					alpha: false, antialias: false, depth: false
+				}),
 				'Couldn\'t get WebGL2 context. Possible causes:\r\n' +
 				'- Maybe GPU/Hardware acceleration needs to be enabled in your browser settings; \r\n' +
 				'- Maybe your browser is just acting weird and it might fix itself after a restart; \r\n' +
@@ -1481,8 +1483,11 @@
 		 * @param {PropertyOfType<typeof settings, string>} property
 		 */
 		const image = property => {
-			/** @param {HTMLInputElement} input */
-			const listen = input => {
+			/**
+			 * @param {HTMLInputElement} input
+			 * @param {boolean} isSigmod
+			 */
+			const listen = (input, isSigmod) => {
 				onSyncs.push(() => input.value = settings[property]);
 				input.value = settings[property];
 
@@ -1496,10 +1501,11 @@
 					/** @type {string} */ (settings[property]) = input.value;
 					save();
 				});
-				input.addEventListener('dragenter', () => void (input.style.border = '1px solid #00ccff'));
-				input.addEventListener('dragleave', () => void (input.style.border = '1px solid transparent'));
+				input.addEventListener('dragenter', () => void (input.style.borderColor = '#00ccff'));
+				input.addEventListener('dragleave',
+					() => void (input.style.borderColor = isSigmod ? 'transparent' : ''));
 				input.addEventListener('drop', e => {
-					input.style.border = '1px solid transparent';
+					input.style.borderColor = isSigmod ? 'transparent' : '';
 					e.preventDefault();
 
 					const file = e.dataTransfer?.files[0];
@@ -1526,12 +1532,11 @@
 			};
 
 			const placeholder = 'https://i.imgur.com/... or drag here';
-			const vanilla = fromHTML(`<input id="sf-${property}" placeholder="${placeholder}" type="text"
-				style="border: 1px solid transparent;" />`);
+			const vanilla = fromHTML(`<input id="sf-${property}" placeholder="${placeholder}" type="text" />`);
 			const sigmod = fromHTML(`<input class="modInput" id="sfsm-${property}" placeholder="${placeholder}"
 				style="border: 1px solid transparent; width: 250px;" type="text" />`);
-			listen(/** @type {HTMLInputElement} */ (vanilla));
-			listen(/** @type {HTMLInputElement} */ (sigmod));
+			listen(/** @type {HTMLInputElement} */ (vanilla), false);
+			listen(/** @type {HTMLInputElement} */ (sigmod), true);
 			return { sigmod, vanilla };
 		};
 
@@ -1707,10 +1712,10 @@
 			'When enabled, your camera will focus on both multibox tabs at once. Disable this if you prefer two-tab-' +
 			'style multiboxing. <br>' +
 			'When one-tab multiboxing, you <b>must</b> use the Natural (weighted) camera style.');
-		setting('Current tab cell outline thickness', [slider('outlineMulti', 0.2, 0, 1, 0.01, 2)],
+		setting('Multibox outline thickness', [slider('outlineMulti', 0.2, 0, 1, 0.01, 2)],
 			() => !!settings.multibox,
-			'Draws an inverse outline on your cells, the thickness being a % of your cell radius. This only shows ' +
-			'when \'merge camera between tabs\' is enabled and when you\'re near one of your tabs.');
+			'When multiboxing, rings appear on your cells, the thickness being a % of your cell radius. This only ' +
+			'shows when you\'re near one of your tabs.');
 		setting('Current tab outline color', [color('outlineMultiColor')], () => !!settings.multibox,
 			'The color of the rings around your current multibox tab. Only shown when near another tab. The slider ' +
 			'is the outline opacity.');
@@ -1746,8 +1751,7 @@
 			'When enabled, only F11 is allowed to be pressed when in fullscreen. Most other browser and system ' +
 			'keybinds will be disabled.');
 		setting('Unsplittable cell outline', [color('unsplittableColor')], () => true,
-			'How visible the white outline around cells that can\'t split should be. 0 = not visible, 1 = fully ' +
-			'visible.');
+			'The color of the ring around cells that cannot split. The slider ');
 		setting('Jelly physics skin size lag', [checkbox('jellySkinLag')], () => true,
 			'Jelly physics causes cells to grow and shrink slower than text and skins, making the game more ' +
 			'satisfying. If you have a skin that looks weird only with jelly physics, try turning this off.');
@@ -2195,7 +2199,7 @@
 
 			return {
 				x, y, r,
-				jr: aux.exponentialEase(cell.jr, r, settings.slowerJellyPhysics ? 10 : 5, dt),
+				jr: aux.exponentialEase(cell.jr, r, settings.slowerJellyPhysics ? 20 : 5, dt),
 			};
 		};
 
@@ -4800,7 +4804,7 @@
 					ownedToMerged.forEach(cell => {
 						if (!cell || cell.deadAt !== undefined) return;
 
-						let { x, y } = world.xyr(cell, undefined, now);
+						const { x, y } = world.xyr(cell, undefined, now);
 						tracerUboFloats[0] = x; // tracer_pos1.x
 						tracerUboFloats[1] = y; // tracer_pos1.y
 						gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Tracer);
