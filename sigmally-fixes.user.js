@@ -1201,6 +1201,7 @@
 			clanScaleFactor: 1,
 			colorUnderSkin: true,
 			drawDelay: 120,
+			instantCamera: false,
 			jellySkinLag: true,
 			massBold: false,
 			massOpacity: 1,
@@ -1703,6 +1704,7 @@
 		setting('Move camera while spawning', [checkbox('cameraSpawnAnimation')], () => true,
 			'When spawning, normally the camera will take a bit of time to move to where your cell spawned. This ' +
 			'can be disabled.');
+		setting(`Instant camera ${newTag}`, [checkbox('instantCamera')], () => true, 'TODO');
 
 		separator('• multibox •');
 		setting('Multibox keybind', [keybind('multibox')], () => true,
@@ -1822,7 +1824,8 @@
 	 * id: number,
 	 * ox: number, nx: number,
 	 * oy: number, ny: number,
-	 * or: number, nr: number, jr: number,
+	 * or: number, nr: number,
+	 * jr: number, a: number,
 	 * Rgb: number, rGb: number, rgB: number,
 	 * updated: number, born: number, deadTo: number, deadAt: number | undefined,
 	 * jagged: boolean, pellet: boolean,
@@ -1886,13 +1889,26 @@
 			for (const id of (world.views.get(view)?.owned ?? [])) {
 				const resolution = world.cells.get(id);
 				const cell = world.dirtyMerged ? resolution?.views.get(view) : resolution?.merged;
-				if (!cell || cell.deadAt !== undefined) continue;
-				const xyr = world.xyr(cell, undefined, now);
-				r += cell.nr;
-				mass += cell.nr * cell.nr / 100;
-				sumX += xyr.x * (cell.nr ** weightExponent);
-				sumY += xyr.y * (cell.nr ** weightExponent);
-				weight += (cell.nr ** weightExponent);
+				if (!cell) continue;
+
+				if (settings.instantCamera) {
+
+					const xyr = world.xyr(cell, undefined, now);
+					r += xyr.r * xyr.a;
+					mass += (xyr.r * xyr.r / 100) * xyr.a;
+					const cellWeight = xyr.a * (xyr.r ** weightExponent);
+					sumX += xyr.x * cellWeight;
+					sumY += xyr.y * cellWeight;
+					weight += cellWeight;
+				} else {
+					if (cell.deadAt !== undefined) continue;
+					const xyr = world.xyr(cell, undefined, now);
+					r += cell.nr;
+					mass += cell.nr * cell.nr / 100;
+					sumX += xyr.x * (cell.nr ** weightExponent);
+					sumY += xyr.y * (cell.nr ** weightExponent);
+					weight += (cell.nr ** weightExponent);
+				}
 			}
 
 			const scale = Math.min(64 / r, 1) ** 0.4;
@@ -1986,7 +2002,7 @@
 				const aliveFor = (performance.now() - vision.spawned) / 1000;
 				const a = Math.min(Math.max((aliveFor - 0.3) / 0.3, 0), 1);
 				const baseSpeed = settings.cameraSpawnAnimation ? 2 : 1;
-				xyFactor = Math.min(settings.cameraSmoothness, baseSpeed * (1-a) + settings.cameraSmoothness * a);
+				xyFactor = settings.instantCamera ? 1 : Math.min(settings.cameraSmoothness, baseSpeed * (1-a) + settings.cameraSmoothness * a);
 			} else {
 				xyFactor = 20;
 			}
@@ -2106,7 +2122,8 @@
 									id: model.id,
 									ox: model.nx, nx: model.nx,
 									oy: model.ny, ny: model.ny,
-									or: model.nr, nr: model.nr, jr: model.nr,
+									or: model.nr, nr: model.nr,
+									jr: model.nr, a: model.a,
 									Rgb: model.Rgb, rGb: model.rGb, rgB: model.rgB,
 									jagged: model.jagged, pellet: model.pellet,
 									name: model.name, skin: model.skin, sub: model.sub, clan: model.clan,
@@ -2118,11 +2135,12 @@
 							// merged cell *does* exist, move it if the cell is not currently dead
 							if (model.deadAt === undefined) {
 								if (merged.deadAt === undefined) {
-									const { x, y, r, jr } = world.xyr(merged, undefined, now);
+									const { x, y, r, jr, a } = world.xyr(merged, undefined, now);
 									merged.ox = x;
 									merged.oy = y;
 									merged.or = r;
 									merged.jr = jr;
+									merged.a = a;
 								} else {
 									// came back to life (probably back into view)
 									merged.ox = model.nx;
@@ -2167,7 +2185,7 @@
 		 * @param {Cell} cell
 		 * @param {Cell | undefined} killer
 		 * @param {number} now
-		 * @returns {{ x: number, y: number, r: number, jr: number }}
+		 * @returns {{ x: number, y: number, r: number, jr: number, a: number }}
 		 */
 		world.xyr = (cell, killer, now) => {
 			let nx = cell.nx;
@@ -2178,21 +2196,22 @@
 				ny = killer.ny;
 			}
 
-			let a = (now - cell.updated) / settings.drawDelay;
-			a = a < 0 ? 0 : a > 1 ? 1 : a;
-
-			let x, y, r;
+			let x, y, r, a;
 			if (cell.pellet && cell.deadAt === undefined) {
 				x = nx;
 				y = ny;
 				r = cell.nr;
+				a = 1;
 			} else {
-				let a = (now - cell.updated) / settings.drawDelay;
-				a = a < 0 ? 0 : a > 1 ? 1 : a;
+				let alpha = (now - cell.updated) / settings.drawDelay;
+				alpha = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
 
-				x = cell.ox + (nx - cell.ox) * a;
-				y = cell.oy + (ny - cell.oy) * a;
-				r = cell.or + (cell.nr - cell.or) * a;
+				x = cell.ox + (nx - cell.ox) * alpha;
+				y = cell.oy + (ny - cell.oy) * alpha;
+				r = cell.or + (cell.nr - cell.or) * alpha;
+
+				const targetA = cell.deadAt !== undefined ? 0 : 1;
+				a = cell.a + (targetA - cell.a) * alpha;
 			}
 
 			const dt = (now - cell.updated) / 1000;
@@ -2200,6 +2219,7 @@
 			return {
 				x, y, r,
 				jr: aux.exponentialEase(cell.jr, r, settings.slowerJellyPhysics ? 20 : 5, dt),
+				a,
 			};
 		};
 
@@ -2211,7 +2231,7 @@
 			for (const key of /** @type {const} */ (['cells', 'pellets'])) {
 				for (const [id, resolution] of world[key]) {
 					for (const [view, cell] of resolution.views) {
-						if (cell.deadAt !== undefined && now - cell.deadAt >= 200) resolution.views.delete(view);
+						if (cell.deadAt !== undefined && now - cell.deadAt >= settings.drawDelay + 200) resolution.views.delete(view);
 					}
 					if (resolution.views.size === 0) world[key].delete(id);
 				}
@@ -2429,11 +2449,12 @@
 							const pellet = r <= 40 && !eject; // tourney servers have bigger pellets (r=40)
 							const cell = (pellet ? world.pellets : world.cells).get(id)?.views.get(view);
 							if (cell && cell.deadAt === undefined) {
-								const { x: ix, y: iy, r: ir, jr } = world.xyr(cell, undefined, now);
+								const { x: ix, y: iy, r: ir, jr, a } = world.xyr(cell, undefined, now);
 								cell.ox = ix;
 								cell.oy = iy;
 								cell.or = ir;
 								cell.jr = jr;
+								cell.a = a;
 								cell.nx = x; cell.ny = y; cell.nr = r;
 								cell.jagged = jagged;
 								cell.updated = now;
@@ -2461,7 +2482,8 @@
 									id,
 									ox: x, nx: x,
 									oy: y, ny: y,
-									or: r, nr: r, jr: r,
+									or: r, nr: r,
+									jr: r, a: 0,
 									Rgb: Rgb ?? 1, rGb: rGb ?? 1, rgB: rgB ?? 1,
 									jagged, pellet,
 									updated: now, born: now,
