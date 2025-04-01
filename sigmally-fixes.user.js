@@ -77,7 +77,7 @@
 		};
 
 		/**
-		 * consistent exponential easing relative to 60fps.
+		 * consistent exponential easing relative to 60fps. this models "x += (targetX - x) * dt" scenarios.
 		 * for example, with a factor of 2, o=0, n=1:
 		 * - at 60fps, 0.5 is returned.
 		 * - at 30fps (after 2 frames), 0.75 is returned.
@@ -1192,6 +1192,8 @@
 			boldUi: false,
 			/** @type {'natural' | 'default'} */
 			camera: 'default',
+			/** @type {'default' | 'instant'} */
+			cameraMovement: 'default',
 			cameraSmoothness: 2,
 			cameraSpawnAnimation: true,
 			cellGlow: false,
@@ -1201,7 +1203,6 @@
 			clanScaleFactor: 1,
 			colorUnderSkin: true,
 			drawDelay: 120,
-			instantCamera: false,
 			jellySkinLag: true,
 			massBold: false,
 			massOpacity: 1,
@@ -1688,13 +1689,23 @@
 		separator('• camera •');
 		setting('Camera style', [dropdown('camera', [['natural', 'Natural (weighted)'], ['default', 'Default']])],
 			() => true,
-			'How the camera moves. <br>' +
+			'How the camera focuses on your cells. <br>' +
 			'- A "natural" camera follows your center of mass. If you have a lot of small back pieces, they would ' +
 			'barely affect your camera position. <br>' +
 			'- The "default" camera focuses on every cell equally. If you have a lot of small back pieces, your ' +
 			'camera would focus on those instead. <br>' +
 			'When one-tab multiboxing, you <b>must</b> use the Natural (weighted) camera style.');
-		setting('Camera smoothness', [slider('cameraSmoothness', 2, 1, 10, 0.1, 1)], () => true,
+		setting(`Camera movement ${newTag}`,
+			[dropdown('cameraMovement', [['default', 'Default'], ['instant', 'Instant']])], () => true,
+			'How the camera moves. <br>' +
+			'- "Default" camera movement follows your cell positions, but when a cell dies or splits, it immediately ' +
+			'stops or starts focusing on it. Artificial smoothness is added - you can control that with the ' +
+			'"Camera smoothness" setting. <br>' +
+			'- "Instant" camera movement exactly follows your cells without lagging behind, gradually focusing more ' +
+			'or less on cells while they split or die. There is no artificial smoothness. You might find this ' +
+			'significantly smoother than the default camera.');
+		setting('Camera smoothness', [slider('cameraSmoothness', 2, 1, 10, 0.1, 1)],
+			() => settings.cameraMovement === 'default',
 			'How slowly the camera lags behind. The default is 2; using 4 moves the camera about twice as slowly, ' +
 			'for example. Setting to 1 removes all camera smoothness.');
 		setting('Zoom speed', [slider('scrollFactor', 1, 0.05, 1, 0.05, 2)], () => true,
@@ -1704,7 +1715,6 @@
 		setting('Move camera while spawning', [checkbox('cameraSpawnAnimation')], () => true,
 			'When spawning, normally the camera will take a bit of time to move to where your cell spawned. This ' +
 			'can be disabled.');
-		setting(`Instant camera ${newTag}`, [checkbox('instantCamera')], () => true, 'TODO');
 
 		separator('• multibox •');
 		setting('Multibox keybind', [keybind('multibox')], () => true,
@@ -1891,8 +1901,7 @@
 				const cell = world.dirtyMerged ? resolution?.views.get(view) : resolution?.merged;
 				if (!cell) continue;
 
-				if (settings.instantCamera) {
-
+				if (settings.cameraMovement === 'instant') {
 					const xyr = world.xyr(cell, undefined, now);
 					r += xyr.r * xyr.a;
 					mass += (xyr.r * xyr.r / 100) * xyr.a;
@@ -1900,7 +1909,7 @@
 					sumX += xyr.x * cellWeight;
 					sumY += xyr.y * cellWeight;
 					weight += cellWeight;
-				} else {
+				} else { // settings.cameraMovement === 'default'
 					if (cell.deadAt !== undefined) continue;
 					const xyr = world.xyr(cell, undefined, now);
 					r += cell.nr;
@@ -1998,11 +2007,15 @@
 				vision.camera.ty = targetY;
 				vision.camera.tscale = zoom;
 
-				// when spawning, move camera quickly (like vanilla), then make it smoother after a bit
-				const aliveFor = (performance.now() - vision.spawned) / 1000;
-				const a = Math.min(Math.max((aliveFor - 0.3) / 0.3, 0), 1);
-				const baseSpeed = settings.cameraSpawnAnimation ? 2 : 1;
-				xyFactor = settings.instantCamera ? 1 : Math.min(settings.cameraSmoothness, baseSpeed * (1-a) + settings.cameraSmoothness * a);
+				if (settings.cameraMovement === 'instant') {
+					xyFactor = 1;
+				} else {
+					// when spawning, move camera quickly (like vanilla), then make it smoother after a bit
+					const aliveFor = (performance.now() - vision.spawned) / 1000;
+					const a = Math.min(Math.max((aliveFor - 0.3) / 0.3, 0), 1);
+					const base = settings.cameraSpawnAnimation ? 2 : 1;
+					xyFactor = Math.min(settings.cameraSmoothness, base * (1-a) + settings.cameraSmoothness * a);
+				}
 			} else {
 				xyFactor = 20;
 			}
