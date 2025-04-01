@@ -4669,6 +4669,25 @@
 					cellUboInts[9] |= settings.colorUnderSkin ? 0x20 : 0;
 
 					if (!cell.pellet) {
+						/** @type {symbol | undefined} */
+						let ownerView;
+						let ownerVision;
+						for (const [otherView, otherVision] of world.views) {
+							if (!otherVision.owned.includes(cell.id)) continue;
+							ownerView = otherView;
+							ownerVision = otherVision;
+							break;
+						}
+
+						if (ownerView === world.selected) {
+							const myIndex = vision.owned.indexOf(cell.id);
+							if (!canSplit[myIndex]) cellUboInts[9] |= 0x10;
+
+							if (vision.camera.merging.length > 0) cellUboInts[9] |= 0x04;
+						} else if (ownerVision) {
+							if (ownerVision.camera.merging.length > 0) cellUboInts[9] |= 0x08;
+						}
+
 						const texture = calcSkin(cell);
 						if (texture) {
 							cellUboInts[9] |= 0x01; // skin
