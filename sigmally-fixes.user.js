@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.6.7-BETA
+// @version      2.6.7
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.6.7-BETA';
+	const sfVersion = '2.6.7';
 	const undefined = void 0; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -728,9 +728,7 @@
 			oldCanvas.addEventListener('mousemove', e => dispatchEvent(new MouseEvent('mousemove', e)));
 
 			const gl = aux.require(
-				newCanvas.getContext('webgl2', {
-					alpha: false, antialias: false, depth: false
-				}),
+				newCanvas.getContext('webgl2', { alpha: false, antialias: false, depth: false }),
 				'Couldn\'t get WebGL2 context. Possible causes:\r\n' +
 				'- Maybe GPU/Hardware acceleration needs to be enabled in your browser settings; \r\n' +
 				'- Maybe your browser is just acting weird and it might fix itself after a restart; \r\n' +
@@ -2293,8 +2291,10 @@
 			for (const key of /** @type {const} */ (['cells', 'pellets'])) {
 				for (const [id, resolution] of world[key]) {
 					for (const [view, cell] of resolution.views) {
-						if (cell.deadAt !== undefined && now - cell.deadAt >= settings.drawDelay + 200) resolution.views.delete(view);
+						if (cell.deadAt !== undefined && now - cell.deadAt >= settings.drawDelay + 200)
+							resolution.views.delete(view);
 					}
+
 					if (resolution.views.size === 0) world[key].delete(id);
 				}
 			}
@@ -3987,11 +3987,15 @@
 
 		// #2 : define helper functions
 		const { resetDatabaseCache, resetTextureCache, textureFromCache, textureFromDatabase } = (() => {
-			/** @type {Map<string, { color: [number, number, number, number], texture: WebGLTexture, width: number, height: number } | null>} */
+			/** @type {Map<string, {
+			 * 	color: [number, number, number, number], texture: WebGLTexture, width: number, height: number
+			 * } | null>} */
 			const cache = new Map();
 			render.textureCache = cache;
 
-			/** @type {Map<string, { color: [number, number, number, number], texture: WebGLTexture, width: number, height: number } | null>} */
+			/** @type {Map<string, {
+			 * 	color: [number, number, number, number], texture: WebGLTexture, width: number, height: number
+			 * } | null>} */
 			const dbCache = new Map();
 			render.dbCache = dbCache;
 
@@ -3999,7 +4003,9 @@
 				resetTextureCache: () => cache.clear(),
 				/**
 				 * @param {string} src
-				 * @returns {{ color: [number, number, number, number], texture: WebGLTexture, width: number, height: number } | undefined}
+				 * @returns {{
+				 * 	color: [number, number, number, number], texture: WebGLTexture, width: number, height: number
+				 * } | undefined}
 				 */
 				textureFromCache: src => {
 					const cached = cache.get(src);
@@ -4029,7 +4035,9 @@
 				resetDatabaseCache: () => dbCache.clear(),
 				/**
 				 * @param {string} property
-				 * @returns {{ color: [number, number, number, number], texture: WebGLTexture, width: number, height: number } | undefined}
+				 * @returns {{
+				 * 	color: [number, number, number, number], texture: WebGLTexture, width: number, height: number
+				 * } | undefined}
 				 */
 				textureFromDatabase: property => {
 					const cached = dbCache.get(property);
@@ -4294,7 +4302,9 @@
 
 		/**
 		 * @param {Cell} cell
-		 * @returns {{ color: [number, number, number, number], texture: WebGLTexture, width: number, height: number } | undefined}
+		 * @returns {{
+		 * 	color: [number, number, number, number], texture: WebGLTexture, width: number, height: number
+		 * } | undefined}
 		 */
 		const calcSkin = cell => {
 			/** @type {symbol | undefined} */
@@ -4408,7 +4418,7 @@
 							skinColor[0] + (baseColor[0] - skinColor[0]) * (1 - skinColor[3]),
 							skinColor[1] + (baseColor[1] - skinColor[1]) * (1 - skinColor[3]),
 							skinColor[2] + (baseColor[2] - skinColor[2]) * (1 - skinColor[3]),
-							1
+							1,
 						];
 					}
 				}
