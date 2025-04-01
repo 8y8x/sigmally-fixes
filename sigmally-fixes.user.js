@@ -1749,8 +1749,8 @@
 			'stops or starts focusing on it. Artificial smoothness is added - you can control that with the ' +
 			'"Camera smoothness" setting. <br>' +
 			'- "Instant" camera movement exactly follows your cells without lagging behind, gradually focusing more ' +
-			'or less on cells while they split or die. There is no artificial smoothness. You might find this ' +
-			'significantly smoother than the default camera.');
+			'or less on cells while they split or die. There is no artificial smoothness, but you should use a ' +
+			'higher draw delay (at least 100). You might find this significantly smoother than the default camera.');
 		setting('Camera smoothness', [slider('cameraSmoothness', 2, 1, 10, 0.1, 1)],
 			() => settings.cameraMovement === 'default',
 			'How slowly the camera lags behind. The default is 2; using 4 moves the camera about twice as slowly, ' +
