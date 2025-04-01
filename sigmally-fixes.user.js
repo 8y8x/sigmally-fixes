@@ -76,6 +76,57 @@
 			return /** @type {any} */ (x);
 		};
 
+		const dominantColorCtx = aux.require(
+			document.createElement('canvas').getContext('2d', { willReadFrequently: true }),
+			'Unable to get 2D context for aux utilities. This is probably your browser being dumb, maybe reload ' +
+			'the page?',
+		);
+		/**
+		 * @param {HTMLImageElement} img
+		 * @returns {[number, number, number, number]}
+		 */
+		aux.dominantColor = img => {
+			dominantColorCtx.canvas.width = dominantColorCtx.canvas.height = 7;
+			dominantColorCtx.drawImage(img, 0, 0, 7, 7);
+			const data = dominantColorCtx.getImageData(0, 0, 7, 7);
+
+			const r = [], g = [], b = [];
+			let sumA = 0, numA = 0;
+			for (let x = 0; x < 7; ++x) {
+				for (let y = 0; y < 7; ++y) {
+					const d = Math.hypot((3 - x) / 6, (3 - y) / 6);
+					if (d > 1) continue; // do not consider pixels outside a circle, as they may be blank
+					const pixel = y * 7 + x;
+					r.push(data.data[pixel * 4]);
+					g.push(data.data[pixel * 4 + 1]);
+					b.push(data.data[pixel * 4 + 2]);
+					sumA += data.data[pixel * 4 + 3];
+					++numA;
+				}
+			}
+
+			r.sort();
+			g.sort();
+			b.sort();
+			/** @type {[number, number, number, number]} */
+			const color = [
+				r[Math.ceil(r.length / 2)] / 255, g[Math.ceil(g.length / 2)] / 255,
+				b[Math.ceil(b.length / 2)] / 255, sumA / numA / 255];
+
+			const max = Math.max(Math.max(color[0], color[1]), color[2]);
+			if (max === 0) {
+				color[0] = color[1] = color[2] = 1;
+			} else {
+				color[0] *= 1 / max;
+				color[1] *= 1 / max;
+				color[2] *= 1 / max;
+			}
+
+			color[3] **= 4; // transparent skins should use the player color
+
+			return color;
+		};
+
 		/**
 		 * consistent exponential easing relative to 60fps. this models "x += (targetX - x) * dt" scenarios.
 		 * for example, with a factor of 2, o=0, n=1:
@@ -411,7 +462,7 @@
 						view = otherView;
 						vision = world.views.get(otherView);
 					}
-					if (con && view !== undefined && vision) {
+					if (con && view && vision) {
 						// block respawns if we haven't actually respawned yet
 						// (with a 500ms max in case something fails)
 						if (performance.now() - (con.respawnBlock?.started ?? -Infinity) < 500) return;
@@ -465,7 +516,6 @@
 		 * 	rapidFeedKey?: string,
 		 * 	removeOutlines?: boolean,
 		 * 	showNames?: boolean,
-		 * 	skinReplacement?: { original: string | null, replacement?: string | null, replaceImg?: string | null },
 		 * 	tripleKey?: string,
 		 * 	virusImage?: string,
 		 * }} */
@@ -505,7 +555,6 @@
 				real.game?.name?.gradient?.enabled && real.game.name.gradient.right,
 			]);
 			sigmod.settings.removeOutlines = real.game?.removeOutlines;
-			sigmod.settings.skinReplacement = real.game?.skins;
 			sigmod.settings.virusImage = real.game?.virusImage;
 			sigmod.settings.rapidFeedKey = real.macros?.keys?.rapidFeed;
 			// sigmod's showNames setting is always "true" interally (i think??)
@@ -3944,18 +3993,19 @@
 
 		// #2 : define helper functions
 		const { resetDatabaseCache, resetTextureCache, textureFromCache, textureFromDatabase } = (() => {
-			/** @type {Map<string, { texture: WebGLTexture, width: number, height: number } | null>} */
+			/** @type {Map<string, { color: [number, number, number, number], texture: WebGLTexture, width: number, height: number } | null>} */
 			const cache = new Map();
 			render.textureCache = cache;
 
-			/** @type {Map<string, { texture: WebGLTexture, width: number, height: number } | null>} */
+			/** @type {Map<string, { color: [number, number, number, number], texture: WebGLTexture, width: number, height: number } | null>} */
 			const dbCache = new Map();
+			render.dbCache = dbCache;
 
 			return {
 				resetTextureCache: () => cache.clear(),
 				/**
 				 * @param {string} src
-				 * @returns {{ texture: WebGLTexture, width: number, height: number } | undefined}
+				 * @returns {{ color: [number, number, number, number], texture: WebGLTexture, width: number, height: number } | undefined}
 				 */
 				textureFromCache: src => {
 					const cached = cache.get(src);
@@ -3974,7 +4024,9 @@
 						gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
 						gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
 						gl.generateMipmap(gl.TEXTURE_2D);
-						cache.set(src, { texture, width: image.width, height: image.height });
+
+						const color = aux.dominantColor(image);
+						cache.set(src, { color, texture, width: image.width, height: image.height });
 					});
 					image.src = src;
 
@@ -3983,7 +4035,7 @@
 				resetDatabaseCache: () => dbCache.clear(),
 				/**
 				 * @param {string} property
-				 * @returns {{ texture: WebGLTexture, width: number, height: number } | undefined}
+				 * @returns {{ color: [number, number, number, number], texture: WebGLTexture, width: number, height: number } | undefined}
 				 */
 				textureFromDatabase: property => {
 					const cached = dbCache.get(property);
@@ -4011,7 +4063,9 @@
 								gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
 								gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
 								gl.generateMipmap(gl.TEXTURE_2D);
-								dbCache.set(property, { texture, width: image.width, height: image.height });
+
+								const color = aux.dominantColor(image);
+								dbCache.set(property, { color, texture, width: image.width, height: image.height });
 							});
 							image.src = /** @type {string} */ (reader.result);
 						});
@@ -4230,6 +4284,53 @@
 		render.resetTextCache = resetTextCache;
 		render.textFromCache = textFromCache;
 
+		/**
+		 * @param {Cell} cell
+		 * @param {number} now
+		 * @returns {number}
+		 */
+		const calcAlpha = (cell, now) => {
+			let alpha = (now - cell.born) / 100;
+			if (cell.deadAt !== undefined) {
+				const alpha2 = 1 - (now - cell.deadAt) / 100;
+				if (alpha2 < alpha) alpha = alpha2;
+			}
+			return alpha > 1 ? 1 : alpha < 0 ? 0 : alpha;
+		};
+
+		/**
+		 * @param {Cell} cell
+		 * @returns {{ color: [number, number, number, number], texture: WebGLTexture, width: number, height: number } | undefined}
+		 */
+		const calcSkin = cell => {
+			/** @type {symbol | undefined} */
+			let ownerView;
+			for (const [otherView, otherVision] of world.views) {
+				if (!otherVision.owned.includes(cell.id)) continue;
+				ownerView = otherView;
+				break;
+			}
+
+			// 🖼️
+			let texture;
+			if (ownerView) {
+				// owned by primary === selected primary => use primary skin
+				// else use multi skin
+				const prop = ownerView === world.viewId.primary ? 'selfSkin' : 'selfSkinMulti';
+				if (settings[prop]) {
+					if (settings[prop].startsWith('🖼️')) texture = textureFromDatabase(prop);
+					else texture = textureFromCache(settings[prop]);
+				}
+			}
+
+			// allow turning off sigmally skins while still using custom skins
+			if (!texture && aux.settings.showSkins && cell.skin) {
+				texture = textureFromCache(cell.skin);
+			}
+
+			return texture;
+		};
+
 		let cellAlpha = new Float32Array(0);
 		let cellBuffer = new Float32Array(0);
 		let pelletAlpha = new Float32Array(0);
@@ -4280,8 +4381,9 @@
 				}
 			}
 
-			const color = key === 'pellets' ? sigmod.settings.foodColor : sigmod.settings.cellColor;
-			const foodBlank = key === 'pellets' && color?.[0] === 0 && color?.[1] === 0 && color?.[2] === 0;
+			const override = key === 'pellets' ? sigmod.settings.foodColor : sigmod.settings.cellColor;
+			const pelletOverrideBlack
+				= key === 'pellets' && override?.[0] === 0 && override?.[1] === 0 && override?.[2] === 0;
 
 			let i = 0;
 			/** @param {Cell} cell */
@@ -4300,12 +4402,30 @@
 				objBuffer[i * 7] = nx;
 				objBuffer[i * 7 + 1] = ny;
 				objBuffer[i * 7 + 2] = nr;
-				if (color && !foodBlank) {
-					objBuffer[i * 7 + 3] = color[0]; objBuffer[i * 7 + 4] = color[1];
-					objBuffer[i * 7 + 5] = color[2]; objBuffer[i * 7 + 6] = color[3];
+
+				const baseColor = override ?? [cell.Rgb, cell.rGb, cell.rgB, 1]; // TODO ong just go back to .rgb array
+
+				let localOverride;
+				if (key === 'cells') {
+					const skinColor = calcSkin(cell)?.color;
+					if (skinColor) {
+						// blend with player color
+						localOverride = [
+							skinColor[0] + (baseColor[0] - skinColor[0]) * (1 - skinColor[3]),
+							skinColor[1] + (baseColor[1] - skinColor[1]) * (1 - skinColor[3]),
+							skinColor[2] + (baseColor[2] - skinColor[2]) * (1 - skinColor[3]),
+							1
+						];
+					}
+				}
+				localOverride ??= override;
+
+				if (localOverride && !pelletOverrideBlack) {
+					objBuffer[i * 7 + 3] = localOverride[0]; objBuffer[i * 7 + 4] = localOverride[1];
+					objBuffer[i * 7 + 5] = localOverride[2]; objBuffer[i * 7 + 6] = localOverride[3];
 				} else {
 					objBuffer[i * 7 + 3] = cell.Rgb; objBuffer[i * 7 + 4] = cell.rGb;
-					objBuffer[i * 7 + 5] = cell.rgB; objBuffer[i * 7 + 6] = foodBlank ? color[3] : 1;
+					objBuffer[i * 7 + 5] = cell.rgB; objBuffer[i * 7 + 6] = pelletOverrideBlack ? override[3] : 1;
 				}
 				++i;
 			};
@@ -4379,7 +4499,7 @@
 
 			const showNames = sigmod.settings.showNames ?? true;
 
-			const { cellColor, foodColor, outlineColor, skinReplacement } = sigmod.settings;
+			const { cellColor, foodColor, outlineColor } = sigmod.settings;
 
 			refreshTextCache();
 
@@ -4480,25 +4600,12 @@
 
 				/**
 				 * @param {Cell} cell
-				 * @returns {number}
-				 */
-				const calcAlpha = cell => {
-					let alpha = (now - cell.born) / 100;
-					if (cell.deadAt !== undefined) {
-						const alpha2 = 1 - (now - cell.deadAt) / 100;
-						if (alpha2 < alpha) alpha = alpha2;
-					}
-					return alpha > 1 ? 1 : alpha < 0 ? 0 : alpha;
-				};
-
-				/**
-				 * @param {Cell} cell
 				 */
 				function draw(cell) {
 					// #1 : draw cell
 					gl.useProgram(glconf.programs.cell);
 
-					const alpha = calcAlpha(cell);
+					const alpha = calcAlpha(cell, now);
 					cellUboFloats[8] = alpha * settings.cellOpacity;
 
 					/** @type {Cell | undefined} */
@@ -4563,44 +4670,7 @@
 					cellUboInts[9] |= settings.colorUnderSkin ? 0x20 : 0;
 
 					if (!cell.pellet) {
-						const myIndex = vision.owned.indexOf(cell.id);
-						if (myIndex !== -1) {
-							if (vision.camera.merging.length > 0) cellUboInts[9] |= 0x04; // active multi outline
-							if (!canSplit[myIndex]) cellUboInts[9] |= 0x10;
-						}
-						let ownedByOther = false;
-						for (const otherVision of world.views.values()) {
-							if (otherVision === vision) continue;
-							if (!otherVision.owned.includes(cell.id)) continue;
-							ownedByOther = true;
-							// inactive multi outline
-							if (otherVision.camera.merging.includes(world.selected)) cellUboInts[9] |= 0x08;
-							break;
-						}
-
-						// 🖼️
-						let texture;
-						if (myIndex !== -1 || ownedByOther) {
-							// owned by primary === selected primary => use primary skin
-							// else use multi skin
-							const prop = (myIndex !== -1) === (world.selected === world.viewId.primary)
-								? 'selfSkin' : 'selfSkinMulti';
-							if (settings[prop]) {
-								if (settings[prop].startsWith('🖼️')) texture = textureFromDatabase(prop);
-								else texture = textureFromCache(settings[prop]);
-							}
-						}
-
-						// allow turning off sigmally skins while still using custom skins
-						if (!texture && aux.settings.showSkins && cell.skin) {
-							if (skinReplacement && cell.skin.includes(`${skinReplacement.original}.png`)) {
-								texture = textureFromCache(
-									skinReplacement.replacement ?? skinReplacement.replaceImg ?? '');
-							} else {
-								texture = textureFromCache(cell.skin);
-							}
-						}
-
+						const texture = calcSkin(cell);
 						if (texture) {
 							cellUboInts[9] |= 0x01; // skin
 							gl.bindTexture(gl.TEXTURE_2D, texture.texture);
@@ -4739,7 +4809,7 @@
 				for (const resolution of world.pellets.values()) {
 					// deadTo property should never change in between upload('pellets') calls
 					if (resolution.merged?.deadTo !== -1) continue;
-					pelletAlpha[i++] = calcAlpha(resolution.merged);
+					pelletAlpha[i++] = calcAlpha(resolution.merged, now);
 				}
 				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao[0].alphaBuffer);
 				gl.bufferSubData(gl.ARRAY_BUFFER, 0, pelletAlpha);
@@ -4800,7 +4870,7 @@
 						if (!cell) continue;
 						if (cell.jagged) cellAlpha[i++] = 0;
 						else {
-							let alpha = calcAlpha(cell);
+							let alpha = calcAlpha(cell, now);
 							// it looks kinda weird when cells get sucked in when being eaten
 							if (cell.deadTo !== -1) alpha *= 0.25;
 							cellAlpha[i++] = alpha;
@@ -4817,7 +4887,9 @@
 					gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
 
 					gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
-					gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([ 0.25, 1.5 ]), gl.STATIC_DRAW);
+					circleUboFloats[0] = 1;
+					circleUboFloats[1] = 1.5;
+					gl.bufferData(gl.UNIFORM_BUFFER, circleUboFloats, gl.STATIC_DRAW);
 					gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 
 					gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, i);
