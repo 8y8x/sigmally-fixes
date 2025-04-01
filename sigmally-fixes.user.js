@@ -471,7 +471,7 @@
 						if (world.score(view) > 0 && vision.border) {
 							const { border } = vision;
 							// use a smaller respawn radius on EU servers
-							const radius = Math.min(border.r - border.l, border.b - border.t) / 5;
+							const radius = Math.min(border.r - border.l, border.b - border.t) / 4;
 							for (const [otherView, otherVision] of world.views) {
 								if (vision === otherVision) continue;
 								if (world.score(otherView) <= 0) continue;
