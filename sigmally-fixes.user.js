@@ -1885,7 +1885,7 @@
 	 * oy: number, ny: number,
 	 * or: number, nr: number,
 	 * jr: number, a: number,
-	 * Rgb: number, rGb: number, rgB: number,
+	 * rgb: [number, number, number],
 	 * updated: number, born: number, deadTo: number, deadAt: number | undefined,
 	 * jagged: boolean, pellet: boolean,
 	 * name: string, skin: string, sub: boolean, clan: string,
@@ -2186,7 +2186,7 @@
 									oy: model.ny, ny: model.ny,
 									or: model.nr, nr: model.nr,
 									jr: model.nr, a: model.a,
-									Rgb: model.Rgb, rGb: model.rGb, rgB: model.rgB,
+									rgb: model.rgb,
 									jagged: model.jagged, pellet: model.pellet,
 									name: model.name, skin: model.skin, sub: model.sub, clan: model.clan,
 									born: model.born, updated: now,
@@ -2485,12 +2485,10 @@
 
 							let clan; [clan, o] = aux.readZTString(dat, o);
 
-							/** @type {number | undefined} */
-							let Rgb, rGb, rgB;
+							/** @type {[number, number, number] | undefined} */
+							let rgb;
 							if (flags & 0x02) { // update color
-								Rgb = dat.getUint8(o++) / 255;
-								rGb = dat.getUint8(o++) / 255;
-								rgB = dat.getUint8(o++) / 255;
+								rgb = [dat.getUint8(o++) / 255, dat.getUint8(o++) / 255, dat.getUint8(o++) / 255];
 							}
 
 							let skin = '';
@@ -2522,11 +2520,7 @@
 								cell.updated = now;
 
 								cell.clan = clan;
-								if (Rgb !== undefined) {
-									cell.Rgb = Rgb;
-									cell.rGb = /** @type {number} */ (rGb);
-									cell.rgB = /** @type {number} */ (rgB);
-								}
+								cell.rgb = rgb ?? cell.rgb;
 								if (skin) cell.skin = skin;
 								if (name) cell.name = name;
 								cell.sub = sub;
@@ -2534,7 +2528,7 @@
 								if (cell?.deadAt !== undefined) {
 									// when respawning, OgarII does not send the description of cells if you spawn in
 									// the same area, despite those cells being deleted from your view area
-									if (Rgb === undefined) ({ Rgb, rGb, rgB} = cell);
+									if (rgb === undefined) ({ rgb } = cell);
 									name ||= cell.name; // note the || and not ??
 									skin ||= cell.skin;
 								}
@@ -2546,7 +2540,7 @@
 									oy: y, ny: y,
 									or: r, nr: r,
 									jr: r, a: 0,
-									Rgb: Rgb ?? 1, rGb: rGb ?? 1, rgB: rgB ?? 1,
+									rgb: rgb ?? [0.5, 0.5, 0.5],
 									jagged, pellet,
 									updated: now, born: now,
 									deadAt: undefined, deadTo: -1,
@@ -4403,7 +4397,7 @@
 				objBuffer[i * 7 + 1] = ny;
 				objBuffer[i * 7 + 2] = nr;
 
-				const baseColor = override ?? [cell.Rgb, cell.rGb, cell.rgB, 1]; // TODO ong just go back to .rgb array
+				const baseColor = override ?? cell.rgb;
 
 				let localOverride;
 				if (key === 'cells') {
@@ -4421,11 +4415,15 @@
 				localOverride ??= override;
 
 				if (localOverride && !pelletOverrideBlack) {
-					objBuffer[i * 7 + 3] = localOverride[0]; objBuffer[i * 7 + 4] = localOverride[1];
-					objBuffer[i * 7 + 5] = localOverride[2]; objBuffer[i * 7 + 6] = localOverride[3];
+					objBuffer[i * 7 + 3] = localOverride[0];
+					objBuffer[i * 7 + 4] = localOverride[1];
+					objBuffer[i * 7 + 5] = localOverride[2];
+					objBuffer[i * 7 + 6] = localOverride[3];
 				} else {
-					objBuffer[i * 7 + 3] = cell.Rgb; objBuffer[i * 7 + 4] = cell.rGb;
-					objBuffer[i * 7 + 5] = cell.rgB; objBuffer[i * 7 + 6] = pelletOverrideBlack ? override[3] : 1;
+					objBuffer[i * 7 + 3] = cell.rgb[0];
+					objBuffer[i * 7 + 4] = cell.rgb[1];
+					objBuffer[i * 7 + 5] = cell.rgb[2];
+					objBuffer[i * 7 + 6] = pelletOverrideBlack ? override[3] : 1;
 				}
 				++i;
 			};
@@ -4656,15 +4654,16 @@
 
 					cellUboInts[9] = 0;
 
+					/** @type {[number, number, number, number] | [number, number, number] | undefined} */
 					let color = cell.pellet ? foodColor : cellColor;
 					if (cell.pellet && foodColor && foodColor[0] === 0 && foodColor[1] === 0 && foodColor[2] === 0) {
-						color = [cell.Rgb, cell.rGb, cell.rgB, foodColor[3]];
+						color = [cell.rgb[0], cell.rgb[1], cell.rgb[2], foodColor[3]];
 					} else {
-						color ??= [cell.Rgb, cell.rGb, cell.rgB, 1];
+						color ??= cell.rgb;
 					}
 
 					cellUboFloats[4] = color[0]; cellUboFloats[5] = color[1];
-					cellUboFloats[6] = color[2]; cellUboFloats[7] = color[3];
+					cellUboFloats[6] = color[2]; cellUboFloats[7] = color[3] ?? 1;
 
 					cellUboInts[9] |= settings.cellOutlines ? 0x02 : 0;
 					cellUboInts[9] |= settings.colorUnderSkin ? 0x20 : 0;
@@ -4887,7 +4886,7 @@
 					gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
 
 					gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
-					circleUboFloats[0] = 1;
+					circleUboFloats[0] = 0.25;
 					circleUboFloats[1] = 1.5;
 					gl.bufferData(gl.UNIFORM_BUFFER, circleUboFloats, gl.STATIC_DRAW);
 					gl.bindBuffer(gl.UNIFORM_BUFFER, null);
@@ -5002,14 +5001,14 @@
 				ctx.globalAlpha = 1;
 
 				// draw cells
-				/** @param {{ nx: number, ny: number, nr: number, Rgb: number, rGb: number, rgB: number }} cell */
+				/** @param {{ nx: number, ny: number, nr: number, rgb: [number, number, number] }} cell */
 				const drawCell = function drawCell(cell) {
 					const x = (cell.nx - border.l) / gameWidth * canvas.width;
 					const y = (cell.ny - border.t) / gameHeight * canvas.height;
 					const r = Math.max(cell.nr / gameWidth * canvas.width, 2);
 
 					ctx.scale(0.01, 0.01); // prevent sigmod from treating minimap cells as pellets
-					ctx.fillStyle = aux.rgba2hex(cell.Rgb, cell.rGb, cell.rgB, 1);
+					ctx.fillStyle = aux.rgba2hex6(cell.rgb[0], cell.rgb[1], cell.rgb[2], 1);
 					ctx.beginPath();
 					ctx.moveTo((x + r) * 100, y * 100);
 					ctx.arc(x * 100, y * 100, r * 100, 0, 2 * Math.PI);
@@ -5044,7 +5043,7 @@
 					drawCell(cell);
 
 					const name = cell.name || 'An unnamed cell';
-					const id = ((name + cell.Rgb) + cell.rGb) + cell.rgB;
+					const id = ((name + cell.rgb[0]) + cell.rgb[1]) + cell.rgb[2];
 					const entry = avgPos.get(id);
 					if (entry) {
 						++entry.n;
@@ -5079,7 +5078,7 @@
 					// if no cells were drawn, draw our spectate pos instead
 					drawCell({
 						nx: vision.camera.x, ny: vision.camera.y, nr: gameWidth / canvas.width * 5,
-						Rgb: 1, rGb: 0.6, rgB: 0.6,
+						rgb: [1, 0.6, 0.6],
 					});
 				} else {
 					ownX /= ownN;
