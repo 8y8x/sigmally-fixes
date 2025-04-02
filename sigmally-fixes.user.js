@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.6.7
+// @version      2.6.8-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.6.7';
+	const sfVersion = '2.6.8-BETA';
 	const undefined = void 0; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -314,6 +314,16 @@
 
 		/** @type {{ token: string, updated: number } | undefined} */
 		aux.token = undefined;
+
+		// @ts-expect-error
+		let handler = window.signOut;
+		Object.defineProperty(window, 'signOut', {
+			get: () => () => {
+				aux.token = undefined;
+				return handler?.();
+			},
+			set: x => handler = x,
+		});
 
 		/** @type {object | undefined} */
 		aux.userData = undefined;
