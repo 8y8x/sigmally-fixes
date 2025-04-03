@@ -2288,7 +2288,7 @@
 
 			return {
 				x, y, r,
-				jr: aux.exponentialEase(cell.jr, r, settings.slowerJellyPhysics ? 20 : 5, dt),
+				jr: aux.exponentialEase(cell.jr, r, settings.slowerJellyPhysics ? 10 : 5, dt),
 				a,
 			};
 		};
@@ -3731,7 +3731,7 @@
 					}
 
 					v_vertex = a_vertex;
-					v_uv = a_vertex * (u_cell_radius / u_cell_radius_skin) * 0.5 + 0.5;
+					v_uv = a_vertex * min(u_cell_radius / u_cell_radius_skin, 1.0) * 0.5 + 0.5;
 
 					vec2 clip_pos = -u_camera_pos + u_cell_pos + v_vertex * u_cell_radius;
 					clip_pos *= u_camera_scale * vec2(1.0 / u_camera_ratio, -1.0);
@@ -4639,10 +4639,9 @@
 					cellUboFloats[2] = x;
 					cellUboFloats[3] = y;
 					if (aux.settings.jellyPhysics && !cell.jagged && !cell.pellet) {
-						const realR = Math.min(r, jr);
-						const strokeThickness = Math.max(realR * 0.01, 10);
-						cellUboFloats[0] = realR + strokeThickness;
-						cellUboFloats[1] = (settings.jellySkinLag ? r : realR) + strokeThickness;
+						const strokeThickness = Math.max(jr * 0.01, 10);
+						cellUboFloats[0] = jr + strokeThickness;
+						cellUboFloats[1] = (settings.jellySkinLag ? r : jr) + strokeThickness;
 					} else {
 						cellUboFloats[0] = cellUboFloats[1] = r + 2;
 					}
