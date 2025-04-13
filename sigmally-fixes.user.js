@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.6.8
+// @version      2.7.0-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.6.8';
+	const sfVersion = '2.7.0-BETA';
 	const undefined = void 0; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -2387,7 +2387,8 @@
 			}
 
 			ws.binaryType = 'arraybuffer';
-			ws.addEventListener('close', () => {
+			ws.addEventListener('close', e => {
+				console.error('WebSocket closed:', e);
 				const connection = net.connections.get(view);
 				const vision = world.views.get(view);
 				if (!connection || !vision) return; // if the entry no longer exists, don't reconnect
