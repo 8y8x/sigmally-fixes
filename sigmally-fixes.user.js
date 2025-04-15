@@ -28,7 +28,7 @@
 
 (async () => {
 	const sfVersion = '2.7.0-BETA';
-	const undefined = void 0; // yes, this actually makes a significant difference
+	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
 	////////////////////////////////
 	// Define Auxiliary Functions //
@@ -1887,24 +1887,50 @@
 	///////////////////////////
 	// Setup World Variables //
 	///////////////////////////
-	/** @typedef {{
-	 * id: number,
-	 * ox: number, nx: number,
-	 * oy: number, ny: number,
-	 * or: number, nr: number,
-	 * jr: number, a: number,
-	 * rgb: [number, number, number],
-	 * updated: number, born: number, deadTo: number, deadAt: number | undefined,
-	 * jagged: boolean, pellet: boolean,
-	 * name: string, skin: string, sub: boolean, clan: string,
-	 * }} Cell */
+	/**
+	 * @typedef {Readonly<{
+	 * 	nx: number, ny: number, nr: number,
+	 * 	born: number, deadAt: number | undefined, deadTo: number,
+	 * }>} CellFrame
+	 * @typedef {{
+	 * 	ox: number, oy: number, or: number,
+	 * 	jr: number, a: number, updated: number,
+	 * }} CellInterpolation
+	 * @typedef {{
+	 *  name: string, skin: string, sub: boolean, clan: string,
+	 * 	rgb: [number, number, number],
+	 * 	jagged: boolean, eject: boolean,
+	 * }} CellDescription
+	 * @typedef {CellInterpolation & CellDescription & { frames: CellFrame[] }} CellRecord
+	 * @typedef {{
+	 * 	id: number,
+	 * 	merged: (CellFrame & CellInterpolation) | undefined,
+	 * 	model: CellFrame | undefined,
+	 * 	views: Map<symbol, CellRecord>,
+	 * }} Cell
+	 * @typedef {{
+	 * 	border: { l: number, r: number, t: number, b: number } | undefined,
+	 * 	camera: {
+	 * 		x: number, tx: number,
+	 * 		y: number, ty: number,
+	 * 		scale: number, tscale: number,
+	 * 		merging: symbol[],
+	 * 		updated: number,
+	 * 	},
+	 * 	leaderboard: { name: string, me: boolean, sub: boolean, place: number | undefined }[],
+	 * 	owned: number[],
+	 * 	spawned: number,
+	 * 	stats: object | undefined,
+	 * 	used: number,
+	 * }} Vision
+	 */
 	const world = (() => {
 		const world = {};
 
 		// #1 : define cell variables and functions
-		/** @type {Map<number, { merged: Cell | undefined, model: Cell | undefined, views: Map<symbol, Cell> }>} */
+		/** @type {Map<number, Cell>} */
 		world.cells = new Map();
-		/** @type {Map<number, { merged: Cell | undefined, model: Cell | undefined, views: Map<symbol, Cell> }>} */
+		/** @type {Map<number, Cell>} */
 		world.pellets = new Map();
 		world.viewId = { // decoupling views like this should make it easier to do n-boxing in the future
 			// these could be swapped around at any time (for example, if the spectate tab is promoted)
@@ -1913,21 +1939,7 @@
 			spectate: Symbol(),
 		};
 		world.selected = world.viewId.primary;
-		/** @type {Map<symbol, {
-		 * 		border: { l: number, r: number, t: number, b: number } | undefined,
-		 * 		camera: {
-		 * 			x: number, tx: number,
-		 * 			y: number, ty: number,
-		 * 			scale: number, tscale: number,
-		 * 			merging: symbol[],
-		 * 			updated: number,
-		 * 		},
-		 * 		leaderboard: { name: string, me: boolean, sub: boolean, place: number | undefined }[],
-		 * 		owned: number[],
-		 * 		spawned: number,
-		 * 		stats: object | undefined,
-		 * 		used: number,
-		 * }>} */
+		/** @type {Map<symbol, Vision>} */
 		world.views = new Map();
 
 		world.alive = () => {
@@ -1943,23 +1955,29 @@
 
 		/**
 		 * @param {symbol} view
+		 * @param {Vision} vision
 		 * @param {number} weightExponent
 		 * @param {number} now
 		 * @returns {{ mass: number, scale: number, sumX: number, sumY: number, weight: number }}
 		 */
-		world.singleCamera = (view, weightExponent, now) => {
+		world.singleCamera = (view, vision, weightExponent, now) => {
 			let mass = 0;
 			let r = 0;
 			let sumX = 0;
 			let sumY = 0;
 			let weight = 0;
 			for (const id of (world.views.get(view)?.owned ?? [])) {
-				const resolution = world.cells.get(id);
-				const cell = world.dirtyMerged ? resolution?.views.get(view) : resolution?.merged;
-				if (!cell) continue;
+				const cell = world.cells.get(id);
+				/** @type {CellFrame | undefined} */
+				const frame = world.synchronized ? cell?.merged : cell?.views.get(view)?.frames[0];
+				/** @type {CellInterpolation | undefined} */
+				const interp = world.synchronized ? cell?.merged : cell?.views.get(view);
+				if (!frame || !interp) continue;
+				// don't include cells owned before respawning
+				if (frame.born < vision.spawned) continue;
 
 				if (settings.cameraMovement === 'instant') {
-					const xyr = world.xyr(cell, undefined, now);
+					const xyr = world.xyr(frame, interp, undefined, undefined, false, now);
 					r += xyr.r * xyr.a;
 					mass += (xyr.r * xyr.r / 100) * xyr.a;
 					const cellWeight = xyr.a * (xyr.r ** weightExponent);
@@ -1967,13 +1985,14 @@
 					sumY += xyr.y * cellWeight;
 					weight += cellWeight;
 				} else { // settings.cameraMovement === 'default'
-					if (cell.deadAt !== undefined) continue;
-					const xyr = world.xyr(cell, undefined, now);
-					r += cell.nr;
-					mass += cell.nr * cell.nr / 100;
-					sumX += xyr.x * (cell.nr ** weightExponent);
-					sumY += xyr.y * (cell.nr ** weightExponent);
-					weight += (cell.nr ** weightExponent);
+					if (frame.deadAt !== undefined) continue;
+					const xyr = world.xyr(frame, interp, undefined, undefined, false, now);
+					r += frame.nr;
+					mass += frame.nr * frame.nr / 100;
+					const cellWeight = frame.nr ** weightExponent;
+					sumX += xyr.x * cellWeight;
+					sumY += xyr.y * cellWeight;
+					weight += cellWeight;
 				}
 			}
 
@@ -1998,7 +2017,7 @@
 			const merging = [];
 			/** @type {{ mass: number, sumX: number, sumY: number, weight: number }[]} */
 			const mergingCameras = [];
-			const desc = world.singleCamera(view, weighted ? 2 : 0, now);
+			const desc = world.singleCamera(view, vision, weighted ? 2 : 0, now);
 			let xyFactor;
 			if (desc.weight > 0) {
 				const mainX = desc.sumX / desc.weight;
@@ -2010,7 +2029,7 @@
 					for (const [otherView, otherVision] of world.views) {
 						if (otherView === view) continue;
 						if (now - otherVision.used > 20_000) continue; // don't merge with inactive tabs
-						const otherDesc = world.singleCamera(otherView, 2, now);
+						const otherDesc = world.singleCamera(otherView, otherVision, 2, now);
 						if (otherDesc.weight <= 0) continue;
 
 						const otherX = otherDesc.sumX / otherDesc.weight;
@@ -2103,139 +2122,12 @@
 
 		/** @type {number | undefined} */
 		let disagreementStart = undefined;
-		world.dirtyMerged = false;
+		world.synchronized = false;
 		world.merge = (stable = false) => {
 			const now = performance.now();
-			if (world.views.size <= 1 || stable) {
-				// no-merge strategy (stable)
-				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-					for (const resolution of world[key].values()) {
-						resolution.merged = resolution.views.get(world.selected);
-					}
-				}
-				world.dirtyMerged = true;
-			} else { // "flawless" merging
-				// for camera merging to look extremely smooth, we need to merge packets and apply them *ONLY* when all
-				// tabs are synchronized.
-				// if you simply fall back to what the other tabs see, you will get lots of flickering and warping (what
-				// delta suffers from).
-				// threfore, we make sure that all tabs that share visible cells see them in the same spots, to make
-				// sure they are all on the same tick.
-				// it's also not sufficient to simply count how many update (0x10) packets we get, as /leaveworld (part
-				// of respawn functionality) stops those packets from coming in.
-				// if the view areas are disjoint, then there's nothing we can do but this should never happen when
-				// splitrunning
-				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-					for (const resolution of world[key].values()) {
-						/** @type {Cell | undefined} */
-						let model;
-						for (const cell of resolution.views.values()) {
-							if (!model) {
-								model = cell;
-								continue;
-							}
-
-							const modelDisappeared = model.deadAt !== undefined && model.deadTo === -1;
-							const cellDisappeared = cell.deadAt !== undefined && cell.deadTo === -1;
-							if (!modelDisappeared && !cellDisappeared) {
-								// both cells are visible; are they at the same place?
-								if (model.nx !== cell.nx || model.ny !== cell.ny || model.nr !== cell.nr) {
-									// disagreement! if we haven't agreed for more than 200ms, skip flawless merging
-									// for now, until that pesky tab comes back
-									disagreementStart ??= now;
-									if (now - disagreementStart > 200) world.merge(true);
-									return;
-								}
-							} else if (modelDisappeared && !cellDisappeared) {
-								// model went out of view; prefer the visible cell
-								model = cell;
-							} else if (!modelDisappeared && cellDisappeared) {
-								// cell went out of view; prefer the model
-							} else { // modelDisappeared && cellDisappeared
-								// both cells disappeared; prefer the one that disappeared last
-								if (/** @type {number} */ (cell.deadAt) > /** @type {number} */ (model.deadAt)) {
-									model = cell;
-								}
-							}
-						}
-						// we don't want to maintain a separate map for models because indexes are very expensive
-						resolution.model = model;
-					}
-				}
-
-				// all views are synced; merge according to the models
-				disagreementStart = undefined;
-				if (world.dirtyMerged) {
-					// if `merged` uses references from other tabs, then that can cause very bad bugginess when those
-					// cells die!
-					for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-						for (const resolution of world[key].values()) {
-							resolution.merged = undefined;
-						}
-					}
-					world.dirtyMerged = false;
-				}
-
-				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-					for (const resolution of world[key].values()) {
-						const { merged, model } = resolution;
-						if (!model) {
-							resolution.merged = undefined;
-							continue;
-						}
-
-						if (!merged) {
-							// merged cell doesn't exist; only make it if the cell didn't immediately die
-							// otherwise, it would just stay transparent
-							if (model.deadAt === undefined) {
-								resolution.merged = {
-									id: model.id,
-									ox: model.nx, nx: model.nx,
-									oy: model.ny, ny: model.ny,
-									or: model.nr, nr: model.nr,
-									jr: model.nr, a: model.a,
-									rgb: model.rgb,
-									jagged: model.jagged, pellet: model.pellet,
-									name: model.name, skin: model.skin, sub: model.sub, clan: model.clan,
-									born: model.born, updated: now,
-									deadAt: undefined, deadTo: -1,
-								};
-							}
-						} else {
-							// merged cell *does* exist, move it if the cell is not currently dead
-							if (model.deadAt === undefined) {
-								if (merged.deadAt === undefined) {
-									const { x, y, r, jr, a } = world.xyr(merged, undefined, now);
-									merged.ox = x;
-									merged.oy = y;
-									merged.or = r;
-									merged.jr = jr;
-									merged.a = a;
-								} else {
-									// came back to life (probably back into view)
-									merged.ox = model.nx;
-									merged.oy = model.ny;
-									merged.or = model.nr;
-									merged.jr = model.jr;
-									merged.deadAt = undefined;
-									merged.deadTo = -1;
-									merged.born = now;
-								}
-								merged.nx = model.nx;
-								merged.ny = model.ny;
-								merged.nr = model.nr;
-								merged.updated = now;
-							} else {
-								// model died; only kill/update the merged cell once
-								if (merged.deadAt === undefined) {
-									merged.deadAt = now;
-									merged.deadTo = model.deadTo;
-									merged.updated = now;
-								}
-							}
-						}
-					}
-				}
+			if (stable || true) { // TODO
+				world.synchronized = false;
+				return;
 			}
 		};
 
@@ -2243,52 +2135,61 @@
 		world.score = view => {
 			let score = 0;
 			for (const id of (world.views.get(view)?.owned ?? [])) {
-				const cell = world.cells.get(id)?.merged;
-				if (!cell || cell.deadAt !== undefined) continue;
-				score += cell.nr * cell.nr / 100; // use exact score as given by the server, no interpolation
+				const cell = world.cells.get(id);
+				if (!cell) continue;
+
+				/** @type {CellFrame | undefined} */
+				const frame = world.synchronized ? cell.merged : cell.views.get(view)?.frames[0];
+				if (!frame || frame.deadAt !== undefined) continue;
+				score += frame.nr * frame.nr / 100; // use exact score as given by the server, no interpolation
 			}
 
 			return score;
 		};
 
 		/**
-		 * @param {Cell} cell
-		 * @param {Cell | undefined} killer
+		 * @param {CellFrame} frame
+		 * @param {CellInterpolation} interp
+		 * @param {CellFrame | undefined} killerFrame
+		 * @param {CellInterpolation | undefined} killerInterp
+		 * @param {boolean} pellet
 		 * @param {number} now
 		 * @returns {{ x: number, y: number, r: number, jr: number, a: number }}
 		 */
-		world.xyr = (cell, killer, now) => {
-			let nx = cell.nx;
-			let ny = cell.ny;
-			if (killer && cell.deadAt !== undefined && (killer.deadAt === undefined || cell.deadAt <= killer.deadAt)) {
-				// do not animate death towards a cell that died already (went offscreen)
-				nx = killer.nx;
-				ny = killer.ny;
+		world.xyr = (frame, interp, killerFrame, killerInterp, pellet, now) => {
+			let nx = frame.nx;
+			let ny = frame.ny;
+			if (killerFrame && killerInterp) {
+				// animate towards the killer's interpolated position (not the target position) for extra smoothness
+				// we also assume the killer has not died (if it has, then weird stuff is OK to occur)
+				const killerXyr = world.xyr(killerFrame, killerInterp, undefined, undefined, false, now);
+				nx = killerXyr.x;
+				ny = killerXyr.y;
 			}
 
 			let x, y, r, a;
-			if (cell.pellet && cell.deadAt === undefined) {
+			if (pellet && frame.deadAt === undefined) {
 				x = nx;
 				y = ny;
-				r = cell.nr;
+				r = frame.nr;
 				a = 1;
 			} else {
-				let alpha = (now - cell.updated) / settings.drawDelay;
+				let alpha = (now - interp.updated) / settings.drawDelay;
 				alpha = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
 
-				x = cell.ox + (nx - cell.ox) * alpha;
-				y = cell.oy + (ny - cell.oy) * alpha;
-				r = cell.or + (cell.nr - cell.or) * alpha;
+				x = interp.ox + (nx - interp.ox) * alpha;
+				y = interp.oy + (ny - interp.oy) * alpha;
+				r = interp.or + (frame.nr - interp.or) * alpha;
 
-				const targetA = cell.deadAt !== undefined ? 0 : 1;
-				a = cell.a + (targetA - cell.a) * alpha;
+				const targetA = frame.deadAt !== undefined ? 0 : 1;
+				a = interp.a + (targetA - interp.a) * alpha;
 			}
 
-			const dt = (now - cell.updated) / 1000;
+			const dt = (now - interp.updated) / 1000;
 
 			return {
 				x, y, r,
-				jr: aux.exponentialEase(cell.jr, r, settings.slowerJellyPhysics ? 10 : 5, dt),
+				jr: aux.exponentialEase(interp.jr, r, settings.slowerJellyPhysics ? 10 : 5, dt),
 				a,
 			};
 		};
@@ -2298,14 +2199,19 @@
 		world.clean = () => {
 			const now = performance.now();
 			if (now - lastClean < 200) return;
+			lastClean = now;
+
 			for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-				for (const [id, resolution] of world[key]) {
-					for (const [view, cell] of resolution.views) {
-						if (cell.deadAt !== undefined && now - cell.deadAt >= settings.drawDelay + 200)
-							resolution.views.delete(view);
+				for (const [id, cell] of world[key]) {
+					for (const [view, record] of cell.views) {
+						const firstFrame = record.frames[0];
+						const lastFrame = record.frames[record.frames.length - 1];
+						if (firstFrame.deadAt !== lastFrame.deadAt) continue;
+						if (lastFrame.deadAt !== undefined && now - lastFrame.deadAt >= settings.drawDelay + 200)
+							cell.views.delete(view);
 					}
 
-					if (resolution.views.size === 0) world[key].delete(id);
+					if (cell.views.size === 0) world[key].delete(id);
 				}
 			}
 		};
@@ -2428,7 +2334,6 @@
 				}
 
 				world.merge();
-				render.upload('pellets');
 			});
 			ws.addEventListener('error', () => {});
 			ws.addEventListener('message', e => {
@@ -2460,7 +2365,18 @@
 				let o = 1;
 				switch (dat.getUint8(0)) {
 					case 0x10: { // world update
-						// (a) : kills / consumes
+						// carry forward record frames
+						for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+							for (const cell of world[key].values()) {
+								const record = cell.views.get(view);
+								if (!record) continue;
+
+								record.frames.unshift(record.frames[0]);
+								record.frames.splice(16, Infinity);
+							}
+						}
+
+						// (a) : eat
 						const killCount = dat.getUint16(o, true);
 						o += 2;
 						for (let i = 0; i < killCount; ++i) {
@@ -2468,18 +2384,36 @@
 							const killedId = dat.getUint32(o + 4, true);
 							o += 8;
 
-							const killed = (world.pellets.get(killedId) ?? world.cells.get(killedId))?.views.get(view);
-							if (killed) {
-								killed.deadAt = killed.updated = now;
-								killed.deadTo = killerId;
-								if (killed.pellet && vision.owned.includes(killerId)) {
-									++world.stats.foodEaten;
-									net.food(view); // dumbass quest code go brrr
-								}
+							let pellet = true;
+							let killed = world.pellets.get(killedId) ?? (pellet = false, world.cells.get(killedId));
+							if (!killed) continue;
+
+							const record = killed.views.get(view);
+							if (!record) continue;
+
+							const frame = record.frames[0];
+							// update interpolation using old targets
+							const xyr = world.xyr(record.frames[0], record, undefined, undefined, pellet, now);
+							record.ox = xyr.x;
+							record.oy = xyr.y;
+							record.or = xyr.r;
+							record.jr = xyr.jr;
+							record.a = xyr.a;
+							record.updated = now;
+
+							// update new targets (and dead-ness)
+							record.frames[0] = {
+								nx: frame.nx, ny: frame.ny, nr: frame.nr,
+								born: frame.born, deadAt: now, deadTo: killerId,
+							};
+
+							if (pellet && vision.owned.includes(killerId)) {
+								++world.stats.foodEaten;
+								net.food(view); // dumbass quest code go brrr
 							}
 						}
 
-						// (b) : updates
+						// (b) : add, upd
 						do {
 							const id = dat.getUint32(o, true);
 							o += 4;
@@ -2502,13 +2436,15 @@
 								rgb = [dat.getUint8(o++) / 255, dat.getUint8(o++) / 255, dat.getUint8(o++) / 255];
 							}
 
-							let skin = '';
+							/** @type {string | undefined} */
+							let skin;
 							if (flags & 0x04) { // update skin
 								[skin, o] = aux.readZTString(dat, o);
 								skin = aux.parseSkin(skin);
 							}
 
-							let name = '';
+							/** @type {string | undefined} */
+							let name;
 							if (flags & 0x08) { // update name
 								[name, o] = aux.readZTString(dat, o);
 								name = aux.parseName(name);
@@ -2518,73 +2454,92 @@
 							const jagged = !!(flags & 0x11); // spiked or agitated
 							const eject = !!(flags & 0x20);
 							const pellet = r <= 40 && !eject; // tourney servers have bigger pellets (r=40)
-							const cell = (pellet ? world.pellets : world.cells).get(id)?.views.get(view);
-							if (cell && cell.deadAt === undefined) {
-								const { x: ix, y: iy, r: ir, jr, a } = world.xyr(cell, undefined, now);
-								cell.ox = ix;
-								cell.oy = iy;
-								cell.or = ir;
-								cell.jr = jr;
-								cell.a = a;
-								cell.nx = x; cell.ny = y; cell.nr = r;
-								cell.jagged = jagged;
-								cell.updated = now;
-
-								cell.clan = clan;
-								cell.rgb = rgb ?? cell.rgb;
-								if (skin) cell.skin = skin;
-								if (name) cell.name = name;
-								cell.sub = sub;
-							} else {
-								if (cell?.deadAt !== undefined) {
-									// when respawning, OgarII does not send the description of cells if you spawn in
-									// the same area, despite those cells being deleted from your view area
-									if (rgb === undefined) ({ rgb } = cell);
-									name ||= cell.name; // note the || and not ??
-									skin ||= cell.skin;
+							const cell = (pellet ? world.pellets : world.cells).get(id);
+							const record = cell?.views.get(view);
+							if (record) {
+								const frame = record.frames[0];
+								if (frame.deadAt === undefined) {
+									// update interpolation using old targets
+									const xyr = world.xyr(record.frames[0], record, undefined, undefined, pellet, now);
+									record.ox = xyr.x;
+									record.oy = xyr.y;
+									record.or = xyr.r;
+									record.jr = xyr.jr;
+									record.a = xyr.a;
+								} else {
+									// cell just reappeared, discard all old data
+									record.ox = x;
+									record.oy = y;
+									record.or = r;
+									record.jr = r;
+									record.a = 0;
 								}
 
-								/** @type {Cell} */
-								const ncell = {
-									id,
-									ox: x, nx: x,
-									oy: y, ny: y,
-									or: r, nr: r,
-									jr: r, a: 0,
-									rgb: rgb ?? [0.5, 0.5, 0.5],
-									jagged, pellet,
-									updated: now, born: now,
-									deadAt: undefined, deadTo: -1,
-									name, skin, sub, clan,
+								record.updated = now;
+
+								// update target frame
+								record.frames[0] = {
+									nx: x, ny: y, nr: r,
+									born: frame.born, deadAt: undefined, deadTo: -1
 								};
-								let resolution = world[pellet ? 'pellets' : 'cells'].get(id);
-								if (!resolution) {
-									resolution = { merged: undefined, model: undefined, views: new Map() };
-									world[pellet ? 'pellets' : 'cells'].set(id, resolution);
+
+								// update desc
+								if (name !== undefined) record.name = name;
+								if (skin !== undefined) record.skin = skin;
+								if (rgb !== undefined) record.rgb = rgb;
+								record.clan = clan;
+								record.jagged = jagged;
+								record.eject = eject;
+							} else {
+								/** @type {CellRecord} */
+								const record = {
+									ox: x, oy: y, or: r,
+									jr: r, a: 0, updated: now,
+									frames: [{
+										nx: x, ny: y, nr: r,
+										born: now, deadAt: undefined, deadTo: -1,
+									}],
+									name: name ?? '', skin: skin ?? '', sub, clan,
+									rgb: rgb ?? [0.5, 0.5, 0.5],
+									jagged, eject,
+								};
+								if (cell) {
+									cell.views.set(view, record);
+								} else {
+									(pellet ? world.pellets : world.cells).set(id, {
+										id,
+										merged: undefined,
+										model: undefined,
+										views: new Map([[ view, record ]]),
+									});
 								}
-								resolution.views.set(view, ncell);
 							}
 						} while (true);
 
-						// (c) : deletes
+						// (c) : del
 						const deleteCount = dat.getUint16(o, true);
 						o += 2;
 						for (let i = 0; i < deleteCount; ++i) {
 							const deletedId = dat.getUint32(o, true);
 							o += 4;
 
-							const deleted
+							const record
 								= (world.pellets.get(deletedId) ?? world.cells.get(deletedId))?.views.get(view);
-							if (deleted && deleted.deadAt === undefined) {
-								deleted.deadAt = now;
-								deleted.deadTo = -1;
-							}
+							if (!record) continue;
+
+							const frame = record.frames[0];
+							if (frame.deadAt !== undefined) continue;
+							record.frames[0] = {
+								nx: frame.nx, ny: frame.ny, nr: frame.nr,
+								born: frame.born, deadAt: now, deadTo: -1,
+							};
+							// no interpolation stuff is updated because the target positions won't be changed,
+							// unlike on eat where nx and ny are set to the killer's
 						}
 
 						// (d) : finalize, upload data
 						world.merge();
 						world.clean();
-						render.upload('pellets');
 
 						// (e) : clear own cells that don't exist anymore (NOT on world.clean!)
 						for (let i = 0; i < vision.owned.length; ++i) {
@@ -2614,17 +2569,21 @@
 						// DO NOT just clear the maps! when respawning, OgarII will not resend cell data if we spawn
 						// nearby.
 						for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-							for (const resolution of world[key].values()) {
-								const cell = resolution.views.get(view);
-								if (cell && cell.deadAt === undefined) cell.deadAt = now;
+							for (const cell of world[key].values()) {
+								const record = cell.views.get(view);
+								if (!record) continue;
+
+								const frame = record.frames[0];
+								record.frames.unshift({
+									nx: frame.nx, ny: frame.ny, nr: frame.nr,
+									born: frame.born, deadAt: frame.deadAt ?? now, deadTo: frame.deadTo || -1,
+								});
 							}
 						}
 						world.merge();
-						render.upload('pellets');
 						// passthrough
 					}
 					case 0x14: { // delete my cells
-						vision.owned = [];
 						// only reset spawn time if no other tab is alive.
 						// this could be cheated (if you alternate respawning your tabs, for example) but i don't think
 						// multiboxers ever see the stats menu anyway
@@ -2639,11 +2598,16 @@
 						let firstThis = true;
 						for (const [otherView, otherVision] of world.views) {
 							for (const id of otherVision.owned) {
-								const cell = world.cells.get(id)?.views.get(otherView);
-								if (!cell || cell.deadAt !== undefined) continue;
+								const record = world.cells.get(id)?.views.get(otherView);
+								if (!record) continue;
+								const frame = record.frames[0];
+								if (frame.deadAt !== undefined) continue;
+
 								first = false;
-								if (otherVision === vision) firstThis = false;
-								break;
+								if (otherVision === vision) {
+									firstThis = false;
+									break;
+								}
 							}
 						}
 						if (first) world.stats.spawnedAt = now;
@@ -2654,6 +2618,7 @@
 					}
 
 					// case 0x30 is a text list (not a numbered list), leave unsupported
+					// TODO: support text lists
 					case 0x31: { // ffa leaderboard list
 						const lb = [];
 						const count = dat.getUint32(o, true);
@@ -2694,6 +2659,7 @@
 						vision.leaderboard = lb;
 						break;
 					}
+					// TODO: support team (pie) lists
 
 					case 0x40: { // border update
 						vision.border = {
@@ -2708,6 +2674,7 @@
 					case 0x63: { // chat message
 						// only handle chat messages on the primary tab, to prevent duplicate messages
 						// this means that command responses won't be shown on the secondary tab but who actually cares
+						// TODO: show server messages across all tabs
 						if (view !== world.viewId.primary) return;
 						const flags = dat.getUint8(o++);
 						const rgb = /** @type {[number, number, number, number]} */
@@ -3996,7 +3963,7 @@
 		document.fonts.addEventListener('loadingdone', () => void (minimapCache = undefined));
 
 
-		// #2 : define helper functions
+		// #2 : define caching functions
 		const { resetDatabaseCache, resetTextureCache, textureFromCache, textureFromDatabase } = (() => {
 			/** @type {Map<string, {
 			 * 	color: [number, number, number, number], texture: WebGLTexture, width: number, height: number
@@ -4297,180 +4264,24 @@
 		render.resetTextCache = resetTextCache;
 		render.textFromCache = textFromCache;
 
+		// #3 : define other render functions
 		/**
-		 * @param {Cell} cell
+		 * @param {CellFrame} frame
 		 * @param {number} now
-		 * @returns {number}
 		 */
-		const calcAlpha = (cell, now) => {
-			let alpha = (now - cell.born) / 100;
-			if (cell.deadAt !== undefined) {
-				const alpha2 = 1 - (now - cell.deadAt) / 100;
-				if (alpha2 < alpha) alpha = alpha2;
+		render.alpha = (frame, now) => {
+			// TODO: lots of opportunity here to make the game look nice (like delta)
+			// note that 0 drawDelay is supported here
+			let alpha = (now - frame.born) / settings.drawDelay;
+			if (frame.deadAt !== undefined) {
+				alpha = Math.min(alpha, 1 - (now - frame.deadAt) / settings.drawDelay);
 			}
-			return alpha > 1 ? 1 : alpha < 0 ? 0 : alpha;
+
+			return Math.min(Math.max(alpha, 0), 1);
 		};
 
-		/**
-		 * @param {Cell} cell
-		 * @returns {{
-		 * 	color: [number, number, number, number], texture: WebGLTexture, width: number, height: number
-		 * } | undefined}
-		 */
-		const calcSkin = cell => {
-			/** @type {symbol | undefined} */
-			let ownerView;
-			for (const [otherView, otherVision] of world.views) {
-				if (!otherVision.owned.includes(cell.id)) continue;
-				ownerView = otherView;
-				break;
-			}
-
-			// 🖼️
-			let texture;
-			if (ownerView) {
-				// owned by primary === selected primary => use primary skin
-				// else use multi skin
-				const prop = ownerView === world.viewId.primary ? 'selfSkin' : 'selfSkinMulti';
-				if (settings[prop]) {
-					if (settings[prop].startsWith('🖼️')) texture = textureFromDatabase(prop);
-					else texture = textureFromCache(settings[prop]);
-				}
-			}
-
-			// allow turning off sigmally skins while still using custom skins
-			if (!texture && aux.settings.showSkins && cell.skin) {
-				texture = textureFromCache(cell.skin);
-			}
-
-			return texture;
-		};
-
-		let cellAlpha = new Float32Array(0);
-		let cellBuffer = new Float32Array(0);
-		let pelletAlpha = new Float32Array(0);
-		let pelletBuffer = new Float32Array(0);
-		let uploadedPellets = 0;
-		/**
-		 * @param {'cells' | 'pellets'} key
-		 * @param {number=} now
-		 */
-		render.upload = (key, now) => {
-			if (performance.now() - render.lastFrame > 1_000) {
-				// do not render pellets on inactive windows (very laggy!)
-				uploadedPellets = 0;
-				return;
-			}
-
-			now ??= performance.now(); // the result will never actually be used, just for type checking
-			const vao = glconf.vao[key === 'pellets' ? 0 : 1];
-
-			// find expected # of pellets (exclude any that are being *animated*)
-			let expected = 0;
-			if (key === 'pellets') {
-				for (const resolution of world.pellets.values()) {
-					if (resolution.merged?.deadTo === -1) ++expected;
-				}
-			} else {
-				for (const resolution of world.cells.values()) {
-					if (resolution.merged) ++expected;
-				}
-			}
-
-			// grow the pellet buffer by 2x multiples if necessary
-			let alphaBuffer = key === 'cells' ? cellAlpha : pelletAlpha;
-			let objBuffer = key === 'cells' ? cellBuffer : pelletBuffer;
-			let instances = alphaBuffer.length || 1;
-			while (instances < expected) {
-				instances *= 2;
-			}
-			// when the webgl context is lost, the buffer sizes get reset to zero
-			const resizing = instances * 4 !== vao.alphaBufferSize;
-			if (resizing) {
-				if (key === 'pellets') {
-					alphaBuffer = pelletAlpha = new Float32Array(instances);
-					objBuffer = pelletBuffer = new Float32Array(instances * 7);
-				} else {
-					alphaBuffer = cellAlpha = new Float32Array(instances);
-					objBuffer = cellBuffer = new Float32Array(instances * 7);
-				}
-			}
-
-			const override = key === 'pellets' ? sigmod.settings.foodColor : sigmod.settings.cellColor;
-			const pelletOverrideBlack
-				= key === 'pellets' && override?.[0] === 0 && override?.[1] === 0 && override?.[2] === 0;
-
-			let i = 0;
-			/** @param {Cell} cell */
-			const iterate = cell => {
-				/** @type {number} */
-				let nx, ny, nr;
-				if (key !== 'cells') {
-					if (cell.deadTo !== -1) return;
-					nx = cell.nx; ny = cell.ny; nr = cell.nr;
-				} else {
-					let jr;
-					({ x: nx, y: ny, r: nr, jr } = world.xyr(cell, undefined, now));
-					if (aux.settings.jellyPhysics) nr = jr;
-				}
-
-				objBuffer[i * 7] = nx;
-				objBuffer[i * 7 + 1] = ny;
-				objBuffer[i * 7 + 2] = nr;
-
-				const baseColor = override ?? cell.rgb;
-
-				let localOverride;
-				if (key === 'cells') {
-					const skinColor = calcSkin(cell)?.color;
-					if (skinColor) {
-						// blend with player color
-						localOverride = [
-							skinColor[0] + (baseColor[0] - skinColor[0]) * (1 - skinColor[3]),
-							skinColor[1] + (baseColor[1] - skinColor[1]) * (1 - skinColor[3]),
-							skinColor[2] + (baseColor[2] - skinColor[2]) * (1 - skinColor[3]),
-							1,
-						];
-					}
-				}
-				localOverride ??= override;
-
-				if (localOverride && !pelletOverrideBlack) {
-					objBuffer[i * 7 + 3] = localOverride[0];
-					objBuffer[i * 7 + 4] = localOverride[1];
-					objBuffer[i * 7 + 5] = localOverride[2];
-					objBuffer[i * 7 + 6] = localOverride[3];
-				} else {
-					objBuffer[i * 7 + 3] = cell.rgb[0];
-					objBuffer[i * 7 + 4] = cell.rgb[1];
-					objBuffer[i * 7 + 5] = cell.rgb[2];
-					objBuffer[i * 7 + 6] = pelletOverrideBlack ? override[3] : 1;
-				}
-				++i;
-			};
-			for (const cell of world[key].values()) {
-				if (cell.merged) iterate(cell.merged);
-			}
-
-			// now, upload data
-			if (resizing) {
-				gl.bindBuffer(gl.ARRAY_BUFFER, vao.alphaBuffer);
-				gl.bufferData(gl.ARRAY_BUFFER, alphaBuffer.byteLength, gl.STATIC_DRAW);
-				gl.bindBuffer(gl.ARRAY_BUFFER, vao.circleBuffer);
-				gl.bufferData(gl.ARRAY_BUFFER, objBuffer, gl.STATIC_DRAW);
-				vao.alphaBufferSize = alphaBuffer.byteLength;
-			} else {
-				gl.bindBuffer(gl.ARRAY_BUFFER, vao.circleBuffer);
-				gl.bufferSubData(gl.ARRAY_BUFFER, 0, objBuffer);
-			}
-			gl.bindBuffer(gl.ARRAY_BUFFER, null);
-
-			if (key === 'pellets') uploadedPellets = expected;
-		};
-
-
-		// #3 : define ubo views
-		// firefox adds some padding to uniform buffer sizes, so best to check its size
+		// #4 : define ubo views
+		// firefox (and certain devices) adds some padding to uniform buffer sizes, so best to check its size
 		gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Border);
 		const borderUboBuffer = new ArrayBuffer(gl.getBufferParameter(gl.UNIFORM_BUFFER, gl.BUFFER_SIZE));
 		// must reference an arraybuffer for the memory to be shared between these views
@@ -4497,11 +4308,11 @@
 		gl.bindBuffer(gl.UNIFORM_BUFFER, null); // leaving uniform buffer bound = scary!
 
 
-		// #4 : define the render function
+		// #5 : define the render function
 		const start = performance.now();
 		render.fps = 0;
 		render.lastFrame = performance.now();
-		function renderGame() {
+		const renderGame = () => {
 			const now = performance.now();
 			const dt = Math.max(now - render.lastFrame, 0.1) / 1000; // there's a chance (now - lastFrame) can be 0
 			render.fps += (1 / dt - render.fps) / 10;
@@ -4515,10 +4326,7 @@
 			// get settings
 			const defaultVirusSrc = '/assets/images/viruses/2.png';
 			const virusSrc = sigmod.settings.virusImage || defaultVirusSrc;
-
-			const showNames = sigmod.settings.showNames ?? true;
-
-			const { cellColor, foodColor, outlineColor } = sigmod.settings;
+			const { cellColor, foodColor, outlineColor, showNames } = sigmod.settings;
 
 			refreshTextCache();
 
@@ -4608,38 +4416,59 @@
 			(function cells() {
 				// for white cell outlines
 				let nextCellIdx = 0;
-				const ownedToMerged = vision.owned.map(id => world.cells.get(id)?.merged);
-				for (const cell of ownedToMerged) {
+				/** @type {(CellFrame | undefined)[]} */
+				const ownedToFrame = vision.owned.map(id => {
+					const cell = world.cells.get(id);
+					if (world.synchronized) return cell?.merged;
+					else return cell?.views.get(world.selected)?.frames[0];
+				});
+				for (const cell of ownedToFrame) {
 					if (cell && cell.deadAt === undefined) ++nextCellIdx;
 				}
-				const canSplit = ownedToMerged.map(cell => {
+				const canSplit = ownedToFrame.map(cell => {
 					if (!cell || cell.nr < 128) return false;
 					return nextCellIdx++ < 16;
 				});
 
 				/**
 				 * @param {Cell} cell
+				 * @param {boolean} pellet
 				 */
-				function draw(cell) {
+				function draw(cell, pellet) {
 					// #1 : draw cell
+					/** @type {CellFrame | undefined} */
+					const frame = world.synchronized ? cell.merged : cell.views.get(world.selected)?.frames[0];
+					/** @type {CellInterpolation | undefined} */
+					const interp = world.synchronized ? cell.merged : cell.views.get(world.selected);
+					if (!frame || !interp) return;
+
+					/** @type {CellDescription | undefined} */
+					const desc = world.synchronized ? cell.views.values().next().value : cell.views.get(world.selected);
+					if (!desc) return;
+
+					/** @type {CellFrame | undefined} */
+					let killerFrame;
+					/** @type {CellInterpolation | undefined} */
+					let killerInterp;
+					let killer = frame.deadTo !== -1 && world.cells.get(frame.deadTo);
+					if (killer) {
+						killerFrame = world.synchronized ? killer.merged : killer.views.get(world.selected)?.frames[0];
+						killerInterp = world.synchronized ? killer.merged : killer.views.get(world.selected);
+					}
+
 					gl.useProgram(glconf.programs.cell);
 
-					const alpha = calcAlpha(cell, now);
+					const alpha = render.alpha(frame, now);
 					cellUboFloats[8] = alpha * settings.cellOpacity;
 
-					/** @type {Cell | undefined} */
-					let killer;
-					if (cell.deadTo !== -1) {
-						killer = world.cells.get(cell.deadTo)?.merged;
-					}
-					const { x, y, r, jr } = world.xyr(cell, killer, now);
+					const { x, y, r, jr } = world.xyr(frame, interp, killerFrame, killerInterp, pellet, now);
 					// without jelly physics, the radius of cells is adjusted such that its subtle outline doesn't go
 					// past its original radius.
 					// jelly physics does not do this, so colliding cells need to look kinda 'joined' together,
 					// so we multiply the radius by 1.02 (approximately the size increase from the stroke thickness)
 					cellUboFloats[2] = x;
 					cellUboFloats[3] = y;
-					if (aux.settings.jellyPhysics && !cell.jagged && !cell.pellet) {
+					if (aux.settings.jellyPhysics && !desc.jagged && !pellet) {
 						const strokeThickness = Math.max(jr * 0.01, 10);
 						cellUboFloats[0] = jr + strokeThickness;
 						cellUboFloats[1] = (settings.jellySkinLag ? r : jr) + strokeThickness;
@@ -4647,7 +4476,7 @@
 						cellUboFloats[0] = cellUboFloats[1] = r + 2;
 					}
 
-					if (cell.jagged) {
+					if (desc.jagged) {
 						const virusTexture = textureFromCache(virusSrc);
 						if (virusTexture) {
 							gl.bindTexture(gl.TEXTURE_2D, virusTexture.texture);
@@ -4656,6 +4485,7 @@
 							cellUboFloats[4] = cellUboFloats[5] = cellUboFloats[6] = cellUboFloats[7] = 0;
 						} else {
 							cellUboInts[9] = 0;
+							// #ff000080 if the virus texture doesn't load
 							cellUboFloats[4] = 1;
 							cellUboFloats[5] = 0;
 							cellUboFloats[6] = 0;
@@ -4665,21 +4495,22 @@
 						gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Cell);
 						gl.bufferSubData(gl.UNIFORM_BUFFER, 0, cellUboBuffer);
 						gl.bindBuffer(gl.UNIFORM_BUFFER, null);
+						if (!aux.settings.darkTheme && virusSrc === defaultVirusSrc) {
+							// draw default viruses twice as strong for better contrast against light theme
+							cellUboFloats[8] = alpha * settings.cellOpacity;
+						}
 						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-						// draw default viruses twice for better contrast against light theme
-						if (!aux.settings.darkTheme && virusSrc === defaultVirusSrc)
-							gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 						return;
 					}
 
 					cellUboInts[9] = 0;
 
 					/** @type {[number, number, number, number] | [number, number, number] | undefined} */
-					let color = cell.pellet ? foodColor : cellColor;
-					if (cell.pellet && foodColor && foodColor[0] === 0 && foodColor[1] === 0 && foodColor[2] === 0) {
-						color = [cell.rgb[0], cell.rgb[1], cell.rgb[2], foodColor[3]];
+					let color = pellet ? foodColor : cellColor;
+					if (pellet && foodColor && foodColor[0] === 0 && foodColor[1] === 0 && foodColor[2] === 0) {
+						color = [desc.rgb[0], desc.rgb[1], desc.rgb[2], foodColor[3]];
 					} else {
-						color ??= cell.rgb;
+						color ??= desc.rgb;
 					}
 
 					cellUboFloats[4] = color[0]; cellUboFloats[5] = color[1];
@@ -4688,7 +4519,7 @@
 					cellUboInts[9] |= settings.cellOutlines ? 0x02 : 0;
 					cellUboInts[9] |= settings.colorUnderSkin ? 0x20 : 0;
 
-					if (!cell.pellet) {
+					if (!pellet) {
 						/** @type {symbol | undefined} */
 						let ownerView;
 						let ownerVision;
@@ -4708,11 +4539,11 @@
 							if (ownerVision.camera.merging.length > 0) cellUboInts[9] |= 0x08;
 						}
 
-						const texture = calcSkin(cell);
+						/*const texture = undefined; // TODO
 						if (texture) {
 							cellUboInts[9] |= 0x01; // skin
 							gl.bindTexture(gl.TEXTURE_2D, texture.texture);
-						}
+						}*/
 					}
 
 					gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Cell);
@@ -4721,18 +4552,18 @@
 					gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
 					// #2 : draw text
-					if (cell.pellet) return;
-					const name = cell.name || 'An unnamed cell';
-					const showThisName = showNames && cell.nr > 75;
-					const showThisMass = aux.settings.showMass && cell.nr > 75;
-					const clan = (settings.clans && aux.clans.get(cell.clan)) || '';
+					if (pellet) return;
+					const name = desc.name || 'An unnamed cell';
+					const showThisName = showNames && frame.nr >= 64;
+					const showThisMass = aux.settings.showMass && frame.nr >= 64;
+					const clan = (settings.clans && aux.clans.get(desc.clan)) || '';
 					if (!showThisName && !showThisMass && !clan) return;
 
 					gl.useProgram(glconf.programs.text);
 					textUboFloats[8] = alpha; // text_alpha
 
 					let useSilhouette = false;
-					if (cell.sub) {
+					if (desc.sub) {
 						// text_color1 = #eb9500 * 1.2
 						textUboFloats[0] = 0xeb / 255 * 1.2; textUboFloats[1] = 0x95 / 255 * 1.2;
 						textUboFloats[2] = 0x00 / 255 * 1.2; textUboFloats[3] = 1;
@@ -4822,7 +4653,7 @@
 							yOffset = 0;
 						// draw each digit separately, as Ubuntu makes them all the same width.
 						// significantly reduces the size of the text cache
-						const mass = Math.floor(cell.nr * cell.nr / 100).toString();
+						const mass = Math.floor(frame.nr * frame.nr / 100).toString();
 						const maxWidth = maxMassWidth();
 						for (let i = 0; i < mass.length; ++i) {
 							const { height, width, texture } = massTextFromCache(mass[i]);
@@ -4842,98 +4673,21 @@
 					}
 				}
 
-				// draw static pellets first
-				let i = 0;
-				for (const resolution of world.pellets.values()) {
-					// deadTo property should never change in between upload('pellets') calls
-					if (resolution.merged?.deadTo !== -1) continue;
-					pelletAlpha[i++] = calcAlpha(resolution.merged, now);
-				}
-				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao[0].alphaBuffer);
-				gl.bufferSubData(gl.ARRAY_BUFFER, 0, pelletAlpha);
-				gl.bindBuffer(gl.ARRAY_BUFFER, null);
-
-				// setup no-glow for static pellets
-				if (settings.pelletGlow && aux.settings.darkTheme) {
-					gl.blendFunc(gl.SRC_ALPHA, gl.ONE); // make sure pellets (and glow) are visible in light theme
-				}
-				gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
-				circleUboFloats[0] = 1;
-				circleUboFloats[1] = 0;
-				gl.bufferData(gl.UNIFORM_BUFFER, circleUboFloats, gl.STATIC_DRAW);
-				gl.bindBuffer(gl.UNIFORM_BUFFER, null);
-
-				// draw static pellets
-				gl.useProgram(glconf.programs.circle);
-				gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, uploadedPellets);
-				if (settings.pelletGlow) {
-					// setup glow for static pellets
-					gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
-					circleUboFloats[0] = 0.25;
-					circleUboFloats[1] = 2;
-					gl.bufferData(gl.UNIFORM_BUFFER, circleUboFloats, gl.STATIC_DRAW);
-					gl.bindBuffer(gl.UNIFORM_BUFFER, null);
-
-					// draw glow for static pellets
-					gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, uploadedPellets);
-					gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-				}
-
-				// then draw *animated* pellets
-				for (const resolution of world.pellets.values()) {
-					// animated pellets shouldn't glow
-					if (resolution.merged && resolution.merged.deadTo !== -1) draw(resolution.merged);
-				}
-
 				/** @type {[Cell, number][]} */
 				const sorted = [];
-				for (const resolution of world.cells.values()) {
-					const cell = resolution.merged;
-					if (!cell) continue;
-					const rAlpha = Math.min(Math.max((now - cell.updated) / settings.drawDelay, 0), 1);
-					const computedR = cell.or + (cell.nr - cell.or) * rAlpha;
+				for (const cell of world.cells.values()) {
+					const frame = world.synchronized ? cell.merged : cell.views.get(world.selected)?.frames[0];
+					const interp = world.synchronized ? cell.merged : cell.views.get(world.selected);
+					if (!frame || !interp) continue;
+
+					const a = Math.min(Math.max((now - interp.updated) / settings.drawDelay, 0), 1);
+					const computedR = interp.or + (frame.nr - interp.or) * a;
 					sorted.push([cell, computedR]);
 				}
 
 				// sort by smallest to biggest
 				sorted.sort(([_a, ar], [_b, br]) => ar - br);
-				for (const [cell] of sorted)
-					draw(cell);
-
-				if (settings.cellGlow) {
-					render.upload('cells', now);
-					let i = 0;
-					for (const resolution of world.cells.values()) {
-						const cell = resolution.merged;
-						if (!cell) continue;
-						if (cell.jagged) cellAlpha[i++] = 0;
-						else {
-							let alpha = calcAlpha(cell, now);
-							// it looks kinda weird when cells get sucked in when being eaten
-							if (cell.deadTo !== -1) alpha *= 0.25;
-							cellAlpha[i++] = alpha;
-						}
-					}
-
-					gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao[1].alphaBuffer);
-					gl.bufferSubData(gl.ARRAY_BUFFER, 0, cellAlpha);
-					gl.bindBuffer(gl.ARRAY_BUFFER, null);
-
-					// use a separate vao for cells, so pellet data doesn't have to be copied as often
-					gl.useProgram(glconf.programs.circle);
-					gl.bindVertexArray(glconf.vao[1].vao);
-					gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-
-					gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
-					circleUboFloats[0] = 0.25;
-					circleUboFloats[1] = 1.5;
-					gl.bufferData(gl.UNIFORM_BUFFER, circleUboFloats, gl.STATIC_DRAW);
-					gl.bindBuffer(gl.UNIFORM_BUFFER, null);
-
-					gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, i);
-					gl.bindVertexArray(glconf.vao[0].vao);
-					gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-				}
+				for (const [cell] of sorted) draw(cell, false);
 
 				// draw tracers
 				if (settings.tracer) {
@@ -4947,17 +4701,20 @@
 						[tracerUboFloats[2], tracerUboFloats[3]] = mouse; // tracer_pos2.xy
 					}
 
-					ownedToMerged.forEach(cell => {
-						if (!cell || cell.deadAt !== undefined) return;
+					for (const id of vision.owned) {
+						const cell = world.cells.get(id);
+						const frame = world.synchronized ? cell?.merged : cell?.views.get(world.selected)?.frames[0];
+						const interp = world.synchronized ? cell?.merged : cell?.views.get(world.selected);
+						if (!frame || !interp || frame.deadAt !== undefined) return;
 
-						const { x, y } = world.xyr(cell, undefined, now);
+						const { x, y } = world.xyr(frame, interp, undefined, undefined, false, now);
 						tracerUboFloats[0] = x; // tracer_pos1.x
 						tracerUboFloats[1] = y; // tracer_pos1.y
 						gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Tracer);
 						gl.bufferSubData(gl.UNIFORM_BUFFER, 0, tracerUboBuffer);
 						gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-					});
+					}
 				}
 			})();
 
@@ -5040,14 +4797,17 @@
 				ctx.globalAlpha = 1;
 
 				// draw cells
-				/** @param {{ nx: number, ny: number, nr: number, rgb: [number, number, number] }} cell */
-				const drawCell = function drawCell(cell) {
-					const x = (cell.nx - border.l) / gameWidth * canvas.width;
-					const y = (cell.ny - border.t) / gameHeight * canvas.height;
-					const r = Math.max(cell.nr / gameWidth * canvas.width, 2);
+				/**
+				 * @param {{ nx: number, ny: number, nr: number }} frame
+				 * @param {{ rgb: [number, number, number] }} desc
+				 */
+				const drawCell = (frame, desc) => {
+					const x = (frame.nx - border.l) / gameWidth * canvas.width;
+					const y = (frame.ny - border.t) / gameHeight * canvas.height;
+					const r = Math.max(frame.nr / gameWidth * canvas.width, 2);
 
 					ctx.scale(0.01, 0.01); // prevent sigmod from treating minimap cells as pellets
-					ctx.fillStyle = aux.rgba2hex6(cell.rgb[0], cell.rgb[1], cell.rgb[2], 1);
+					ctx.fillStyle = aux.rgba2hex6(desc.rgb[0], desc.rgb[1], desc.rgb[2], 1);
 					ctx.beginPath();
 					ctx.moveTo((x + r) * 100, y * 100);
 					ctx.arc(x * 100, y * 100, r * 100, 0, 2 * Math.PI);
@@ -5069,27 +4829,35 @@
 					ctx.fillText(name + ' ', x, y - 7 * devicePixelRatio - sectorSize / 6);
 				};
 
-				// draw clanmates first, below yourself
-				// we sort clanmates by color AND name, to ensure clanmates stay separate
+				// draw clanmates (and other tabs) first, below yourself
+				// clanmates are grouped by name AND color, ensuring they stay separate
 				/** @type {Map<string, { name: string, n: number, x: number, y: number }>} */
 				const avgPos = new Map();
-				for (const resolution of world.cells.values()) {
-					const cell = resolution.merged;
-					if (!cell) continue;
-					let owned = false;
-					for (const vision of world.views.values()) owned ||= vision.owned.includes(cell.id);
-					if (!owned && (!cell.clan || cell.clan !== aux.userData?.clan)) continue;
-					drawCell(cell);
+				for (const cell of world.cells.values()) {
+					const frame = world.synchronized ? cell.merged : cell.views.get(world.selected)?.frames[0];
+					/** @type {CellDescription} */
+					const desc = world.synchronized ? cell.views.values().next().value : cell.views.get(world.selected);
+					if (!frame || !desc || frame.deadAt !== undefined) continue;
 
-					const name = cell.name || 'An unnamed cell';
-					const id = ((name + cell.rgb[0]) + cell.rgb[1]) + cell.rgb[2];
-					const entry = avgPos.get(id);
+					let ownedByOther = false;
+					for (const [view, vision] of world.views) {
+						if (view === world.selected) continue;
+						ownedByOther = vision.owned.includes(cell.id) && frame.born >= vision.spawned;
+						if (ownedByOther) break;
+					}
+					if ((!desc.clan || desc.clan !== aux.userData?.clan) && !ownedByOther) continue;
+
+					drawCell(frame, desc);
+
+					const name = desc.name || 'An unnamed cell';
+					const hash = desc.name + (desc.rgb[0] * 65536 + desc.rgb[1] * 256 + desc.rgb[2]);
+					const entry = avgPos.get(hash);
 					if (entry) {
 						++entry.n;
-						entry.x += cell.nx;
-						entry.y += cell.ny;
+						entry.x += frame.nx;
+						entry.y += frame.ny;
 					} else {
-						avgPos.set(id, { name, n: 1, x: cell.nx, y: cell.ny });
+						avgPos.set(hash, { name, n: 1, x: frame.nx, y: frame.ny });
 					}
 				}
 
@@ -5102,21 +4870,24 @@
 				let ownN = 0;
 				let ownX = 0;
 				let ownY = 0;
-				vision.owned.forEach(id => {
-					const cell = world.cells.get(id)?.merged;
-					if (!cell) return;
+				for (const id of vision.owned) {
+					const cell = world.cells.get(id);
+					const frame = world.synchronized ? cell?.merged : cell?.views.get(world.selected)?.frames[0];
+					const desc = world.synchronized ? cell?.views.values().next().value : cell?.views.get(world.selected);
+					if (!frame || !desc || frame.deadAt !== undefined) continue;
 
-					drawCell(cell);
-					myName = cell.name || 'An unnamed cell';
+					drawCell(frame, desc);
+					myName = desc.name || 'An unnamed cell';
 					++ownN;
-					ownX += cell.nx;
-					ownY += cell.ny;
-				});
+					ownX += frame.nx;
+					ownY += frame.ny;
+				}
 
 				if (ownN <= 0) {
 					// if no cells were drawn, draw our spectate pos instead
 					drawCell({
 						nx: vision.camera.x, ny: vision.camera.y, nr: gameWidth / canvas.width * 5,
+					}, { 
 						rgb: [1, 0.6, 0.6],
 					});
 				} else {
