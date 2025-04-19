@@ -1282,6 +1282,7 @@
 			showStats: true,
 			spectator: false,
 			spectatorLatency: false,
+			synchronization: true,
 			textOutlinesFactor: 1,
 			tracer: false,
 			unsplittableColor: /** @type {[number, number, number, number]} */ ([1, 1, 1, 1]),
@@ -1777,6 +1778,8 @@
 		setting('Multibox keybind', [keybind('multibox')], () => true,
 			'The key to press for switching multibox tabs. "Tab" is recommended, but you can also use "Ctrl+Tab" and ' +
 			'most other keybinds.');
+		setting(`Synchronization ${newTag}`, [checkbox('synchronization')], () => !!settings.multibox || settings.spectator,
+			'TODO');
 		setting('One-tab mode', [checkbox('mergeCamera')], () => !!settings.multibox,
 			'When enabled, your camera will focus on both multibox tabs at once. Disable this if you prefer two-tab-' +
 			'style multiboxing. <br>' +
@@ -1888,10 +1891,11 @@
 	// Setup World Variables //
 	///////////////////////////
 	/**
-	 * @typedef {Readonly<{
+	 * @typedef {{
 	 * 	nx: number, ny: number, nr: number,
 	 * 	born: number, deadAt: number | undefined, deadTo: number,
-	 * }>} CellFrame
+	 * }} CellFrameWritable
+	 * @typedef {Readonly<CellFrameWritable>} CellFrame
 	 * @typedef {{
 	 * 	ox: number, oy: number, or: number,
 	 * 	jr: number, a: number, updated: number,
@@ -1904,7 +1908,7 @@
 	 * @typedef {CellInterpolation & CellDescription & { frames: CellFrame[] }} CellRecord
 	 * @typedef {{
 	 * 	id: number,
-	 * 	merged: (CellFrame & CellInterpolation) | undefined,
+	 * 	merged: (CellFrameWritable & CellInterpolation) | undefined,
 	 * 	model: CellFrame | undefined,
 	 * 	views: Map<symbol, CellRecord>,
 	 * }} Cell
@@ -2123,12 +2127,324 @@
 		/** @type {number | undefined} */
 		let disagreementStart = undefined;
 		world.synchronized = false;
-		world.merge = (stable = false) => {
-			const now = performance.now();
-			if (stable || true) { // TODO
+		world.merge = () => {
+			if (!settings.synchronization || world.views.size <= 1) {
+				disagreementStart = undefined;
 				world.synchronized = false;
 				return;
 			}
+
+			// the obvious solution to merging tabs is to prefer the primary tab's cells, then tack on the secondary
+			// tab's cells. this is fast and easy, but causes very noticeable flickering and warping when a cell enters
+			// or leaves the primary tab's vision. this is what delta suffers from.
+			//
+			// we could instead check cells visible on both tabs to see if they share the same target x, y, and r.
+			// if they all do, then the connections are synchronized and both visions can be merged.
+			// this works well, however latency can fluctuate and results in connections being completely unable to
+			// synchronize between themselves if they are off by at least 40ms. this happens often, and significantly 
+			// more to players who usually have higher ping.
+			//
+			// in the below approach, we keep a record of how every cell is updated (where a lower index => more recent)
+			// and try to figure out the lowest possible index for all views such that they see the same frames across
+			// all cells.
+			// however, doing this is complicated. consider the following scenarios:
+			//
+			// > Scenario #1
+			// > a cell is standing still and visible across multiple views. then every frame will have a perfect match
+			// > between views, regardless of each connection's latency, and no frames will be ruled out.
+			// > therefore, finding a perfect match across multiple indices of 0 MUST NOT imply a perfect match could
+			// > be found on all other cells.
+			//
+			// > Scenario #2
+			// > view A has been alone observing a cell for a while, and view A has abnormally high ping.
+			// > that cell now comes into view B's vision, but view B has much better ping.
+			// > therefore, the frame(s) view B sees of that cell will be completely disjoint from view A's.
+			// > therefore, a match not existing MUST NOT imply the visions cannot be synchronized.
+			//
+			// > Scenario #3
+			// > view A and view B have been observing a cell for a while. view A has abnormally high ping.
+			// > the cell momentarily exits view B's vision, then after a few ticks re-enters its vision.
+			// > once view A catches up to a frame that was missed by view B (because the cell was out of B's vision),
+			// > it will not be able to find a match.
+			// > therefore, this MUST NOT imply that view A's latest frames cannot be used.
+			//
+			// the solution involves undirected bipartite graphs representing two different views and which indices are
+			// compatible with each other. for example:
+			// >       (view A)                      (view B)
+			// > 0 (x=12, y=34, r=56)     ┌─── 0 (x=44, y=55, r=66)
+			// > 1 (x=34, y=56, r=61)     │    1 (x=55, y=66, r=77)
+			// > 2 (x=44, y=55, r=66) ────┘
+			// > there is a compatible connection between 2A - 0B (illustrated)
+			// > there are incompatible connections between 0A - 0B, 0A - 1B, 1A - 0B, 1A - 1B, 2A - 1B
+			// > there are no connections between 0A - 2B, 1A - 2B, 2A - 2B, 0A - 3B, ...etc
+			//
+			// >       (view A)                      (view B)
+			// > 0 (x=1, y=1, r=100)   ┌────── 0 (x=2, y=2, r=100)
+			// > 1 (x=2, y=2, r=100) ──┘ ┌──── 1 (x=3, y=3, r=100)
+			// > 2 (x=3, y=3, r=100) ────┘ ┌── 2 (x=4, y=4, r=100)
+			// > 3 (x=4, y=4, r=100) ──────┘   3 (x=5, y=5, r=101)
+			// > there are compatible connections between 1A - 0B, 2A - 1B, 3A - 2B
+			// > there are incompatible connections between 0A - 0B, 0A - 1B, ..., 1A - 1B, 1A - 1C, ...
+			// > there are no connections between 0A - 4B, 1A - 4B, ..., 0A - 5B, ...
+			//
+			// then, we connect all bipartite graphs together and find the smallest indices across all views.
+			// but how does this actually scale?
+			//
+			// if there are two views, then we start at the first view on the first index. then:
+			// - if there is a compatible connection to the second view, use it, and we're done.
+			// - if not, and if there is an incompatible connection, then increment index by 1. repeat.
+			// - if there are no connections, then we're done.
+			//
+			// now if there are more views, start at the first view[1] (meaning 1st index). then:
+			// - check for a compatible connection to the second view[1], [2], ..., [16].
+			// - if there is a compatible connection on index i:
+			//     - check for a compatible connection from second view[i] to the third view[1], [2], ..., [16].
+			//     - if there is a compatible connection on index j:
+			//         - first, ensure it is compatible with the first view[1]
+			//         - if it isn't, then treat this as an incompatible connection
+			//         - otherwise, if all views agree, then try checking the fourth view
+			//     - if there isn't, but there is an incompatible connection, then flag a disagreement
+			// - if there isn't, but there is an incompatible connection, then flag a disagreement
+			// - otherwise, a "cluster" has been found (a collection of nearby views). go to the next view that isn't
+			//   part of any cluster, and repeat
+
+			const now = performance.now();
+
+			// #1 : set up bipartite graphs between every pair of views
+			/** @type {Map<symbol, number>} */
+			const viewToInt = new Map();
+			/** @type {Map<number, symbol>} */
+			const intToView = new Map();
+			for (const view of world.views.keys()) {
+				intToView.set(viewToInt.size, view);
+				viewToInt.set(view, viewToInt.size);
+			}
+			const viewDim = viewToInt.size;
+
+			// each pair of views (view1, view2, where view1Int < view2Int) has a 16x16 graph, where
+			// graph[i * viewDim + j] describes the existence of an undirected connection between index i on view1 and
+			// index j on view2.
+			const COMPATIBLE = 1 << 0;
+			const INCOMPATIBLE = 1 << 1;
+			const graphDim = 16; // same as maximum history size
+			/** @type {Map<number, Uint8Array>} */
+			const graphs = new Map();
+			for (let i = 0; i < viewToInt.size; ++i) {
+				for (let j = i + 1; j < viewToInt.size; ++j) {
+					graphs.set(i * viewDim + j, new Uint8Array(graphDim * graphDim));
+				}
+			}
+
+			// #2 : establish relationships in every graph
+			// pellets never change, so it would be useless to try and compare them
+			for (const cell of world.cells.values()) {
+				for (const [view1, record1] of cell.views) {
+					for (const [view2, record2] of cell.views) {
+						if (view1 === view2) continue;
+
+						const view1Int = /** @type {number} */ (viewToInt.get(view1));
+						const view2Int = /** @type {number} */ (viewToInt.get(view2));
+						if (view1Int > view2Int) continue; // only access graphs where view1 < view2
+						const graph = /** @type {Uint8Array} */ (graphs.get(view1Int * viewDim + view2Int));
+
+						for (let i = 0; i < record1.frames.length; ++i) {
+							const frame1 = record1.frames[i];
+							if (frame1.deadAt !== undefined) continue;
+							for (let j = 0; j < record2.frames.length; ++j) {
+								const frame2 = record2.frames[j];
+								if (frame2.deadAt !== undefined) continue;
+
+								if (frame1.nx === frame2.nx && frame1.ny === frame2.ny && frame1.nr === frame2.nr) {
+									graph[i * graphDim + j] |= COMPATIBLE;
+								} else {
+									graph[i * graphDim + j] |= INCOMPATIBLE;
+								}
+							}
+						}
+					}
+				}
+			}
+
+			// #3 : find the lowest indices across all views that are compatible with each other
+			/** @type {{ [x: number | symbol]: number }} indexed by viewInt or symbol view */
+			const indices = {};
+
+			/**
+			 * @param {{ viewInt: number, i: number }[]} previous
+			 * @param {number} viewInt
+			 * @param {number} i
+			 * @returns {boolean}
+			 */
+			const explore = (previous, viewInt, i) => {
+				// try and find the next view that is compatible
+				for (let next = viewInt + 1; next < viewDim; ++next) {
+					if (indices[next] !== undefined) continue;
+
+					const graph = /** @type {Uint8Array} */ (graphs.get(viewInt * viewDim + next));
+					let incompatible = false;
+					for (let j = 0; j < graphDim; ++j) {
+						const con = graph[i * graphDim + j];
+						if (con & INCOMPATIBLE) {
+							incompatible = true;
+						} else if (con & COMPATIBLE) {
+							// we found a connection; ensure it is backwards compatible with all previous views too
+							// TODO: may be better to do on the very last step, since this is unlikely to fail
+							let backwardsCompatible = true;
+							for (const { viewInt: prev, i: k } of previous) {
+								const backGraph = /** @type {Uint8Array} */ (graphs.get(prev * viewDim + next));
+								const con = backGraph[k * viewDim + j];
+								if (con & INCOMPATIBLE) {
+									backwardsCompatible = false;
+									break;
+								} // if con is compatible or undefined, then that's totally fine
+							}
+
+							if (backwardsCompatible) {
+								previous.push({ viewInt, i });
+								if (explore(previous, next, j)) {
+									indices[next] = indices[/** @type {symbol} */ (intToView.get(next))] = j;
+									return true;
+								}
+							}
+
+							incompatible = false;
+						} else; // don't do anything if the connection is undefined
+					}
+
+					// if an incompatible connection was found with no other good choices, then there is a conflict
+					// and don't allow it
+					if (incompatible) return false;
+				}
+
+				return true;
+			};
+			
+			startCluster: for (let viewInt = 0; viewInt < viewDim; ++viewInt) {
+				if (indices[viewInt] !== undefined) continue; // don't re-process a cluster
+
+				// try and start a cluster with some index
+				for (let i = 0; i < graphDim; ++i) {
+					if (explore([], viewInt, i)) {
+						indices[viewInt] = indices[/** @type {symbol} */ (intToView.get(viewInt))] = i;
+						continue startCluster;
+					}
+				}
+
+				// if everything is incompatible, then there is a disagreement somewhere
+				disagreementStart ??= now;
+				if (now - disagreementStart > 1000) world.synchronized = false;
+				console.log('Disagreement', disagreementStart);
+				return;
+			}
+
+
+			// #4 : find a model frame for all cells and pellets
+			for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+				for (const cell of world[key].values()) {
+					/** @type {[symbol, CellRecord] | undefined} */
+					let modelPair;
+					modelViewLoop: for (const pair of cell.views) {
+						if (!modelPair) {
+							modelPair = pair;
+							continue;
+						}
+
+						const [modelView, model] = modelPair;
+						const [view, record] = pair;
+
+						const modelFrame = model.frames[indices[modelView]];
+						const frame = record.frames[indices[view]];
+
+						const modelDisappeared = !modelFrame || (modelFrame.deadAt !== undefined && modelFrame.deadTo === -1);
+						const thisDisappeared = !frame || (frame.deadAt !== undefined && frame.deadTo === -1);
+
+						if (modelDisappeared && thisDisappeared) {
+							// both have currently disappeared; prefer the one that "disappeared" later
+							for (let off = 1; off < 16; ++off) {
+								const modelFrameOffset = model.frames[indices[modelView] + off];
+								const frameOffset = record.frames[indices[view] + off];
+
+								const modelOffsetAlive = modelFrameOffset && modelFrameOffset.deadAt === undefined;
+								const frameOffsetAlive = frameOffset && frameOffset.deadAt === undefined;
+								if (modelOffsetAlive && frameOffsetAlive) {
+									// both disappeared at the same time, doesn't matter
+									continue modelViewLoop;
+								} else if (modelOffsetAlive && !frameOffsetAlive) {
+									// model disappeared last, so prefer it
+									continue modelViewLoop;
+								} else if (!modelOffsetAlive && frameOffsetAlive) {
+									// current disappeared last, so prefer it
+									modelPair = pair;
+									continue modelViewLoop;
+								} else; // we haven't found when either one disappeared
+							}
+						} else if (modelDisappeared && !thisDisappeared) {
+							// current is the only one visible, so prefer it
+							modelPair = pair;
+						} else if (!modelDisappeared && thisDisappeared) {
+							// model is the only one visible, so prefer it (don't change anything)
+						} else; // both are visible and synchronized, so it doesn't matter
+					}
+
+					if (modelPair) cell.model = modelPair[1].frames[indices[modelPair[0]]];
+					else cell.model = undefined; // this 'else' should never happen
+				}
+			}
+
+			// #5 : create or update the merged frame for all cells and pellets
+			for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+				for (const cell of world[key].values()) {
+					const { model, merged } = cell;
+					if (!model) { // could happen
+						cell.merged = undefined;
+						continue;
+					}
+
+					// merged was alive, will be alive => interpolate
+					// merged was dead, will be alive => create new
+					// merged was alive, will be dead => interpolate
+					// merged was dead, will be dead => "interpolate"
+
+					if (!merged || (merged.deadAt !== undefined && model.deadAt === undefined)) {
+						cell.merged = {
+							nx: model.nx, ny: model.ny, nr: model.nr,
+							born: now, deadAt: model.deadAt !== undefined ? now : undefined, deadTo: model.deadTo,
+							ox: model.nx, oy: model.ny, or: model.nr,
+							jr: model.nr, a: 0, updated: now,
+						};
+					} else {
+						if (merged.deadAt === undefined) {
+							const xyr = world.xyr(merged, merged, undefined, undefined, key === 'pellets', now);
+
+							merged.ox = xyr.x;
+							merged.oy = xyr.y;
+							merged.or = xyr.r;
+							merged.jr = xyr.jr;
+							merged.a = xyr.a;
+							merged.updated = now;
+						}
+
+						merged.nx = model.nx;
+						merged.ny = model.ny;
+						merged.nr = model.nr;
+						merged.deadAt = model.deadAt !== undefined ? (merged.deadAt ?? now) : undefined;
+						merged.deadTo = model.deadTo;
+					}
+				}
+			}
+
+			// #6 : clean up history for all cells, because we don't want to ever go back in time
+			for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+				for (const cell of world[key].values()) {
+					for (const [view, record] of cell.views) {
+						// leave the current frame, because .frames must have at least one element
+						record.frames.splice(indices[view] + 1, Infinity);
+					}
+				}
+			}
+
+			disagreementStart = undefined;
+			world.synchronized = true;
 		};
 
 		/** @param {symbol} view */
@@ -4684,6 +5000,8 @@
 					const computedR = interp.or + (frame.nr - interp.or) * a;
 					sorted.push([cell, computedR]);
 				}
+
+				for (const cell of world.pellets.values()) draw(cell, true);
 
 				// sort by smallest to biggest
 				sorted.sort(([_a, ar], [_b, br]) => ar - br);
