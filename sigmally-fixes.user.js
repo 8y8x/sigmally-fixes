@@ -2238,9 +2238,11 @@
 			// #2 : establish relationships in every graph
 			// pellets never change, so it would be useless to try and compare them
 			for (const cell of world.cells.values()) {
-				for (const [view1, record1] of cell.views) {
-					for (const [view2, record2] of cell.views) {
+				for (const view1 of cell.views.keys()) {
+					const record1 = /** @type {CellRecord} */ (cell.views.get(view1));
+					for (const view2 of cell.views.keys()) {
 						if (view1 === view2) continue;
+						const record2 = /** @type {CellRecord} */ (cell.views.get(view2));
 
 						const view1Int = /** @type {number} */ (viewToInt.get(view1));
 						const view2Int = /** @type {number} */ (viewToInt.get(view2));
