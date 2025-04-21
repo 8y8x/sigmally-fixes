@@ -2125,11 +2125,11 @@
 		};
 
 		/** @type {number | undefined} */
-		let disagreementStart = undefined;
+		let disagreementAt, disagreementStart;
 		world.synchronized = false;
 		world.merge = () => {
 			if (!settings.synchronization || world.views.size <= 1) {
-				disagreementStart = undefined;
+				disagreementStart = disagreementAt = undefined;
 				world.synchronized = false;
 				return;
 			}
@@ -2200,7 +2200,7 @@
 			// - if there is a compatible connection on index i:
 			//     - check for a compatible connection from second view[i] to the third view[1], [2], ..., [16].
 			//     - if there is a compatible connection on index j:
-			//         - first, ensure it is compatible with the first view[1]
+			//         - first, ensure it is also compatible with the first view[1] (backwards compatibility)
 			//         - if it isn't, then treat this as an incompatible connection
 			//         - otherwise, if all views agree, then try checking the fourth view
 			//     - if there isn't, but there is an incompatible connection, then flag a disagreement
@@ -2267,6 +2267,20 @@
 				}
 			}
 
+			const formatGraph = g => {
+				let s = [];
+				for (let i = 0; i < 256; i += 16) {
+					let t = [];
+					for (let j = i; j < i + 16; ++j) {
+						t.push(((g[j] & INCOMPATIBLE) && (g[j] & COMPATIBLE)) ? 'A' : (g[j] & INCOMPATIBLE) ? '#' : (g[j] & COMPATIBLE) ? 'v' : '.'); 
+					}
+					s.push(t.join(' '));
+				}
+
+				return s.join('\n');
+			};
+			Array.from(graphs).map(g => formatGraph(g)).forEach((g, i) => console.log(String(i) + '\n' + g));
+
 			// #3 : find the lowest indices across all views that are compatible with each other
 			/** @type {{ [x: number | symbol]: number }} indexed by viewInt or symbol view */
 			const indices = {};
@@ -2289,24 +2303,14 @@
 						if (con & INCOMPATIBLE) {
 							incompatible = true;
 						} else if (con & COMPATIBLE) {
-							// we found a connection; ensure it is backwards compatible with all previous views too
-							// TODO: may be better to do on the very last step, since this is unlikely to fail
-							let backwardsCompatible = true;
-							for (const { viewInt: prev, i: k } of previous) {
-								const backGraph = /** @type {Uint8Array} */ (graphs.get(prev * viewDim + next));
-								const con = backGraph[k * viewDim + j];
-								if (con & INCOMPATIBLE) {
-									backwardsCompatible = false;
-									break;
-								} // if con is compatible or undefined, then that's totally fine
-							}
-
-							if (backwardsCompatible) {
-								previous.push({ viewInt, i });
-								if (explore(previous, next, j)) {
-									indices[next] = indices[/** @type {symbol} */ (intToView.get(next))] = j;
-									return true;
-								}
+							// we found a connection
+							// TODO: checking for backwards compatibility seems to break things
+							previous.push({ viewInt, i });
+							const ok = explore(previous, next, j);
+							previous.pop();
+							if (ok) {
+								indices[next] = indices[/** @type {symbol} */ (intToView.get(next))] = j;
+								return true;
 							}
 
 							incompatible = false;
@@ -2334,8 +2338,8 @@
 
 				// if everything is incompatible, then there is a disagreement somewhere
 				disagreementStart ??= now;
+				disagreementAt = now;
 				if (now - disagreementStart > 1000) world.synchronized = false;
-				console.log('Disagreement', disagreementStart);
 				return;
 			}
 
@@ -2446,7 +2450,9 @@
 			}
 
 			disagreementStart = undefined;
-			world.synchronized = true;
+			// if there ever a disagreement that caused synchronization to be disabled, wait a bit after things
+			// resolve to make sure they stay resolved
+			if (disagreementAt === undefined || now - disagreementAt > 1000) world.synchronized = true;
 		};
 
 		/** @param {symbol} view */
@@ -2654,7 +2660,12 @@
 				world.merge();
 			});
 			ws.addEventListener('error', () => {});
-			ws.addEventListener('message', e => {
+			const queue = [];
+			setInterval(() => {
+				if (Math.random() >= 0.6 && queue.length < 20) return;
+				const e = queue.shift();
+				if (!e) return;
+
 				const connection = net.connections.get(view);
 				const vision = world.views.get(view);
 				if (!connection || !vision) return ws.close();
@@ -3025,6 +3036,9 @@
 				}
 
 				sigmod.proxy.handleMessage?.(dat);
+			}, 10);
+			ws.addEventListener('message', e => {
+				queue.push(e);
 			});
 			ws.addEventListener('open', () => {
 				const connection = net.connections.get(view);
