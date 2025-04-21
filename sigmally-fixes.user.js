@@ -2279,20 +2279,6 @@
 					}
 				}
 
-				const formatGraph = g => {
-					let s = [];
-					for (let i = 0; i < 256; i += 16) {
-						let t = [];
-						for (let j = i; j < i + 16; ++j) {
-							t.push(((g[j] & INCOMPATIBLE) && (g[j] & COMPATIBLE)) ? 'A' : (g[j] & INCOMPATIBLE) ? '#' : (g[j] & COMPATIBLE) ? 'v' : '.'); 
-						}
-						s.push(t.join(' '));
-					}
-
-					return s.join('\n');
-				};
-				Array.from(graphs).map(g => formatGraph(g)).forEach((g, i) => console.log(String(i) + '\n' + g));
-
 				// #3 : find the lowest indices across all views that are compatible with each other
 				/**
 				 * @param {{ viewInt: number, i: number }[]} previous
