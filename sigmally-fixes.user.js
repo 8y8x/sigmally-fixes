@@ -2660,12 +2660,7 @@
 				world.merge();
 			});
 			ws.addEventListener('error', () => {});
-			const queue = [];
-			setInterval(() => {
-				if (Math.random() >= 0.6 && queue.length < 20) return;
-				const e = queue.shift();
-				if (!e) return;
-
+			ws.addEventListener('message', e => {
 				const connection = net.connections.get(view);
 				const vision = world.views.get(view);
 				if (!connection || !vision) return ws.close();
@@ -3036,9 +3031,6 @@
 				}
 
 				sigmod.proxy.handleMessage?.(dat);
-			}, 10);
-			ws.addEventListener('message', e => {
-				queue.push(e);
 			});
 			ws.addEventListener('open', () => {
 				const connection = net.connections.get(view);
