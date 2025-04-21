@@ -1282,7 +1282,8 @@
 			showStats: true,
 			spectator: false,
 			spectatorLatency: false,
-			synchronization: true,
+			/** @type {'none' | 'latest' | 'flawless'} */
+			synchronization: 'none',
 			textOutlinesFactor: 1,
 			tracer: false,
 			unsplittableColor: /** @type {[number, number, number, number]} */ ([1, 1, 1, 1]),
@@ -1778,8 +1779,16 @@
 		setting('Multibox keybind', [keybind('multibox')], () => true,
 			'The key to press for switching multibox tabs. "Tab" is recommended, but you can also use "Ctrl+Tab" and ' +
 			'most other keybinds.');
-		setting(`Synchronization ${newTag}`, [checkbox('synchronization')], () => !!settings.multibox || settings.spectator,
-			'TODO');
+		setting(`Vision merging ${newTag}`,
+			[dropdown('synchronization', [['flawless', 'Flawless (recommended)'], ['latest', 'Latest'], ['none', 'None']])],
+			() => !!settings.multibox || settings.spectator,
+			'How multiple connections synchronize the cells they can see. <br>' +
+			'- "Flawless" ensures all connections are synchronized to be on the same ping. If one connection gets a ' +
+			'lag spike, all connections will get that lag spike too. <br>' +
+			'- "Latest" uses the most recent data across all connections. Lag spikes will be much less noticeable, ' +
+			'however cells that are farther away might sometimes warp around and appear buggy. <br>' +
+			'- "None" only shows what your current tab can see. <br>' +
+			'"Flawless" is recommended for all users, however if you find it laggy you should try "Latest".');
 		setting('One-tab mode', [checkbox('mergeCamera')], () => !!settings.multibox,
 			'When enabled, your camera will focus on both multibox tabs at once. Disable this if you prefer two-tab-' +
 			'style multiboxing. <br>' +
@@ -2128,7 +2137,7 @@
 		let disagreementAt, disagreementStart;
 		world.synchronized = false;
 		world.merge = () => {
-			if (!settings.synchronization || world.views.size <= 1) {
+			if (settings.synchronization === 'none' || world.views.size <= 1) {
 				disagreementStart = disagreementAt = undefined;
 				world.synchronized = false;
 				return;
@@ -2209,138 +2218,145 @@
 			//   part of any cluster, and repeat
 
 			const now = performance.now();
+			/** @type {{ [x: number | symbol]: number }} indexed by viewInt or symbol view */
+			const indices = {};
 
-			// #1 : set up bipartite graphs between every pair of views
-			/** @type {Map<symbol, number>} */
-			const viewToInt = new Map();
-			/** @type {Map<number, symbol>} */
-			const intToView = new Map();
-			for (const view of world.views.keys()) {
-				intToView.set(viewToInt.size, view);
-				viewToInt.set(view, viewToInt.size);
-			}
-			const viewDim = viewToInt.size;
-
-			// each pair of views (view1, view2, where view1Int < view2Int) has a 16x16 graph, where
-			// graph[i * viewDim + j] describes the existence of an undirected connection between index i on view1 and
-			// index j on view2.
-			const COMPATIBLE = 1 << 0;
-			const INCOMPATIBLE = 1 << 1;
-			const graphDim = 16; // same as maximum history size
-			/** @type {Map<number, Uint8Array>} */
-			const graphs = new Map();
-			for (let i = 0; i < viewToInt.size; ++i) {
-				for (let j = i + 1; j < viewToInt.size; ++j) {
-					graphs.set(i * viewDim + j, new Uint8Array(graphDim * graphDim));
+			if (settings.synchronization === 'flawless') {
+				// #1 : set up bipartite graphs between every pair of views
+				/** @type {Map<symbol, number>} */
+				const viewToInt = new Map();
+				/** @type {Map<number, symbol>} */
+				const intToView = new Map();
+				for (const view of world.views.keys()) {
+					intToView.set(viewToInt.size, view);
+					viewToInt.set(view, viewToInt.size);
 				}
-			}
+				const viewDim = viewToInt.size;
 
-			// #2 : establish relationships in every graph
-			// pellets never change, so it would be useless to try and compare them
-			for (const cell of world.cells.values()) {
-				for (const view1 of cell.views.keys()) {
-					const record1 = /** @type {CellRecord} */ (cell.views.get(view1));
-					for (const view2 of cell.views.keys()) {
-						if (view1 === view2) continue;
-						const record2 = /** @type {CellRecord} */ (cell.views.get(view2));
+				// each pair of views (view1, view2, where view1Int < view2Int) has a 16x16 graph, where
+				// graph[i * viewDim + j] describes the existence of an undirected connection between index i on view1 and
+				// index j on view2.
+				const COMPATIBLE = 1 << 0;
+				const INCOMPATIBLE = 1 << 1;
+				const graphDim = 16; // same as maximum history size
+				/** @type {Map<number, Uint8Array>} */
+				const graphs = new Map();
+				for (let i = 0; i < viewToInt.size; ++i) {
+					for (let j = i + 1; j < viewToInt.size; ++j) {
+						graphs.set(i * viewDim + j, new Uint8Array(graphDim * graphDim));
+					}
+				}
 
-						const view1Int = /** @type {number} */ (viewToInt.get(view1));
-						const view2Int = /** @type {number} */ (viewToInt.get(view2));
-						if (view1Int > view2Int) continue; // only access graphs where view1 < view2
-						const graph = /** @type {Uint8Array} */ (graphs.get(view1Int * viewDim + view2Int));
+				// #2 : establish relationships in every graph
+				// pellets never change, so it would be useless to try and compare them
+				for (const cell of world.cells.values()) {
+					for (const view1 of cell.views.keys()) {
+						const record1 = /** @type {CellRecord} */ (cell.views.get(view1));
+						for (const view2 of cell.views.keys()) {
+							if (view1 === view2) continue;
+							const record2 = /** @type {CellRecord} */ (cell.views.get(view2));
 
-						for (let i = 0; i < record1.frames.length; ++i) {
-							const frame1 = record1.frames[i];
-							if (frame1.deadAt !== undefined) continue;
-							for (let j = 0; j < record2.frames.length; ++j) {
-								const frame2 = record2.frames[j];
-								if (frame2.deadAt !== undefined) continue;
+							const view1Int = /** @type {number} */ (viewToInt.get(view1));
+							const view2Int = /** @type {number} */ (viewToInt.get(view2));
+							if (view1Int > view2Int) continue; // only access graphs where view1 < view2
+							const graph = /** @type {Uint8Array} */ (graphs.get(view1Int * viewDim + view2Int));
 
-								if (frame1.nx === frame2.nx && frame1.ny === frame2.ny && frame1.nr === frame2.nr) {
-									graph[i * graphDim + j] |= COMPATIBLE;
-								} else {
-									graph[i * graphDim + j] |= INCOMPATIBLE;
+							for (let i = 0; i < record1.frames.length; ++i) {
+								const frame1 = record1.frames[i];
+								if (frame1.deadAt !== undefined) continue;
+								for (let j = 0; j < record2.frames.length; ++j) {
+									const frame2 = record2.frames[j];
+									if (frame2.deadAt !== undefined) continue;
+
+									if (frame1.nx === frame2.nx && frame1.ny === frame2.ny && frame1.nr === frame2.nr) {
+										graph[i * graphDim + j] |= COMPATIBLE;
+									} else {
+										graph[i * graphDim + j] |= INCOMPATIBLE;
+									}
 								}
 							}
 						}
 					}
 				}
-			}
 
-			const formatGraph = g => {
-				let s = [];
-				for (let i = 0; i < 256; i += 16) {
-					let t = [];
-					for (let j = i; j < i + 16; ++j) {
-						t.push(((g[j] & INCOMPATIBLE) && (g[j] & COMPATIBLE)) ? 'A' : (g[j] & INCOMPATIBLE) ? '#' : (g[j] & COMPATIBLE) ? 'v' : '.'); 
-					}
-					s.push(t.join(' '));
-				}
-
-				return s.join('\n');
-			};
-			Array.from(graphs).map(g => formatGraph(g)).forEach((g, i) => console.log(String(i) + '\n' + g));
-
-			// #3 : find the lowest indices across all views that are compatible with each other
-			/** @type {{ [x: number | symbol]: number }} indexed by viewInt or symbol view */
-			const indices = {};
-
-			/**
-			 * @param {{ viewInt: number, i: number }[]} previous
-			 * @param {number} viewInt
-			 * @param {number} i
-			 * @returns {boolean}
-			 */
-			const explore = (previous, viewInt, i) => {
-				// try and find the next view that is compatible
-				for (let next = viewInt + 1; next < viewDim; ++next) {
-					if (indices[next] !== undefined) continue;
-
-					const graph = /** @type {Uint8Array} */ (graphs.get(viewInt * viewDim + next));
-					let incompatible = false;
-					for (let j = 0; j < graphDim; ++j) {
-						const con = graph[i * graphDim + j];
-						if (con & INCOMPATIBLE) {
-							incompatible = true;
-						} else if (con & COMPATIBLE) {
-							// we found a connection
-							// TODO: checking for backwards compatibility seems to break things
-							previous.push({ viewInt, i });
-							const ok = explore(previous, next, j);
-							previous.pop();
-							if (ok) {
-								indices[next] = indices[/** @type {symbol} */ (intToView.get(next))] = j;
-								return true;
-							}
-
-							incompatible = false;
-						} else; // don't do anything if the connection is undefined
+				const formatGraph = g => {
+					let s = [];
+					for (let i = 0; i < 256; i += 16) {
+						let t = [];
+						for (let j = i; j < i + 16; ++j) {
+							t.push(((g[j] & INCOMPATIBLE) && (g[j] & COMPATIBLE)) ? 'A' : (g[j] & INCOMPATIBLE) ? '#' : (g[j] & COMPATIBLE) ? 'v' : '.'); 
+						}
+						s.push(t.join(' '));
 					}
 
-					// if an incompatible connection was found with no other good choices, then there is a conflict
-					// and don't allow it
-					if (incompatible) return false;
-				}
+					return s.join('\n');
+				};
+				Array.from(graphs).map(g => formatGraph(g)).forEach((g, i) => console.log(String(i) + '\n' + g));
 
-				return true;
-			};
-			
-			startCluster: for (let viewInt = 0; viewInt < viewDim; ++viewInt) {
-				if (indices[viewInt] !== undefined) continue; // don't re-process a cluster
+				// #3 : find the lowest indices across all views that are compatible with each other
+				/**
+				 * @param {{ viewInt: number, i: number }[]} previous
+				 * @param {number} viewInt
+				 * @param {number} i
+				 * @returns {boolean}
+				 */
+				const explore = (previous, viewInt, i) => {
+					// try and find the next view that is compatible
+					for (let next = viewInt + 1; next < viewDim; ++next) {
+						if (indices[next] !== undefined) continue;
 
-				// try and start a cluster with some index
-				for (let i = 0; i < graphDim; ++i) {
-					if (explore([], viewInt, i)) {
-						indices[viewInt] = indices[/** @type {symbol} */ (intToView.get(viewInt))] = i;
-						continue startCluster;
+						const graph = /** @type {Uint8Array} */ (graphs.get(viewInt * viewDim + next));
+						let incompatible = false;
+						for (let j = 0; j < graphDim; ++j) {
+							const con = graph[i * graphDim + j];
+							if (con & INCOMPATIBLE) {
+								incompatible = true;
+							} else if (con & COMPATIBLE) {
+								// we found a connection
+								// TODO: checking for backwards compatibility seems to break things
+								previous.push({ viewInt, i });
+								const ok = explore(previous, next, j);
+								previous.pop();
+								if (ok) {
+									indices[next] = indices[/** @type {symbol} */ (intToView.get(next))] = j;
+									return true;
+								}
+
+								incompatible = false;
+							} else; // don't do anything if the connection is undefined
+						}
+
+						// if an incompatible connection was found with no other good choices, then there is a conflict
+						// and don't allow it
+						if (incompatible) return false;
 					}
-				}
 
-				// if everything is incompatible, then there is a disagreement somewhere
-				disagreementStart ??= now;
-				disagreementAt = now;
-				if (now - disagreementStart > 1000) world.synchronized = false;
-				return;
+					return true;
+				};
+				
+				startCluster: for (let viewInt = 0; viewInt < viewDim; ++viewInt) {
+					if (indices[viewInt] !== undefined) continue; // don't re-process a cluster
+
+					// try and start a cluster with some index
+					for (let i = 0; i < graphDim; ++i) {
+						if (explore([], viewInt, i)) {
+							indices[viewInt] = indices[/** @type {symbol} */ (intToView.get(viewInt))] = i;
+							continue startCluster;
+						}
+					}
+
+					// if everything is incompatible, then there is a disagreement somewhere
+					// (shouldn't really happen unless a huge lag spike hits)
+					disagreementStart ??= now;
+					disagreementAt = now;
+					if (now - disagreementStart > 1000) world.synchronized = false;
+					return;
+				}
+			} else { // settings.synchronization === 'latest'
+				let i = 0;
+				for (const view of world.views.keys()) {
+					indices[i++] = indices[view] = 0;
+				}
 			}
 
 
