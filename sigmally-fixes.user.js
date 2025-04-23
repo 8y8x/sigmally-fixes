@@ -2167,11 +2167,14 @@
 		world.views = new Map();
 
 		world.alive = () => {
-			for (const vision of world.views.values()) {
+			for (const [view, vision] of world.views) {
 				for (const id of vision.owned) {
-					const cell = world.cells.get(id)?.merged;
+					const cell = world.cells.get(id);
 					// if a cell does not exist yet, we treat it as alive
-					if (!cell || cell.deadAt === undefined) return true;
+					if (!cell) return true;
+
+					const frame = world.synchronized ? cell.merged : cell.views.get(view)?.frames[0];
+					if (frame?.deadAt === undefined) return true;
 				}
 			}
 			return false;
@@ -2786,6 +2789,7 @@
 		 * 		pinged: number | undefined,
 		 * 		rejections: number,
 		 * 		respawnBlock: { status: 'left' | 'pending', started: number } | undefined,
+		 * 		retries: number,
 		 * 		ws: WebSocket | undefined,
 		 * }>} */
 		net.connections = new Map();
@@ -2801,6 +2805,7 @@
 				pinged: undefined,
 				rejections: 0,
 				respawnBlock: undefined,
+				retries: 0,
 				ws: connect(view),
 			});
 		};
@@ -2850,6 +2855,7 @@
 				connection.pinged = undefined;
 				connection.respawnBlock = undefined;
 				++connection.rejections;
+				if (connection.retries > 0) --connection.retries;
 
 				vision.border = undefined;
 				// don't reset vision.camera
@@ -2890,12 +2896,16 @@
 					});
 				};
 
-				// logic could be more efficient, but it's complicated to do that
-				aux.oldFetch(captchaEndpoint).then(res => res.json()).then(res => res.version).catch(() => 'none')
-					.then(type => {
-						if (type === 'v2' || type === 'v3' || type === 'turnstile') requestCaptcha(type);
-						else setTimeout(() => connect(view), connection.rejections >= 5 ? 5000 : 500);
-					});
+				if (connection.retries > 0) {
+					setTimeout(() => connect(view), 500);
+				} else {
+					aux.oldFetch(captchaEndpoint).then(res => res.json()).then(res => res.version).catch(() => 'none')
+						.then(type => {
+							connection.retries = 3;
+							if (type === 'v2' || type === 'v3' || type === 'turnstile') requestCaptcha(type);
+							else setTimeout(() => connect(view), connection.rejections >= 5 ? 5000 : 500);
+						});
+				}
 			});
 			ws.addEventListener('error', () => {});
 			ws.addEventListener('message', e => {
@@ -3282,6 +3292,7 @@
 				ui.captcha.remove(view);
 
 				connection.rejections = 0;
+				connection.retries = 0;
 
 				vision.camera.x = vision.camera.tx = 0;
 				vision.camera.y = vision.camera.ty = 0;
@@ -4948,8 +4959,7 @@
 				/** @type {(CellFrame | undefined)[]} */
 				const ownedToFrame = vision.owned.map(id => {
 					const cell = world.cells.get(id);
-					if (world.synchronized) return cell?.merged;
-					else return cell?.views.get(world.selected)?.frames[0];
+					return world.synchronized ? cell?.merged : cell?.views.get(world.selected)?.frames[0];
 				});
 				for (const cell of ownedToFrame) {
 					if (cell && cell.deadAt === undefined) ++nextCellIdx;
