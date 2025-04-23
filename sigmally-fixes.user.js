@@ -4695,7 +4695,15 @@
 			let uploading = 0;
 			for (const cell of world[pellets ? 'pellets' : 'cells'].values()) {
 				const frame = world.synchronized ? cell.merged : cell.views.get(world.selected)?.frames[0];
-				if (frame && (!pellets || frame.deadTo === -1)) ++uploading;
+				if (!frame) continue;
+				if (pellets) {
+					if (frame.deadTo === -1) ++uploading;
+				} else {
+					/** @type {CellDescription} */
+					const desc = world.synchronized ? cell.views.values().next().value : cell.views.get(world.selected);
+					if (!desc) continue; // shouldn't happen
+					if (!desc.jagged) ++uploading; // don't make viruses glow
+				}
 			}
 
 			let alpha = circleBuffers[pellets ? 'pelletAlpha' : 'cellAlpha'];
@@ -4746,7 +4754,7 @@
 
 				/** @type {CellDescription} */
 				const desc = world.synchronized ? cell.views.values().next().value : cell.views.get(world.selected);
-				if (!desc) continue; // should never happen (ts-check)
+				if (!desc || desc.jagged) continue;
 
 				/** @type {[number, number, number] | [number, number, number, number]} */
 				let color = desc.rgb;
@@ -5264,8 +5272,10 @@
 						let i = 0;
 						for (const cell of world.cells.values()) {
 							const frame = world.synchronized ? cell.merged : cell.views.get(world.selected)?.frames[0];
-							if (!frame) continue;
-							
+							/** @type {CellDescription} */
+							const desc = world.synchronized ? cell.views.values().next().value : cell.views.get(world.selected);
+							if (!frame || !desc || desc.jagged) continue;
+
 							let alpha = render.alpha(frame, now);
 							// it looks kinda weird when cells get sucked in when being eaten
 							if (frame.deadTo !== -1) alpha *= 0.25;
