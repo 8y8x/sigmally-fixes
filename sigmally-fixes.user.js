@@ -1429,16 +1429,6 @@
 		style.innerHTML = '#menu-wrapper > .menu-center { height: fit-content !important; }';
 		document.head.appendChild(style);
 
-		// sigmod quick fix
-		// TODO does this work?
-		(() => {
-			// the play timer is inserted below the top-left stats, but because we offset them, we need to offset this
-			// too
-			const style = document.createElement('style');
-			style.textContent = '.playTimer { transform: translate(5px, 10px); }';
-			document.head.appendChild(style);
-		})();
-
 		return ui;
 	})();
 
@@ -1764,7 +1754,7 @@
 				input.addEventListener('input', e => {
 					if (input.value.startsWith('🖼️')) {
 						input.value = settings[property];
-						e.preventDefault(); // TODO idk if needed
+						e.preventDefault();
 						return;
 					}
 
@@ -2636,8 +2626,7 @@
 							jr: model.nr, a: 0, updated: now,
 						};
 					} else {
-						if (merged.deadAt === undefined) {
-							// TODO: don't interpolate xyr if model is the same instance as merged.frame. it looks really weird
+						if (merged.deadAt === undefined && (model.nx !== merged.nx || model.ny !== merged.ny || model.nr !== merged.nr)) {
 							const xyr = world.xyr(merged, merged, undefined, undefined, key === 'pellets', now);
 
 							merged.ox = xyr.x;
