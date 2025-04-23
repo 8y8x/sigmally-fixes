@@ -2854,6 +2854,7 @@
 
 				connection.ws = undefined;
 				world.merge();
+				render.upload(true);
 
 				const thisUrl = net.url();
 				const url = new URL(thisUrl); // use the current url, not realUrl
@@ -3088,6 +3089,7 @@
 						// (d) : finalize, upload data
 						world.merge();
 						world.clean();
+						render.upload(true);
 
 						// (e) : clear own cells that don't exist anymore (NOT on world.clean!)
 						for (let i = 0; i < vision.owned.length; ++i) {
@@ -3129,6 +3131,7 @@
 							}
 						}
 						world.merge();
+						render.upload(true);
 						// passthrough
 					}
 					case 0x14: { // delete my cells
@@ -3763,7 +3766,7 @@
 		 * 	vao: WebGLVertexArrayObject,
 		 * 	circleBuffer: WebGLBuffer,
 		 * 	alphaBuffer: WebGLBuffer,
-		 * 	alphaBufferSize: number }[]} */
+		 * }[]} */
 		glconf.vao = [];
 
 		const gl = ui.game.gl;
@@ -4224,7 +4227,7 @@
 				}
 			`, ['Camera', 'Tracer'], []);
 
-			// initialize two VAOs; one for pellets, one for cell glow only
+			// initialize two VAOs; one for pellets and all other objects (0), one for cell glow only (1)
 			glconf.vao = [];
 			for (let i = 0; i < 2; ++i) {
 				const vao = /** @type {WebGLVertexArrayObject} */ (gl.createVertexArray());
@@ -4236,7 +4239,7 @@
 				gl.enableVertexAttribArray(0);
 				gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
 
-				// pellet/circle buffer (each instance is 6 floats or 24 bytes)
+				// circle buffer (each instance is 6 floats or 24 bytes)
 				const circleBuffer = /** @type {WebGLBuffer} */ (gl.createBuffer());
 				gl.bindBuffer(gl.ARRAY_BUFFER, circleBuffer);
 				// a_cell_pos, vec2 (location = 1)
@@ -4252,7 +4255,7 @@
 				gl.vertexAttribPointer(3, 4, gl.FLOAT, false, 4 * 7, 4 * 3);
 				gl.vertexAttribDivisor(3, 1);
 
-				// pellet/circle alpha buffer, updated every frame
+				// circle alpha buffer, updated every frame
 				const alphaBuffer = /** @type {WebGLBuffer} */ (gl.createBuffer());
 				gl.bindBuffer(gl.ARRAY_BUFFER, alphaBuffer);
 				// a_cell_alpha, float (location = 4)
@@ -4260,7 +4263,7 @@
 				gl.vertexAttribPointer(4, 1, gl.FLOAT, false, 0, 0);
 				gl.vertexAttribDivisor(4, 1);
 
-				glconf.vao.push({ vao, alphaBuffer, circleBuffer, alphaBufferSize: 0 });
+				glconf.vao.push({ vao, alphaBuffer, circleBuffer });
 			}
 
 			gl.bindVertexArray(glconf.vao[0].vao);
@@ -4609,6 +4612,167 @@
 			return Math.min(Math.max(alpha, 0), 1);
 		};
 
+		/**
+		 * @param {Cell} cell
+		 */
+		render.skin = cell => {
+			/** @type {CellDescription} */
+			const desc = world.synchronized ? cell.views.values().next().value : cell.views.get(world.selected);
+			if (!desc) return undefined;
+
+			let ownerView;
+			for (const [view, vision] of world.views) {
+				if (vision.owned.includes(cell.id)) {
+					ownerView = view;
+					break;
+				}
+			}
+
+			// 🖼️
+			let texture;
+			if (ownerView) {
+				// owned by primary === selected primary => use primary skin
+				// else use multi skin
+				const prop = ownerView === world.viewId.primary ? 'selfSkin' : 'selfSkinMulti';
+				if (settings[prop]) {
+					if (settings[prop].startsWith('🖼️')) texture = textureFromDatabase(prop);
+					else texture = textureFromCache(settings[prop]);
+				}
+			}
+
+			// allow turning off sigmally skins while still using custom skins
+			if (!texture && aux.settings.showSkins && desc.skin) {
+				texture = textureFromCache(desc.skin);
+			}
+
+			return texture;
+		};
+
+		const circleBuffers = {
+			cell: new Float32Array(0),
+			cellAlpha: new Float32Array(0),
+			/** @type {WebGLVertexArrayObject | undefined} */
+			lastCellVao: undefined,
+			pellet: new Float32Array(0),
+			pelletAlpha: new Float32Array(0),
+			pelletsUploaded: 0,
+			/** @type {WebGLVertexArrayObject | undefined} */
+			lastPelletVao: undefined,
+		};
+		/** @param {boolean} pellets */
+		render.upload = pellets => {
+			const now = performance.now();
+			if (now - render.lastFrame > 1000) {
+				// do not render pellets on inactive windows (very laggy!)
+				circleBuffers.pelletsUploaded = 0;
+				return;
+			}
+
+			let uploading = 0;
+			for (const cell of world[pellets ? 'pellets' : 'cells'].values()) {
+				const frame = world.synchronized ? cell.merged : cell.views.get(world.selected)?.frames[0];
+				if (frame && (!pellets || frame.deadTo === -1)) ++uploading;
+			}
+
+			let alpha = circleBuffers[pellets ? 'pelletAlpha' : 'cellAlpha'];
+			let instances = circleBuffers[pellets ? 'pellet' : 'cell'];
+			const vao = glconf.vao[pellets ? 0 : 1];
+
+			// resize buffers as necessary
+			let capacity = alpha.length || 1;
+			let resizing = circleBuffers[pellets ? 'lastPelletVao' : 'lastCellVao'] !== vao;
+			while (capacity < uploading) {
+				capacity *= 2;
+				resizing = true;
+			}
+			if (resizing) {
+				console.log('resized to', capacity);
+				alpha = circleBuffers[pellets ? 'pelletAlpha' : 'cellAlpha'] = new Float32Array(capacity);
+				instances = circleBuffers[pellets ? 'pellet' : 'cell'] = new Float32Array(capacity * 7);
+			}
+
+			const override = pellets ? sigmod.settings.foodColor : sigmod.settings.cellColor;
+			let i = 0;
+			for (const cell of world[pellets ? 'pellets' : 'cells'].values()) {
+				const frame = world.synchronized ? cell.merged : cell.views.get(world.selected)?.frames[0];
+				if (!frame || (pellets && frame.deadTo !== -1)) continue;
+
+				let x, y, r;
+				if (pellets) {
+					({ nx: x, ny: y, nr: r } = frame);
+				} else {
+					const interp = world.synchronized ? cell.merged : cell.views.get(world.selected);
+					if (!interp) continue; // should never happen (ts-check)
+
+					/** @type {CellFrame | undefined} */
+					let killerFrame;
+					/** @type {CellInterpolation | undefined} */
+					let killerInterp;
+					let killer = frame.deadTo !== -1 && world.cells.get(frame.deadTo);
+					if (killer) {
+						killerFrame = world.synchronized ? killer.merged : killer.views.get(world.selected)?.frames[0];
+						killerInterp = world.synchronized ? killer.merged : killer.views.get(world.selected);
+					}
+
+					({ x, y, r } = world.xyr(frame, interp, killerFrame, killerInterp, false, now));
+				}
+				instances[i * 7] = x;
+				instances[i * 7 + 1] = y;
+				instances[i * 7 + 2] = r;
+
+				/** @type {CellDescription} */
+				const desc = world.synchronized ? cell.views.values().next().value : cell.views.get(world.selected);
+				if (!desc) continue; // should never happen (ts-check)
+
+				/** @type {[number, number, number] | [number, number, number, number]} */
+				let color = desc.rgb;
+				if (pellets) {
+					if (override?.[0] === 0 && override?.[1] === 0 && override?.[2] === 0) {
+						color = [color[0], color[1], color[2], override[3]];
+					} else if (override) {
+						color = override;
+					}
+				} else { 
+					if (override) color = override;
+					const skin = render.skin(cell);
+					if (skin) {
+						// blend with player color
+						if (settings.colorUnderSkin) {
+							color = [
+								color[0] + (skin.color[0] - color[0]) * skin.color[3],
+								color[1] + (skin.color[1] - color[1]) * skin.color[3],
+								color[2] + (skin.color[2] - color[2]) * skin.color[3],
+								1
+							];
+						} else {
+							color = [skin.color[0], skin.color[1], skin.color[2], 1];
+						}
+					}
+				}
+				instances[i * 7 + 3] = color[0];
+				instances[i * 7 + 4] = color[1];
+				instances[i * 7 + 5] = color[2];
+				instances[i * 7 + 6] = color[3] ?? 1;
+
+				++i;
+			}
+
+			// now, upload data
+			if (resizing) {
+				gl.bindBuffer(gl.ARRAY_BUFFER, vao.alphaBuffer);
+				gl.bufferData(gl.ARRAY_BUFFER, alpha.byteLength, gl.STATIC_DRAW);
+				gl.bindBuffer(gl.ARRAY_BUFFER, vao.circleBuffer);
+				gl.bufferData(gl.ARRAY_BUFFER, instances, gl.STATIC_DRAW);
+			} else {
+				gl.bindBuffer(gl.ARRAY_BUFFER, vao.circleBuffer);
+				gl.bufferSubData(gl.ARRAY_BUFFER, 0, instances);
+			}
+			gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+			if (pellets) circleBuffers.pelletsUploaded = uploading;
+			circleBuffers[pellets ? 'lastPelletVao' : 'lastCellVao'] = vao;
+		};
+
 		// #4 : define ubo views
 		// firefox (and certain devices) adds some padding to uniform buffer sizes, so best to check its size
 		gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Border);
@@ -4767,7 +4931,7 @@
 				 * @param {Cell} cell
 				 * @param {boolean} pellet
 				 */
-				function draw(cell, pellet) {
+				const draw = (cell, pellet) => {
 					// #1 : draw cell
 					/** @type {CellFrame | undefined} */
 					const frame = world.synchronized ? cell.merged : cell.views.get(world.selected)?.frames[0];
@@ -4872,11 +5036,11 @@
 							if (ownerVision.camera.merging.length > 0) cellUboInts[9] |= 0x08;
 						}
 
-						/*const texture = undefined; // TODO
+						const texture = render.skin(cell);
 						if (texture) {
 							cellUboInts[9] |= 0x01; // skin
 							gl.bindTexture(gl.TEXTURE_2D, texture.texture);
-						}*/
+						}
 					}
 
 					gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Cell);
@@ -5006,24 +5170,104 @@
 					}
 				}
 
-				/** @type {[Cell, number][]} */
-				const sorted = [];
-				for (const cell of world.cells.values()) {
-					const frame = world.synchronized ? cell.merged : cell.views.get(world.selected)?.frames[0];
-					const interp = world.synchronized ? cell.merged : cell.views.get(world.selected);
-					if (!frame || !interp) continue;
+				// draw pellets
+				{
+					// blend function for all pellets
+					if (settings.pelletGlow && aux.settings.darkTheme) gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
 
-					const a = Math.min(Math.max((now - interp.updated) / settings.drawDelay, 0), 1);
-					const computedR = interp.or + (frame.nr - interp.or) * a;
-					sorted.push([cell, computedR]);
+					// draw unanimated pellets using instanced drawing
+					gl.useProgram(glconf.programs.circle);
+					let i = 0;
+					for (const cell of world.pellets.values()) {
+						const frame = world.synchronized ? cell.merged : cell.views.get(world.selected)?.frames[0];
+						if (frame?.deadTo !== -1) continue;
+						circleBuffers.pelletAlpha[i++] = render.alpha(frame, now);
+					}
+					gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao[0].alphaBuffer);
+					gl.bufferSubData(gl.ARRAY_BUFFER, 0, circleBuffers.pelletAlpha);
+					gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+					gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
+					circleUboFloats[0] = 1; // alpha
+					circleUboFloats[1] = 0; // scale (0 means no blur)
+					gl.bufferSubData(gl.UNIFORM_BUFFER, 0, circleUboFloats);
+					gl.bindBuffer(gl.UNIFORM_BUFFER, null);
+					// pellet data is not uploaded if tab is closed for a while, so pelletsUploaded would be 0
+					gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, circleBuffers.pelletsUploaded);
+
+					if (settings.pelletGlow) {
+						// draw unanimated pellet glow
+						gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+						circleUboFloats[0] = 0.25; // alpha
+						circleUboFloats[1] = 2; // scale
+						gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
+						gl.bufferData(gl.UNIFORM_BUFFER, circleUboFloats, gl.STATIC_DRAW);
+						gl.bindBuffer(gl.UNIFORM_BUFFER, null);
+						gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, i);
+
+						// reset blend func
+						gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+					}
+
+					// draw animated pellets without instanced drawing
+					for (const cell of world.pellets.values()) {
+						const frame = world.synchronized ? cell.merged : cell.views.get(world.selected)?.frames[0];
+						if (frame && frame.deadTo !== -1) draw(cell, true);
+						// do not make eaten pellets glow
+					}
 				}
 
-				// TODO: use instanced drawing again
-				for (const cell of world.pellets.values()) draw(cell, true);
+				// draw cells
+				{
+					/** @type {[Cell, number][]} */
+					const sorted = [];
+					for (const cell of world.cells.values()) {
+						const frame = world.synchronized ? cell.merged : cell.views.get(world.selected)?.frames[0];
+						const interp = world.synchronized ? cell.merged : cell.views.get(world.selected);
+						if (!frame || !interp) continue;
 
-				// sort by smallest to biggest
-				sorted.sort(([_a, ar], [_b, br]) => ar - br);
-				for (const [cell] of sorted) draw(cell, false);
+						const a = Math.min(Math.max((now - interp.updated) / settings.drawDelay, 0), 1);
+						const computedR = interp.or + (frame.nr - interp.or) * a;
+						sorted.push([cell, computedR]);
+					}
+
+					sorted.sort(([_a, ar], [_b, br]) => ar - br);
+					for (const [cell] of sorted) draw(cell, false);
+
+					// draw glow *after* all cells (so the glow goes above the text)
+					if (settings.cellGlow) {
+						render.upload(false);
+						let i = 0;
+						for (const cell of world.cells.values()) {
+							const frame = world.synchronized ? cell.merged : cell.views.get(world.selected)?.frames[0];
+							if (!frame) continue;
+							
+							let alpha = render.alpha(frame, now);
+							// it looks kinda weird when cells get sucked in when being eaten
+							if (frame.deadTo !== -1) alpha *= 0.25;
+							circleBuffers.cellAlpha[i++] = alpha;
+						}
+
+						gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao[1].alphaBuffer);
+						gl.bufferSubData(gl.ARRAY_BUFFER, 0, circleBuffers.cellAlpha);
+						gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+						gl.bindVertexArray(glconf.vao[1].vao);
+						gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+
+						gl.useProgram(glconf.programs.circle);
+						circleUboFloats[0] = 0.25; // alpha
+						// scale (can't be too big, otherwise it looks weird when cells come into view)
+						circleUboFloats[1] = 1.5;
+						gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
+						gl.bufferData(gl.UNIFORM_BUFFER, circleUboFloats, gl.STATIC_DRAW);
+						gl.bindBuffer(gl.UNIFORM_BUFFER, null);
+						gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, i);
+
+						gl.bindVertexArray(glconf.vao[0].vao);
+						gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+					}
+				}
 
 				// draw tracers
 				if (settings.tracer) {
