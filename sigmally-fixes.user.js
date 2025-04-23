@@ -327,7 +327,7 @@
 
 		/** @type {object | undefined} */
 		aux.userData = undefined;
-		aux.oldFetch = fetch.bind(window);
+		aux.oldFetch = /** @type {typeof fetch} */ (fetch.bind(window));
 		let lastUserData = -Infinity;
 		// this is the best method i've found to get the userData object, since game.js uses strict mode
 		Object.defineProperty(window, 'fetch', {
@@ -536,6 +536,8 @@
 			// @ts-expect-error
 			const real = window.sigmod?.settings;
 			if (!real) return;
+			sigmod.exists = true;
+
 			/**
 			 * @param {'cellColor' | 'foodColor' | 'mapColor' | 'outlineColor' | 'nameColor1' | 'nameColor2'} prop
 			 * @param {any} initial
@@ -584,11 +586,13 @@
 		}, 200);
 
 		// patch sigmod when it's ready; typically sigmod loads first, but i can't guarantee that
+		sigmod.exists = false;
 		sigmod.proxy = {};
 		let patchInterval;
 		sigmod.patch = () => {
 			const real = /** @type {any} */ (window).sigmod;
 			if (!real || patchInterval === undefined) return;
+			sigmod.exists = true;
 
 			clearInterval(patchInterval);
 			patchInterval = undefined;
@@ -975,15 +979,19 @@
 				if (menuLinks) menuLinks.style.display = 'none';
 				if (menuWrapper) menuWrapper.style.display = 'none';
 			}
+
+			ui.captcha.reposition();
 		};
 
 		ui.escOverlayVisible = () => escOverlayVisible;
 
 		ui.deathScreen = (() => {
 			const deathScreen = {};
+			let visible = false;
 
 			continueButton.addEventListener('click', () => {
 				ui.toggleEscOverlay(true);
+				visible = false;
 			});
 
 			// TODO: figure out how this thing works
@@ -1022,15 +1030,22 @@
 				}
 
 				statsContainer.classList.remove('line--hidden');
+				visible = true;
 				ui.toggleEscOverlay(false);
 				if (overlay) overlay.style.display = '';
 				world.stats = { foodEaten: 0, highestPosition: 200, highestScore: 0, spawnedAt: undefined };
+
+				ui.captcha.reposition();
 			};
 
 			deathScreen.hide = () => {
 				statsContainer?.classList.add('line--hidden');
+				visible = false;
+				// no need for ui.captcha.reposition() because the esc overlay will always be shown on deathScreen.hide
 				// ads are managed by the game client
 			};
+
+			deathScreen.visible = () => visible;
 
 			return deathScreen;
 		})();
@@ -1209,13 +1224,196 @@
 		/** @param {string} msg */
 		ui.error = msg => {
 			const modal = /** @type {HTMLElement | null} */ (document.querySelector('#errormodal'));
+			if (modal) modal.style.display = 'block';
 			const desc = document.querySelector('#errormodal p');
-			if (desc)
-				desc.innerHTML = msg;
-
-			if (modal)
-				modal.style.display = 'block';
+			if (desc) desc.innerHTML = msg;
 		};
+
+		ui.captcha = (() => {
+			const captcha = {};
+
+			const modeBtns = /** @type {HTMLElement | null} */ (document.querySelector('.mode-btns'));
+			/** @type {HTMLButtonElement} */
+			const play = aux.require(document.querySelector('button#play-btn'),
+			'Can\'t find the play button. Try reloading the page?');
+			/** @type {HTMLButtonElement} */
+			const spectate = aux.require(document.querySelector('button#spectate-btn'),
+				'Can\'t find the spectate button. Try reloading the page?');
+
+			/** @type {((grecaptcha: any) => void) | undefined} */
+			let grecaptchaResolve;
+			/** @type {Promise<any>} */
+			const grecaptcha = new Promise(r => grecaptchaResolve = r);
+			/** @type {((turnstile: any) => void) | undefined} */
+			let turnstileResolve;
+			/** @type {Promise<any>} */
+			const turnstile = new Promise(r => turnstileResolve = r);
+			let CAPTCHA2, CAPTCHA3, TURNSTILE;
+
+			let readyCheck;
+			readyCheck = setInterval(() => {
+				// it's possible that recaptcha or turnstile may be removed in the future, so we be redundant to stay
+				// safe
+				if (grecaptchaResolve) {
+					let grecaptchaReal;
+					({ grecaptcha: grecaptchaReal, CAPTCHA2, CAPTCHA3 } = /** @type {any} */ (window));
+					if (grecaptchaReal?.ready && CAPTCHA2 && CAPTCHA3) {
+						const resolve = grecaptchaResolve;
+						grecaptchaResolve = undefined;
+
+						grecaptchaReal.ready(() => {
+							// prevent game.js from using grecaptcha and messing things up
+							let { grecaptcha: grecaptchaNew } = /** @type {any} */ (window);
+							/** @type {any} */ (window).grecaptcha = {
+								execute: () => {},
+								ready: () => {},
+								render: () => {},
+								reset: () => {},
+							};
+							resolve(grecaptchaNew);
+						});
+					}
+				}
+
+				if (turnstileResolve) {
+					let turnstileReal;
+					({ turnstile: turnstileReal, TURNSTILE } = /** @type {any} */ (window));
+					if (turnstileReal?.ready && TURNSTILE) {
+						const resolve = turnstileResolve;
+						turnstileResolve = undefined;
+
+						// turnstile.ready not needed
+						// prevent game.js from using turnstile and messing things up
+						/** @type {any} */ (window).turnstile = {
+							execute: () => {},
+							ready: () => {},
+							render: () => {},
+							reset: () => {},
+						};
+						resolve(turnstileReal);
+					}
+				}
+
+				if (!grecaptchaResolve && !turnstileResolve)
+					clearInterval(readyCheck);
+			}, 50);
+
+			/**
+			 * @typedef {{
+			 * 	cb: ((token: string) => void) | undefined,
+			 * 	handle: any,
+			 * 	mount: HTMLElement,
+			 * 	reposition: () => boolean,
+			 * 	type: string,
+			 * }} CaptchaInstance
+			 * @type {Map<symbol, CaptchaInstance>}
+			 */
+			const captchas = new Map();
+
+			/** @param {symbol} view */
+			captcha.remove = view => {
+				const inst = captchas.get(view);
+				if (!inst) return;
+
+				if (inst.type === 'v2') grecaptcha.then(g => g.reset(inst.handle));
+				// don't do anything for v3
+				else if (inst.type === 'turnstile') turnstile.then(t => t.remove(inst.handle));
+
+				inst.cb = () => {}; // ensure the token gets voided if solved
+				inst.mount.remove();
+				captchas.delete(view);
+				captcha.reposition(); // ensure play/spectate buttons reappear
+			};
+
+			/**
+			 * @param {symbol} view
+			 * @param {string} type
+			 * @param {(token: string) => void} cb
+			 */
+			captcha.request = (view, type, cb) => {
+				const oldInst = captchas.get(view);
+				if (oldInst?.type === type && oldInst.cb) {
+					oldInst.cb = cb;
+					return;
+				}
+
+				captcha.remove(view);
+
+				const mount = document.createElement('div');
+				document.body.appendChild(mount);
+				const reposition = () => {
+					let replacesModeButtons = false;
+					if (view === world.viewId.spectate) {
+						mount.style.cssText = 'position: fixed; bottom: 10px; left: 50vw; transform: translateX(-50%); \
+							z-index: 1000;';
+					} else if (view !== world.selected || ui.deathScreen.visible()) {
+						mount.style.cssText = 'opacity: 0;'; // don't use display: none;
+					} else if (escOverlayVisible && modeBtns) {
+						const place = modeBtns?.getBoundingClientRect();
+						mount.style.cssText = `position: fixed; top: ${place ? place.top + 'px' : '50vh'};
+							left: ${place ? (place.left + place.width / 2) + 'px' : '50vw'};
+							transform: translate(-50%, ${place ? '0%' : '-50%'}); z-index: 1000;`;
+						replacesModeButtons = type !== 'v3'; // v3 is invisible, so it shouldn't hide the play buttons
+					} else {
+						mount.style.cssText = `position: fixed; top: 50vh; left: 50vw; transform: translate(-50%, -50%);
+							z-index: 1000;`;
+					}
+
+					return replacesModeButtons;
+				};
+
+				/** @type {CaptchaInstance} */
+				const inst = { cb, handle: undefined, mount, reposition, type };
+				captchas.set(view, inst);
+				captcha.reposition();
+
+				if (type === 'v2') {
+					grecaptcha.then(g => {
+						inst.handle = g.render(mount, {
+							callback: token => {
+								inst.cb?.(token);
+								inst.cb = undefined;
+							},
+							'error-callback': () => setTimeout(() => g.reset(inst.handle), 1000),
+							'expired-callback': () => setTimeout(() => g.reset(inst.handle), 1000),
+							sitekey: CAPTCHA2,
+							theme: sigmod.exists ? 'dark' : 'light',
+						});
+					});
+				} else if (type === 'v3') {
+					grecaptcha.then(g => {
+						g.execute(CAPTCHA3).then(token => {
+							inst.cb?.(token);
+							inst.cb = undefined;
+						});
+					});
+				} else if (type === 'turnstile') {
+					turnstile.then(t => {
+						inst.handle = t.render(mount, {
+							callback: token => {
+								inst.cb?.(token);
+								inst.cb = undefined;
+							},
+							'error-callback': () => setTimeout(() => t.reset(inst.handle), 1000),
+							'expired-callback': () => setTimeout(() => t.reset(inst.handle), 1000),
+							sitekey: TURNSTILE,
+							theme: sigmod.exists ? 'dark' : 'light',
+						});
+					});
+				}
+			};
+
+			captcha.reposition = () => {
+				let replacingModeButtons = false;
+				for (const inst of captchas.values()) replacingModeButtons = inst.reposition() || replacingModeButtons;
+
+				play.style.display = spectate.style.display = replacingModeButtons ? 'none' : '';
+			};
+
+			addEventListener('resize', () => captcha.reposition());
+
+			return captcha;
+		})();
 
 		// make sure nothing gets cut off on the center menu panel
 		const style = document.createElement('style');
@@ -2422,6 +2620,7 @@
 						};
 					} else {
 						if (merged.deadAt === undefined) {
+							// TODO: don't interpolate xyr if model is the same instance as merged.frame. it looks really weird
 							const xyr = world.xyr(merged, merged, undefined, undefined, key === 'pellets', now);
 
 							merged.ox = xyr.x;
@@ -2568,11 +2767,11 @@
 
 		// #1 : define state
 		/** @type {Map<symbol, {
+		 * 		captchaType: string | undefined,
 		 * 		handshake: { shuffle: Uint8Array, unshuffle: Uint8Array } | undefined,
 		 * 		latency: number | undefined,
-		 *		opened: boolean,
 		 * 		pinged: number | undefined,
-		 * 		rejected: boolean,
+		 * 		rejections: number,
 		 * 		respawnBlock: { status: 'left' | 'pending', started: number } | undefined,
 		 * 		ws: WebSocket | undefined,
 		 * }>} */
@@ -2583,21 +2782,24 @@
 			if (net.connections.has(view)) return;
 
 			net.connections.set(view, {
+				captchaType: undefined,
 				handshake: undefined,
 				latency: undefined,
-				opened: false,
 				pinged: undefined,
-				rejected: false,
+				rejections: 0,
 				respawnBlock: undefined,
 				ws: connect(view),
 			});
 		};
 
+		let captchaPostQueue = Promise.resolve();
+
 		/**
 		 * @param {symbol} view
+		 * @param {(() => void)=} establishedCallback
 		 * @returns {WebSocket | undefined}
 		*/
-		const connect = view => {
+		const connect = (view, establishedCallback) => {
 			if (net.connections.get(view)?.ws) return; // already being handled by another process
 
 			// do not allow sigmod's args[0].includes('sigmally.com') check to pass
@@ -2608,8 +2810,10 @@
 				ws = new WebSocket(fakeUrl);
 			} catch (err) {
 				console.error('can\'t make WebSocket:', err);
-				aux.require(null, `The server address "${realUrl}" is invalid. Try changing the server, reloading ` +
-					'the page, and clearing your browser cache.');
+				aux.require(null, 'The server address is invalid. It probably has a typo.\n' +
+					'- If using an insecure address (starting with "ws://" and not "wss://") that isn\'t localhost, ' +
+					'enable Insecure Content in this site\'s browser settings.\n' +
+					'- If using a local server, make sure to use localhost and not any other local IP.');
 				return; // ts-check is dumb
 			}
 
@@ -2621,6 +2825,9 @@
 			ws.binaryType = 'arraybuffer';
 			ws.addEventListener('close', e => {
 				console.error('WebSocket closed:', e);
+				establishedCallback?.();
+				establishedCallback = undefined;
+
 				const connection = net.connections.get(view);
 				const vision = world.views.get(view);
 				if (!connection || !vision) return; // if the entry no longer exists, don't reconnect
@@ -2629,8 +2836,7 @@
 				connection.latency = undefined;
 				connection.pinged = undefined;
 				connection.respawnBlock = undefined;
-				if (!connection.opened) connection.rejected = true;
-				connection.opened = false;
+				++connection.rejections;
 
 				vision.border = undefined;
 				// don't reset vision.camera
@@ -2647,19 +2853,35 @@
 				}
 
 				connection.ws = undefined;
-
-				if (connection.rejected && net.connections.get(world.viewId.spectate)?.handshake
-					&& view !== world.viewId.spectate) {
-					// "promote" spectator tab, swap with disconnected multi
-					const key = view === world.viewId.primary ? 'primary' : 'secondary';
-					[world.viewId[key], world.viewId.spectate] = [world.viewId.spectate, world.viewId[key]];
-
-					connect(world.viewId.spectate);
-				} else {
-					setTimeout(() => connect(view), connection.rejected ? 3000 : 0);
-				}
-
 				world.merge();
+
+				const thisUrl = net.url();
+				const url = new URL(thisUrl); // use the current url, not realUrl
+				const captchaEndpoint = `http${url.protocol === 'ws:' ? '' : 's'}://${url.host}/server/recaptcha/v3`;
+
+				/** @param {string} type */
+				const requestCaptcha = type => {
+					ui.captcha.request(view, type, token => {
+						captchaPostQueue = captchaPostQueue.then(() => new Promise(resolve => {
+							aux.oldFetch(captchaEndpoint, {
+								method: 'POST',
+								headers: { 'content-type': 'application/json' },
+								body: JSON.stringify({ token }),
+							}).then(res => res.json()).then(res => res.status).catch(() => 'rejected')
+								.then(status => {
+									if (status === 'complete') connect(view, resolve);
+									else setTimeout(() => connect(view, resolve), 1000);
+								});
+						}));
+					});
+				};
+
+				// logic could be more efficient, but it's complicated to do that
+				aux.oldFetch(captchaEndpoint).then(res => res.json()).then(res => res.version).catch(() => 'none')
+					.then(type => {
+						if (type === 'v2' || type === 'v3' || type === 'turnstile') requestCaptcha(type);
+						else setTimeout(() => connect(view), connection.rejections >= 5 ? 5000 : 500);
+					});
 			});
 			ws.addEventListener('error', () => {});
 			ws.addEventListener('message', e => {
@@ -3035,12 +3257,16 @@
 				sigmod.proxy.handleMessage?.(dat);
 			});
 			ws.addEventListener('open', () => {
+				establishedCallback?.();
+				establishedCallback = undefined;
+
 				const connection = net.connections.get(view);
 				const vision = world.views.get(view);
 				if (!connection || !vision) return ws.close();
 
-				connection.rejected = false;
-				connection.opened = true;
+				ui.captcha.remove(view);
+
+				connection.rejections = 0;
 
 				vision.camera.x = vision.camera.tx = 0;
 				vision.camera.y = vision.camera.ty = 0;
@@ -3168,7 +3394,10 @@
 		net.create(world.viewId.primary);
 		let lastChangedSpectate = -Infinity;
 		setInterval(() => {
-			if (!settings.multibox) world.selected = world.viewId.primary;
+			if (!settings.multibox) {
+				world.selected = world.viewId.primary;
+				ui.captcha.reposition();
+			}
 			if (settings.spectator) {
 				const vision = world.create(world.viewId.spectate);
 				net.create(world.viewId.spectate);
@@ -3348,6 +3577,8 @@
 					const name = world.selected === world.viewId.primary ? input.nick1.value : input.nick2.value;
 					net.play(world.selected, playData(name, false));
 				}
+
+				ui.captcha.reposition();
 				return;
 			}
 
@@ -3490,253 +3721,25 @@
 		const spectate = aux.require(document.querySelector('button#spectate-btn'),
 			'Can\'t find the spectate button. Try reloading the page?');
 
+		play.addEventListener('click', () => {
+			const name = world.selected === world.viewId.secondary ? input.nick2.value : input.nick1.value;
+			const con = net.connections.get(world.selected);
+			if (!con?.handshake) return;
+			ui.toggleEscOverlay(false);
+			net.play(world.selected, playData(name, false));
+		});
+		spectate.addEventListener('click', () => {
+			const name = world.selected === world.viewId.secondary ? input.nick2.value : input.nick1.value;
+			const con = net.connections.get(world.selected);
+			if (!con?.handshake) return;
+			ui.toggleEscOverlay(false);
+			net.play(world.selected, playData(name, true));
+		});
+
 		play.disabled = spectate.disabled = true;
-
-		(async () => {
-			const mount = document.createElement('div');
-			mount.id = 'sf-captcha-mount';
-			mount.style.display = 'none';
-			play.parentNode?.insertBefore(mount, play);
-
-			/** @type {Set<() => void> | undefined} */
-			let onGrecaptchaReady = new Set();
-			/** @type {Set<() => void> | undefined} */
-			let onTurnstileReady = new Set();
-			let grecaptcha, turnstile, CAPTCHA2, CAPTCHA3, TURNSTILE;
-
-			let readyCheck;
-			readyCheck = setInterval(() => {
-				// it's possible that recaptcha or turnstile may be removed in the future, so we be redundant to stay
-				// safe
-				if (onGrecaptchaReady) {
-					({ grecaptcha, CAPTCHA2, CAPTCHA3 } = /** @type {any} */ (window));
-					if (grecaptcha?.ready && CAPTCHA2 && CAPTCHA3) {
-						const handlers = onGrecaptchaReady;
-						onGrecaptchaReady = undefined;
-
-						grecaptcha.ready(() => {
-							handlers.forEach(cb => cb());
-							// prevent game.js from using grecaptcha and messing things up
-							({ grecaptcha } = /** @type {any} */ (window));
-							/** @type {any} */ (window).grecaptcha = {
-								execute: () => { },
-								ready: () => { },
-								render: () => { },
-								reset: () => { },
-							};
-						});
-					}
-				}
-
-				if (onTurnstileReady) {
-					({ turnstile, TURNSTILE } = /** @type {any} */ (window));
-					if (turnstile?.ready && TURNSTILE) {
-						const handlers = onTurnstileReady;
-						onTurnstileReady = undefined;
-						handlers.forEach(cb => cb());
-
-						// prevent game.js from using turnstile and messing things up
-						/** @type {any} */ (window).turnstile = {
-							execute: () => { },
-							ready: () => { },
-							render: () => { },
-							reset: () => { },
-						};
-					}
-				}
-
-				if (!onGrecaptchaReady && !onTurnstileReady)
-					clearInterval(readyCheck);
-			}, 50);
-
-			/**
-			 * @param {string} url
-			 * @returns {Promise<string>}
-			 */
-			const tokenVariant = async url => {
-				const host = new URL(url).host;
-				if (host.includes('sigmally.com'))
-					return aux.oldFetch(`https://${host}/server/recaptcha/v3`)
-						.then(res => res.json())
-						.then(res => res.version ?? 'none');
-				else
-					return Promise.resolve('none');
-			};
-
-			/** @type {unique symbol} */
-			const waiting = Symbol();
-			let nextTryAt = 0;
-			/** @type {undefined | typeof waiting | { variant: string, token: string | undefined }} */
-			let token = undefined;
-			/** @type {string | undefined} */
-			let turnstileHandle;
-			/** @type {number | undefined} */
-			let v2Handle;
-
-			/**
-			 * @param {string} url
-			 * @param {string} variant
-			 * @param {string | undefined} captchaToken
-			 */
-			const publishToken = (url, variant, captchaToken) => {
-				const url2 = net.url();
-				if (url !== url2) {
-					token = { variant, token: captchaToken };
-					return;
-				}
-
-				const complete = () => {
-					token = undefined;
-					play.disabled = spectate.disabled = false;
-					for (const con of net.connections.values()) {
-						con.rejected = false; // wait until we try connecting again
-					}
-				};
-
-				if (variant === 'none') {
-					complete();
-					return;
-				}
-
-				const host = new URL(url).host;
-				aux.oldFetch(`https://${host}/server/recaptcha/v3`, {
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({ token: captchaToken }),
-				})
-					.then(res => res.json())
-					.then(res => {
-						if (res.status === 'complete') {
-							complete();
-						} else if (res.status === 'wait') {
-							setTimeout(() => publishToken(url, variant, captchaToken), 1000);
-						} else {
-							token = undefined;
-						}
-					})
-					.catch(err => {
-						token = undefined;
-						nextTryAt = performance.now() + 3000;
-						throw err;
-					});
-			};
-
-			setInterval(() => {
-				const con = net.connections.get(world.selected);
-				if (!con) return;
-
-				const canPlay = !net.rejected && con?.ws?.readyState === WebSocket.OPEN;
-				if (play.disabled !== !canPlay) {
-					play.disabled = spectate.disabled = !canPlay;
-				}
-
-				if (token === waiting) return;
-				if (!con.rejected) return;
-
-				const url = net.url();
-
-				if (typeof token !== 'object') {
-					// get a new token if first time, or if we're on a new connection now
-					if (performance.now() < nextTryAt) return;
-
-					token = waiting;
-					play.disabled = spectate.disabled = true;
-					tokenVariant(url)
-						.then(async variant => {
-							const url2 = net.url();
-							if (url !== url2) {
-								// server changed and may want a different variant; restart
-								token = undefined;
-								return;
-							}
-
-							if (variant === 'v2') {
-								mount.style.display = 'block';
-								play.style.display = spectate.style.display = 'none';
-								if (v2Handle !== undefined) {
-									grecaptcha.reset(v2Handle);
-								} else {
-									const cb = () => void (v2Handle = grecaptcha.render('sf-captcha-mount', {
-										sitekey: CAPTCHA2,
-										callback: v2 => {
-											mount.style.display = 'none';
-											play.style.display = spectate.style.display = '';
-											publishToken(url, variant, v2);
-										},
-									}));
-									if (onGrecaptchaReady)
-										onGrecaptchaReady.add(cb);
-									else
-										grecaptcha.ready(cb);
-								}
-							} else if (variant === 'v3') {
-								const cb = () => grecaptcha.execute(CAPTCHA3)
-									.then(v3 => publishToken(url, variant, v3));
-								if (onGrecaptchaReady)
-									onGrecaptchaReady.add(cb);
-								else
-									grecaptcha.ready(cb);
-							} else if (variant === 'turnstile') {
-								mount.style.display = 'block';
-								play.style.display = spectate.style.display = 'none';
-								if (turnstileHandle !== undefined) {
-									turnstile.reset(turnstileHandle);
-								} else {
-									const cb = () => void (turnstileHandle = turnstile.render('#sf-captcha-mount', {
-										sitekey: TURNSTILE,
-										callback: turnstileToken => {
-											mount.style.display = 'none';
-											play.style.display = spectate.style.display = '';
-											publishToken(url, variant, turnstileToken);
-										},
-									}));
-									if (onTurnstileReady)
-										onTurnstileReady.add(cb);
-									else
-										cb();
-								}
-							} else {
-								// server wants "none" or unknown token variant; don't show a captcha
-								publishToken(url, variant, undefined);
-							}
-						}).catch(err => {
-							token = undefined;
-							nextTryAt = performance.now() + 3000;
-							console.warn('Error while getting token variant:', err);
-						});
-				} else {
-					// token is ready to be used, check variant
-					const got = token;
-					token = waiting;
-					play.disabled = spectate.disabled = true;
-					tokenVariant(url)
-						.then(variant2 => {
-							if (got.variant !== variant2) {
-								// server wants a different token variant
-								token = undefined;
-							} else
-								publishToken(url, got.variant, got.token);
-						}).catch(err => {
-							token = got;
-							nextTryAt = performance.now() + 3000;
-							console.warn('Error while getting token variant:', err);
-						});
-				}
-			}, 100);
-
-			/** @param {MouseEvent} e */
-			async function clickHandler(e) {
-				const name = world.selected === world.viewId.primary ? input.nick1.value : input.nick2.value;
-
-				const con = net.connections.get(world.selected);
-				if (!con || con.rejected) return;
-				ui.toggleEscOverlay(false);
-				net.play(world.selected, playData(name, e.currentTarget === spectate));
-			}
-
-			play.addEventListener('click', clickHandler);
-			spectate.addEventListener('click', clickHandler);
-		})();
+		setInterval(() => {
+			play.disabled = spectate.disabled = !net.connections.get(world.selected)?.handshake;
+		}, 100);
 
 		return input;
 	})();
@@ -4740,6 +4743,10 @@
 			})();
 
 			(function cells() {
+				// don't render anything if the current tab is not connected
+				const con = net.connections.get(world.selected);
+				if (!con?.handshake) return;
+
 				// for white cell outlines
 				let nextCellIdx = 0;
 				/** @type {(CellFrame | undefined)[]} */
@@ -5011,6 +5018,7 @@
 					sorted.push([cell, computedR]);
 				}
 
+				// TODO: use instanced drawing again
 				for (const cell of world.pellets.values()) draw(cell, true);
 
 				// sort by smallest to biggest
