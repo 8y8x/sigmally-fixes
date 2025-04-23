@@ -811,7 +811,7 @@
 
 				const scoreVal = world.score(world.selected);
 				const multiplier = (typeof aux.userData?.boost === 'number' && aux.userData.boost > Date.now()) ? 2 : 1;
-				if (scoreVal * multiplier > world.stats.highestScore) world.stats.highestScore = scoreVal * multiplier;
+				if (scoreVal > world.stats.highestScore) world.stats.highestScore = scoreVal;
 				let scoreHtml;
 				if (scoreVal <= 0) scoreHtml = '';
 				else if (settings.separateBoost) {
@@ -994,10 +994,8 @@
 				visible = false;
 			});
 
-			// TODO: figure out how this thing works
 			/** @type {HTMLElement | null} */
 			const bonus = document.querySelector('#menu__bonus');
-			if (bonus) bonus.style.display = 'none';
 
 			deathScreen.check = () => {
 				if (world.stats.spawnedAt === undefined) return;
@@ -1006,13 +1004,23 @@
 			};
 
 			deathScreen.show = () => {
+				const boost = typeof aux.userData?.boost === 'number' && aux.userData.boost > Date.now();
+				if (bonus) {
+					if (boost) {
+						bonus.style.display = '';
+						bonus.textContent = `Bonus score: ${Math.round(world.stats.highestScore)}`;
+					} else {
+						bonus.style.display = 'none';
+					}
+				}
+
 				const foodEatenElement = document.querySelector('#food_eaten');
 				if (foodEatenElement)
 					foodEatenElement.textContent = world.stats.foodEaten.toString();
 
 				const highestMassElement = document.querySelector('#highest_mass');
 				if (highestMassElement)
-					highestMassElement.textContent = Math.round(world.stats.highestScore).toString();
+					highestMassElement.textContent = (Math.round(world.stats.highestScore) * (boost ? 2 : 1)).toString();
 
 				const highestPositionElement = document.querySelector('#top_leaderboard_position');
 				if (highestPositionElement)
