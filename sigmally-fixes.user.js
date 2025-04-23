@@ -5362,7 +5362,7 @@
 					tracerUboFloats[3] = 0.5;
 					tracerUboFloats[4] = 2; // line thickness
 					gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Tracer);
-					gl.bufferSubData(gl.UNIFORM_BUFFER, 0, tracerUboBuffer);
+					gl.bufferSubData(gl.UNIFORM_BUFFER, 0, tracerUboFloats);
 					gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 
 					let mouse = [0, 0];
