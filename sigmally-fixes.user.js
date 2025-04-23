@@ -825,12 +825,13 @@
 				const con = net.connections.get(view);
 				let measuresText = `${Math.floor(render.fps)} FPS`;
 				if (con?.latency !== undefined) {
+					measuresText += ` ${con.latency === -1 ? '????' : Math.floor(con.latency)}ms`;
 					const spectateCon = net.connections.get(world.viewId.spectate);
 					if (settings.spectatorLatency && spectateCon?.latency !== undefined) {
-						measuresText += ` ${Math.floor(con.latency)}ms (${Math.floor(spectateCon.latency)}ms) ping`;
-					} else {
-						measuresText += ` ${Math.floor(con.latency)}ms ping`;
+						measuresText
+							+= ` (${spectateCon.latency === -1 ? '????' : Math.floor(spectateCon.latency)}ms)`;
 					}
+					measuresText += ' ping';
 				}
 				measures.textContent = measuresText;
 			};
@@ -3138,6 +3139,9 @@
 					case 0x12: { // delete all cells
 						// happens every time you respawn
 						if (connection.respawnBlock?.status === 'pending') connection.respawnBlock.status = 'left';
+						// the server won't respond to pings if you aren't in a world, and we don't want to show '????'
+						// unless there's actually a problem
+						connection.pinged = undefined;
 
 						// DO NOT just clear the maps! when respawning, OgarII will not resend cell data if we spawn
 						// nearby.
@@ -3191,8 +3195,6 @@
 						break;
 					}
 
-					// case 0x30 is a text list (not a numbered list), leave unsupported
-					// TODO: support text lists
 					case 0x31: { // ffa leaderboard list
 						const lb = [];
 						const count = dat.getUint32(o, true);
@@ -3232,7 +3234,6 @@
 						vision.leaderboard = lb;
 						break;
 					}
-					// TODO: support team (pie) lists
 
 					case 0x40: { // border update
 						vision.border = {
@@ -3245,11 +3246,10 @@
 					}
 
 					case 0x63: { // chat message
-						// only handle chat messages on the primary tab, to prevent duplicate messages
-						// this means that command responses won't be shown on the secondary tab but who actually cares
-						// TODO: show server messages across all tabs
-						if (view !== world.viewId.primary) return;
+						// only handle non-server chat messages on the primary tab, to prevent duplicate messages
 						const flags = dat.getUint8(o++);
+						const server = flags & 0x80;
+						if (view !== world.viewId.primary && !server) return; // skip sigmod processing too
 						const rgb = /** @type {[number, number, number, number]} */
 							([dat.getUint8(o++) / 255, dat.getUint8(o++) / 255, dat.getUint8(o++) / 255, 1]);
 
@@ -3308,6 +3308,7 @@
 		setInterval(() => {
 			for (const connection of net.connections.values()) {
 				if (!connection.handshake || connection.ws?.readyState !== WebSocket.OPEN) continue;
+				if (connection.pinged !== undefined) connection.latency = -1; // display '????ms'
 				connection.pinged = performance.now();
 				connection.ws.send(connection.handshake.shuffle.slice(0xfe, 0xfe + 1));
 			}
