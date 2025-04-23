@@ -3469,7 +3469,11 @@
 		input.current = [0, 0];
 		/** @type {Map<symbol, {
 		 * 		forceW: boolean,
-		 * 		lock: { mouse: [number, number], world: [number, number], until: number } | undefined,
+		 * 		lock: {
+		 * 			mouse: [number, number],
+		 * 			world: [number, number],
+		 * 			until: number,
+		 * 		} | undefined,
 		 * 		mouse: [number, number], // between -1 and 1
 		 * 		w: boolean,
 		 * 		world: [number, number], // world position; only updates when tab is selected
@@ -3524,7 +3528,7 @@
 			if (inputs.lock && now <= inputs.lock.until) {
 				const d = Math.hypot(input.current[0] - inputs.lock.mouse[0], input.current[1] - inputs.lock.mouse[1]);
 				// only lock the mouse as long as the mouse has not moved further than 25% (of 2) of the screen away
-				if (d < 0.5) {
+				if (d < 0.5 || Number.isNaN(d)) {
 					net.move(view, ...inputs.lock.world);
 					return;
 				}
@@ -3787,12 +3791,7 @@
 		glconf.pelletAlphaBuffer = /** @type {never} */ (undefined);
 		/** @type {WebGLBuffer} */
 		glconf.pelletBuffer = /** @type {never} */ (undefined);
-		/** @type {{
-		 * 	vao: WebGLVertexArrayObject,
-		 * 	circleBuffer: WebGLBuffer,
-		 * 	alphaBuffer: WebGLBuffer,
-		 * }[]} */
-		glconf.vao = [];
+		glconf.vao = {};
 
 		const gl = ui.game.gl;
 		/** @type {Map<string, number>} */
@@ -3910,8 +3909,8 @@
 				vec2 u_text_offset; // @ 0x30, i = 12
 			};`,
 			tracerUbo: `layout(std140) uniform Tracer { // size = 0x10
-				vec2 u_tracer_pos1; // @ 0x00, i = 0
-				vec2 u_tracer_pos2; // @ 0x08, i = 2
+				vec4 u_tracer_color; // @ 0x00, i = 0
+				float u_tracer_thickness; // @ 0x10, i = 4
 			};`,
 		};
 
@@ -4225,6 +4224,8 @@
 			programs.tracer = program('tracer', `
 				${parts.boilerplate}
 				layout(location = 0) in vec2 a_vertex;
+				layout(location = 1) in vec2 a_pos1;
+				layout(location = 2) in vec2 a_pos2;
 				${parts.cameraUbo}
 				${parts.tracerUbo}
 				out vec2 v_vertex;
@@ -4232,10 +4233,10 @@
 				void main() {
 					v_vertex = a_vertex;
 					float alpha = (a_vertex.x + 1.0) / 2.0;
-					float d = length(u_tracer_pos2 - u_tracer_pos1);
-					float thickness = 0.002 / u_camera_scale;
+					float d = length(a_pos2 - a_pos1);
+					float thickness = 0.001 / u_camera_scale * u_tracer_thickness;
 					// black magic
-					vec2 world_pos = u_tracer_pos1 + (u_tracer_pos2 - u_tracer_pos1)
+					vec2 world_pos = a_pos1 + (a_pos2 - a_pos1)
 						* mat2(alpha, a_vertex.y / d * thickness, a_vertex.y / d * -thickness, alpha);
 
 					vec2 clip_pos = -u_camera_pos + world_pos;
@@ -4245,25 +4246,24 @@
 			`, `
 				${parts.boilerplate}
 				in vec2 v_pos;
+				${parts.tracerUbo}
 				out vec4 out_color;
 
 				void main() {
-					out_color = vec4(0.5, 0.5, 0.5, 0.25);
+					out_color = u_tracer_color;
 				}
 			`, ['Camera', 'Tracer'], []);
 
 			// initialize two VAOs; one for pellets and all other objects (0), one for cell glow only (1)
-			glconf.vao = [];
-			for (let i = 0; i < 2; ++i) {
-				const vao = /** @type {WebGLVertexArrayObject} */ (gl.createVertexArray());
-				gl.bindVertexArray(vao);
-
+			glconf.vao = {};
+			const squareVAA = () => {
 				// square (location = 0), used for all instances
 				gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
 				gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([ -1, -1,   1, -1,   -1, 1,   1, 1 ]), gl.STATIC_DRAW);
 				gl.enableVertexAttribArray(0);
 				gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-
+			};
+			const circleVAA = () => {
 				// circle buffer (each instance is 6 floats or 24 bytes)
 				const circleBuffer = /** @type {WebGLBuffer} */ (gl.createBuffer());
 				gl.bindBuffer(gl.ARRAY_BUFFER, circleBuffer);
@@ -4280,6 +4280,9 @@
 				gl.vertexAttribPointer(3, 4, gl.FLOAT, false, 4 * 7, 4 * 3);
 				gl.vertexAttribDivisor(3, 1);
 
+				return circleBuffer;
+			};
+			const alphaVAA = () => {
 				// circle alpha buffer, updated every frame
 				const alphaBuffer = /** @type {WebGLBuffer} */ (gl.createBuffer());
 				gl.bindBuffer(gl.ARRAY_BUFFER, alphaBuffer);
@@ -4288,10 +4291,51 @@
 				gl.vertexAttribPointer(4, 1, gl.FLOAT, false, 0, 0);
 				gl.vertexAttribDivisor(4, 1);
 
-				glconf.vao.push({ vao, alphaBuffer, circleBuffer });
-			}
+				return alphaBuffer;
+			};
+			const lineVAA = () => {
+				// circle alpha buffer, updated every frame
+				const lineBuffer = /** @type {WebGLBuffer} */ (gl.createBuffer());
+				gl.bindBuffer(gl.ARRAY_BUFFER, lineBuffer);
+				// a_pos1, vec2 (location = 1)
+				gl.enableVertexAttribArray(1);
+				gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 2, 0);
+				gl.vertexAttribDivisor(1, 1);
+				// a_pos2, vec2 (location = 2)
+				gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 2, 2);
+				gl.vertexAttribDivisor(2, 1);
 
-			gl.bindVertexArray(glconf.vao[0].vao);
+				return lineBuffer;
+			};
+
+			// main vao
+			{
+				const vao = /** @type {WebGLVertexArrayObject} */ (gl.createVertexArray());
+				gl.bindVertexArray(vao);
+				squareVAA();
+				glconf.vao.main = { vao };
+			}
+			// cell glow vao
+			{
+				const vao = /** @type {WebGLVertexArrayObject} */ (gl.createVertexArray());
+				gl.bindVertexArray(vao);
+				squareVAA();
+				glconf.vao.cell = { vao, circle: circleVAA(), alpha: alphaVAA() };
+			}
+			// pellet + pellet glow vao
+			{
+				const vao = /** @type {WebGLVertexArrayObject} */ (gl.createVertexArray());
+				gl.bindVertexArray(vao);
+				squareVAA();
+				glconf.vao.pellet = { vao, circle: circleVAA(), alpha: alphaVAA() };
+			}
+			// tracer vao
+			{
+				const vao = /** @type {WebGLVertexArrayObject} */ (gl.createVertexArray());
+				gl.bindVertexArray(vao);
+				squareVAA();
+				glconf.vao.tracer = { vao, line: lineVAA() };
+			}
 		};
 
 		glconf.init();
@@ -4676,12 +4720,12 @@
 		const circleBuffers = {
 			cell: new Float32Array(0),
 			cellAlpha: new Float32Array(0),
-			/** @type {WebGLVertexArrayObject | undefined} */
+			/** @type {object | undefined} */
 			lastCellVao: undefined,
 			pellet: new Float32Array(0),
 			pelletAlpha: new Float32Array(0),
 			pelletsUploaded: 0,
-			/** @type {WebGLVertexArrayObject | undefined} */
+			/** @type {object | undefined} */
 			lastPelletVao: undefined,
 		};
 		/** @param {boolean} pellets */
@@ -4709,7 +4753,7 @@
 
 			let alpha = circleBuffers[pellets ? 'pelletAlpha' : 'cellAlpha'];
 			let instances = circleBuffers[pellets ? 'pellet' : 'cell'];
-			const vao = glconf.vao[pellets ? 0 : 1];
+			const vao = glconf.vao[pellets ? 'pellet' : 'cell'];
 
 			// resize buffers as necessary
 			let capacity = alpha.length || 1;
@@ -4792,12 +4836,12 @@
 
 			// now, upload data
 			if (resizing) {
-				gl.bindBuffer(gl.ARRAY_BUFFER, vao.alphaBuffer);
+				gl.bindBuffer(gl.ARRAY_BUFFER, vao.alpha);
 				gl.bufferData(gl.ARRAY_BUFFER, alpha.byteLength, gl.STATIC_DRAW);
-				gl.bindBuffer(gl.ARRAY_BUFFER, vao.circleBuffer);
+				gl.bindBuffer(gl.ARRAY_BUFFER, vao.circle);
 				gl.bufferData(gl.ARRAY_BUFFER, instances, gl.STATIC_DRAW);
 			} else {
-				gl.bindBuffer(gl.ARRAY_BUFFER, vao.circleBuffer);
+				gl.bindBuffer(gl.ARRAY_BUFFER, vao.circle);
 				gl.bufferSubData(gl.ARRAY_BUFFER, 0, instances);
 			}
 			gl.bindBuffer(gl.ARRAY_BUFFER, null);
@@ -4805,6 +4849,8 @@
 			if (pellets) circleBuffers.pelletsUploaded = uploading;
 			circleBuffers[pellets ? 'lastPelletVao' : 'lastCellVao'] = vao;
 		};
+
+		let tracerFloats = new Float32Array(16 * 4); // might need more if in a private server
 
 		// #4 : define ubo views
 		// firefox (and certain devices) adds some padding to uniform buffer sizes, so best to check its size
@@ -4820,7 +4866,7 @@
 		const cellUboInts = new Int32Array(cellUboBuffer);
 
 		gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
-		const circleUboFloats = new Float32Array(gl.getBufferParameter(gl.UNIFORM_BUFFER, gl.BUFFER_SIZE));
+		const circleUboFloats = new Float32Array(gl.getBufferParameter(gl.UNIFORM_BUFFER, gl.BUFFER_SIZE) / 4);
 
 		gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Text);
 		const textUboBuffer = new ArrayBuffer(gl.getBufferParameter(gl.UNIFORM_BUFFER, gl.BUFFER_SIZE));
@@ -4828,8 +4874,7 @@
 		const textUboInts = new Int32Array(textUboBuffer);
 
 		gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Tracer);
-		const tracerUboBuffer = new ArrayBuffer(gl.getBufferParameter(gl.UNIFORM_BUFFER, gl.BUFFER_SIZE));
-		const tracerUboFloats = new Float32Array(tracerUboBuffer);
+		const tracerUboFloats = new Float32Array(gl.getBufferParameter(gl.UNIFORM_BUFFER, gl.BUFFER_SIZE) / 4);
 
 		gl.bindBuffer(gl.UNIFORM_BUFFER, null); // leaving uniform buffer bound = scary!
 
@@ -4896,6 +4941,7 @@
 				gl.clear(gl.COLOR_BUFFER_BIT);
 
 				gl.useProgram(glconf.programs.bg);
+				gl.bindVertexArray(glconf.vao.main.vao);
 
 				let texture;
 				if (settings.background) {
@@ -5209,13 +5255,14 @@
 
 					// draw unanimated pellets using instanced drawing
 					gl.useProgram(glconf.programs.circle);
+					gl.bindVertexArray(glconf.vao.pellet.vao);
 					let i = 0;
 					for (const cell of world.pellets.values()) {
 						const frame = world.synchronized ? cell.merged : cell.views.get(world.selected)?.frames[0];
 						if (frame?.deadTo !== -1) continue;
 						circleBuffers.pelletAlpha[i++] = render.alpha(frame, now);
 					}
-					gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao[0].alphaBuffer);
+					gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao.pellet.alpha);
 					gl.bufferSubData(gl.ARRAY_BUFFER, 0, circleBuffers.pelletAlpha);
 					gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
@@ -5242,6 +5289,7 @@
 					}
 
 					// draw animated pellets without instanced drawing
+					gl.bindVertexArray(glconf.vao.main.vao);
 					for (const cell of world.pellets.values()) {
 						const frame = world.synchronized ? cell.merged : cell.views.get(world.selected)?.frames[0];
 						if (frame && frame.deadTo !== -1) draw(cell, true);
@@ -5263,6 +5311,7 @@
 						sorted.push([cell, computedR]);
 					}
 
+					gl.bindVertexArray(glconf.vao.main.vao);
 					sorted.sort(([_a, ar], [_b, br]) => ar - br);
 					for (const [cell] of sorted) draw(cell, false);
 
@@ -5282,14 +5331,14 @@
 							circleBuffers.cellAlpha[i++] = alpha;
 						}
 
-						gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao[1].alphaBuffer);
+						gl.useProgram(glconf.programs.circle);
+						gl.bindVertexArray(glconf.vao.cell.vao);
+						gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+
+						gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao.circle.alphaBuffer);
 						gl.bufferSubData(gl.ARRAY_BUFFER, 0, circleBuffers.cellAlpha);
 						gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
-						gl.bindVertexArray(glconf.vao[1].vao);
-						gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-
-						gl.useProgram(glconf.programs.circle);
 						circleUboFloats[0] = 0.25; // alpha
 						// scale (can't be too big, otherwise it looks weird when cells come into view)
 						circleUboFloats[1] = 1.5;
@@ -5298,7 +5347,6 @@
 						gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 						gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, i);
 
-						gl.bindVertexArray(glconf.vao[0].vao);
 						gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 					}
 				}
@@ -5306,15 +5354,34 @@
 				// draw tracers
 				if (settings.tracer) {
 					gl.useProgram(glconf.programs.tracer);
+					gl.bindVertexArray(glconf.vao.tracer.vao);
 
+					tracerUboFloats[0] = 0.5; // #7f7f7f color
+					tracerUboFloats[1] = 0.5;
+					tracerUboFloats[2] = 0.5;
+					tracerUboFloats[3] = 0.5;
+					tracerUboFloats[4] = 2; // line thickness
+					gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Tracer);
+					gl.bufferSubData(gl.UNIFORM_BUFFER, 0, tracerUboBuffer);
+					gl.bindBuffer(gl.UNIFORM_BUFFER, null);
+
+					let mouse = [0, 0];
 					const inputs = input.views.get(world.selected);
 					if (inputs) {
-						let mouse;
-						if (inputs.lock && now <= inputs.lock.until) mouse = inputs.lock.world;
-						else mouse = input.toWorld(world.selected, input.current);
-						[tracerUboFloats[2], tracerUboFloats[3]] = mouse; // tracer_pos2.xy
+						mouse = [input.current[0], input.current[1]];
+						if (inputs.lock && now <= inputs.lock.until) {
+							if (!Number.isNaN(inputs.lock.world[0])) mouse[0] = inputs.lock.world[0];
+							if (!Number.isNaN(inputs.lock.world[1])) mouse[1] = inputs.lock.world[1];
+						}
 					}
 
+					// resize by powers of 2
+					let capacity = tracerFloats.length || 1;
+					while (vision.owned.length * 4 > capacity) capacity *= 2;
+					const resizing = capacity !== tracerFloats.length;
+					if (resizing) tracerFloats = new Float32Array(capacity);
+
+					let i = 0;
 					for (const id of vision.owned) {
 						const cell = world.cells.get(id);
 						const frame = world.synchronized ? cell?.merged : cell?.views.get(world.selected)?.frames[0];
@@ -5322,13 +5389,17 @@
 						if (!frame || !interp || frame.deadAt !== undefined) return;
 
 						const { x, y } = world.xyr(frame, interp, undefined, undefined, false, now);
-						tracerUboFloats[0] = x; // tracer_pos1.x
-						tracerUboFloats[1] = y; // tracer_pos1.y
-						gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Tracer);
-						gl.bufferSubData(gl.UNIFORM_BUFFER, 0, tracerUboBuffer);
-						gl.bindBuffer(gl.UNIFORM_BUFFER, null);
-						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+						tracerFloats[i * 4] = x;
+						tracerFloats[i * 4 + 1] = y;
+						tracerFloats[i * 4 + 2] = mouse[0];
+						tracerFloats[i * 4 + 3] = mouse[1];
+						++i;
 					}
+
+					gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao.tracer.line);
+					if (resizing) gl.bufferData(gl.ARRAY_BUFFER, tracerFloats, gl.STATIC_DRAW);
+					else gl.bufferSubData(gl.ARRAY_BUFFER, 0, tracerFloats);
+					gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, i);
 				}
 			})();
 
