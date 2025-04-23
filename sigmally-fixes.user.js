@@ -1464,6 +1464,8 @@
 			massScaleFactor: 1,
 			mergeCamera: true,
 			multibox: '',
+			/** @type {string[]} */
+			multiNames: [],
 			nameBold: false,
 			nameScaleFactor: 1,
 			outlineMulti: 0.2,
@@ -1556,7 +1558,7 @@
 			return /** @type {HTMLElement} */ (div.firstElementChild);
 		}
 
-		function save() {
+		settingsExt.save = () => {
 			localStorage.setItem('sigfix', JSON.stringify(settings));
 			channel.postMessage(settings);
 			onUpdates.forEach(fn => fn());
@@ -1677,7 +1679,7 @@
 
 					settings[property] = value;
 					change();
-					save();
+					settingsExt.save();
 				};
 				slider.addEventListener('input', () => onInput(slider));
 				display.addEventListener('change', () => onInput(display));
@@ -1720,7 +1722,7 @@
 
 				input.addEventListener('input', () => {
 					settings[property] = input.checked;
-					save();
+					settingsExt.save();
 				});
 			};
 
@@ -1758,7 +1760,7 @@
 					}
 
 					/** @type {string} */ (settings[property]) = input.value;
-					save();
+					settingsExt.save();
 				});
 				input.addEventListener('dragenter', () => void (input.style.borderColor = '#00ccff'));
 				input.addEventListener('dragleave',
@@ -1780,7 +1782,7 @@
 
 					transaction.addEventListener('complete', () => {
 						/** @type {string} */ (settings[property]) = input.value = `🖼️ ${file.name}`;
-						save();
+						settingsExt.save();
 						render.resetDatabaseCache();
 					});
 					transaction.addEventListener('error', err => {
@@ -1816,7 +1818,7 @@
 				const changed = () => {
 					settings[property] = aux.hex2rgba(input.value);
 					settings[property][3] = Number(alpha.value);
-					save();
+					settingsExt.save();
 				};
 				input.addEventListener('input', changed);
 				alpha.addEventListener('input', changed);
@@ -1854,7 +1856,7 @@
 
 				input.addEventListener('input', () => {
 					/** @type {string} */ (settings[property]) = input.value;
-					save();
+					settingsExt.save();
 				});
 			};
 
@@ -1873,25 +1875,28 @@
 			return { sigmod, vanilla };
 		};
 
-		/** @param {PropertyOfType<typeof settings, string>} property */
-		const keybind = property => {
+		/**
+		 * @param {any} property
+		 * @param {any} parent
+		 */
+		const keybind = (property, parent = settings) => {
 			/** @param {HTMLInputElement} input */
 			const listen = input => {
-				onSyncs.push(() => input.value = settings[property]);
-				input.value = settings[property];
+				onSyncs.push(() => input.value = parent[property]);
+				input.value = parent[property];
 
 				input.addEventListener('keydown', e => {
 					if (e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
 					if (e.code === 'Escape' || e.code === 'Backspace') {
-						/** @type {string} */ (settings[property]) = input.value = '';
+						parent[property] = input.value = '';
 					} else {
 						let key = e.key;
 						if (e.ctrlKey && e.key !== 'Control') key = 'Ctrl+' + key;
 						if (e.altKey) key = 'Alt+' + key;
 						if (e.metaKey) key = 'Cmd+' + key;
-						/** @type {string} */ (settings[property]) = input.value = key;
+						parent[property] = input.value = key;
 					}
-					save();
+					settingsExt.save();
 					e.preventDefault(); // prevent the key being typed in
 				});
 			};
@@ -3194,8 +3199,7 @@
 
 						if (myPosition) { // myPosition could be zero
 							if (myPosition - 1 >= lb.length) {
-								const nick = world.selected === world.viewId.primary
-									? input.nick1.value : input.nick2.value;
+								const nick = input.nick[world.selected === world.viewId.primary ? 0 : 1].value;
 								lb.push({
 									me: true,
 									name: aux.parseName(nick),
@@ -3577,7 +3581,7 @@
 
 				// also, press play on the current tab ONLY if any tab is alive
 				if (world.alive()) {
-					const name = world.selected === world.viewId.primary ? input.nick1.value : input.nick2.value;
+					const name = input.nick[world.selected === world.viewId.primary ? 0 : 1].value;
 					net.play(world.selected, playData(name, false));
 				}
 
@@ -3699,23 +3703,35 @@
 			};
 		};
 
-		/** @type {HTMLInputElement} */
-		input.nick1 = aux.require(document.querySelector('input#nick'),
-			'Can\'t find the nickname element. Try reloading the page?');
+		/** @type {HTMLInputElement[]} */
+		input.nick = [aux.require(document.querySelector('input#nick'),
+			'Can\'t find the nickname element. Try reloading the page?')];
 
-		input.nick2 = /** @type {HTMLInputElement} */ (input.nick1?.cloneNode(true));
-		input.nick2.style.display = settings.multibox ? '' : 'none';
-		setInterval(() => input.nick2.style.display = settings.multibox ? '' : 'none', 200);
-		input.nick2.placeholder = 'Nickname #2';
-		// sigmod probably won't apply this to the second nick element, so we do it ourselves too
-		input.nick1.maxLength = input.nick2.maxLength = 50;
+		const nickList = () => {
+			const target = settings.multibox ? 2 : 1;
+			for (let i = input.nick.length; i < target; ++i) {
+				const el = /** @type {HTMLInputElement} */ (input.nick[0].cloneNode(true));
+				el.maxLength = 50;
+				el.placeholder = `Nickname #${i + 1}`;
+				el.value = settings.multiNames[i - 1] || '';
 
-		// place nick2 on a separate row
-		const row = /** @type {Element | null} */ (input.nick1.parentElement?.cloneNode());
-		if (row) {
-			row.appendChild(input.nick2);
-			input.nick1.parentElement?.insertAdjacentElement('afterend', row);
-		}
+				el.addEventListener('change', () => {
+					settings.multiNames[i - 1] = el.value;
+					settings.save();
+				});
+
+				const row = /** @type {Element} */ (input.nick[0].parentElement?.cloneNode());
+				row.appendChild(el);
+				input.nick[0].parentElement?.insertAdjacentElement('afterend', row);
+				input.nick.push(el);
+			}
+
+			for (let i = input.nick.length; i > target; --i) {
+				input.nick.pop()?.remove();
+			}
+		};
+		nickList();
+		setInterval(nickList, 500);
 
 		/** @type {HTMLButtonElement} */
 		const play = aux.require(document.querySelector('button#play-btn'),
@@ -3725,14 +3741,14 @@
 			'Can\'t find the spectate button. Try reloading the page?');
 
 		play.addEventListener('click', () => {
-			const name = world.selected === world.viewId.secondary ? input.nick2.value : input.nick1.value;
+			const name = input.nick[world.selected === world.viewId.secondary ? 1 : 0].value;
 			const con = net.connections.get(world.selected);
 			if (!con?.handshake) return;
 			ui.toggleEscOverlay(false);
 			net.play(world.selected, playData(name, false));
 		});
 		spectate.addEventListener('click', () => {
-			const name = world.selected === world.viewId.secondary ? input.nick2.value : input.nick1.value;
+			const name = input.nick[world.selected === world.viewId.secondary ? 1 : 0].value;
 			const con = net.connections.get(world.selected);
 			if (!con?.handshake) return;
 			ui.toggleEscOverlay(false);
@@ -5074,7 +5090,7 @@
 						textUboFloats[4] = textUboFloats[5] = textUboFloats[6] = textUboFloats[7] = 1;
 					}
 
-					if (name === input.nick1.value || (settings.multibox && name === input.nick2.value)) {
+					if (input.nick.find(el => el.value === name)) {
 						const { nameColor1, nameColor2 } = sigmod.settings;
 						if (nameColor1) {
 							textUboFloats[0] = nameColor1[0]; textUboFloats[1] = nameColor1[1];
