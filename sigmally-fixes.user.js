@@ -5335,7 +5335,7 @@
 						gl.bindVertexArray(glconf.vao.cell.vao);
 						gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
 
-						gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao.circle.alphaBuffer);
+						gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao.cell.alpha);
 						gl.bufferSubData(gl.ARRAY_BUFFER, 0, circleBuffers.cellAlpha);
 						gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
