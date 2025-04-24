@@ -671,772 +671,6 @@
 	})();
 
 
-	/////////////////////
-	// Prepare Game UI //
-	/////////////////////
-	const ui = (() => {
-		const ui = {};
-
-		(() => {
-			const title = document.querySelector('#title');
-			if (!title) return;
-
-			const watermark = document.createElement('span');
-			watermark.innerHTML = `<a href="https://greasyfork.org/scripts/483587/versions" \
-				target="_blank">Sigmally Fixes ${sfVersion}</a> by yx`;
-			if (sfVersion.includes('BETA')) {
-				watermark.innerHTML += ' <br><a \
-					href="https://raw.githubusercontent.com/8y8x/sigmally-fixes/refs/heads/main/sigmally-fixes.user.js"\
-					target="_blank">[Update beta here]</a>';
-			}
-			title.insertAdjacentElement('afterend', watermark);
-
-			// check if this version is problematic, don't do anything if this version is too new to be in versions.json
-			// take care to ensure users can't be logged
-			fetch('https://raw.githubusercontent.com/8y8x/sigmally-fixes/main/versions.json')
-				.then(res => res.json())
-				.then(res => {
-					if (sfVersion in res && !res[sfVersion].ok && res[sfVersion].alert) {
-						const color = res[sfVersion].color || '#f00';
-						const box = document.createElement('div');
-						box.style.cssText = `background: ${color}3; border: 1px solid ${color}; width: 100%; \
-							height: fit-content; font-size: 1em; padding: 5px; margin: 5px 0; border-radius: 3px; \
-							color: ${color}`;
-						box.innerHTML = String(res[sfVersion].alert)
-							.replace(/\<|\>/g, '') // never allow html tag injection
-							.replace(/\{link\}/g, '<a href="https://greasyfork.org/scripts/483587">[click here]</a>')
-							.replace(/\{autolink\}/g, '<a href="\
-								https://update.greasyfork.org/scripts/483587/Sigmally%20Fixes%20V2.user.js">\
-								[click here]</a>');
-
-						watermark.insertAdjacentElement('afterend', box);
-					}
-				})
-				.catch(err => console.warn('Failed to check Sigmally Fixes version:', err));
-		})();
-
-		ui.game = (() => {
-			const game = {};
-
-			/** @type {HTMLCanvasElement | null} */
-			const oldCanvas = document.querySelector('canvas#canvas');
-			if (!oldCanvas) {
-				throw 'exiting script - no canvas found';
-			}
-
-			const newCanvas = document.createElement('canvas');
-			newCanvas.id = 'sf-canvas';
-			newCanvas.style.cssText = `background: #003; width: 100vw; height: 100vh; position: fixed; top: 0; left: 0;
-				z-index: 1;`;
-			game.canvas = newCanvas;
-			(document.querySelector('body div') ?? document.body).appendChild(newCanvas);
-
-			// leave the old canvas so the old client can actually run
-			oldCanvas.style.display = 'none';
-
-			// forward macro inputs from the canvas to the old one - this is for sigmod mouse button controls
-			newCanvas.addEventListener('mousedown', e => oldCanvas.dispatchEvent(new MouseEvent('mousedown', e)));
-			newCanvas.addEventListener('mouseup', e => oldCanvas.dispatchEvent(new MouseEvent('mouseup', e)));
-			// forward mouse movements from the old canvas to the window - this is for sigmod keybinds that move
-			// the mouse
-			oldCanvas.addEventListener('mousemove', e => dispatchEvent(new MouseEvent('mousemove', e)));
-
-			const gl = aux.require(
-				newCanvas.getContext('webgl2', { alpha: false, antialias: false, depth: false }),
-				'Couldn\'t get WebGL2 context. Possible causes:\r\n' +
-				'- Maybe GPU/Hardware acceleration needs to be enabled in your browser settings; \r\n' +
-				'- Maybe your browser is just acting weird and it might fix itself after a restart; \r\n' +
-				'- Maybe your GPU drivers are exceptionally old.',
-			);
-
-			game.gl = gl;
-
-			// indicate that we will restore the context
-			newCanvas.addEventListener('webglcontextlost', e => {
-				e.preventDefault(); // signal that we want to restore the context
-			});
-			newCanvas.addEventListener('webglcontextrestored', () => {
-				glconf.init();
-				// cleanup old caches (after render), as we can't do this within glconf.init()
-				render.resetDatabaseCache();
-				render.resetTextCache();
-				render.resetTextureCache();
-			});
-
-			function resize() {
-				// devicePixelRatio does not have very high precision; it could be 0.800000011920929 for example
-				newCanvas.width = Math.ceil(innerWidth * (devicePixelRatio - 0.0001));
-				newCanvas.height = Math.ceil(innerHeight * (devicePixelRatio - 0.0001));
-				game.gl.viewport(0, 0, newCanvas.width, newCanvas.height);
-			}
-
-			addEventListener('resize', resize);
-			resize();
-
-			return game;
-		})();
-
-		ui.stats = (() => {
-			const container = document.createElement('div');
-			container.style.cssText = 'position: fixed; top: 10px; left: 10px; width: 400px; height: fit-content; \
-				user-select: none; z-index: 2; transform-origin: top left; font-family: Ubuntu;';
-			document.body.appendChild(container);
-
-			const score = document.createElement('div');
-			score.style.cssText = 'font-size: 30px; color: #fff; line-height: 1.0;';
-			container.appendChild(score);
-
-			const measures = document.createElement('div');
-			measures.style.cssText = 'font-size: 20px; color: #fff; line-height: 1.1;';
-			container.appendChild(measures);
-
-			const misc = document.createElement('div');
-			// white-space: pre; allows using \r\n to insert line breaks
-			misc.style.cssText = 'font-size: 14px; color: #fff; white-space: pre; line-height: 1.1; opacity: 0.5;';
-			container.appendChild(misc);
-
-			/** @param {symbol} view */
-			const update = view => {
-				const fontFamily = `"${sigmod.settings.font || 'Ubuntu'}", Ubuntu`;
-				if (container.style.fontFamily !== fontFamily) container.style.fontFamily = fontFamily;
-
-				const color = aux.settings.darkTheme ? '#fff' : '#000';
-				score.style.color = color;
-				measures.style.color = color;
-				misc.style.color = color;
-
-				score.style.fontWeight = measures.style.fontWeight = settings.boldUi ? 'bold' : 'normal';
-				measures.style.opacity = settings.showStats ? '1' : '0.5';
-				misc.style.opacity = settings.showStats ? '0.5' : '0';
-
-				const scoreVal = world.score(world.selected);
-				const multiplier = (typeof aux.userData?.boost === 'number' && aux.userData.boost > Date.now()) ? 2 : 1;
-				if (scoreVal > world.stats.highestScore) world.stats.highestScore = scoreVal;
-				let scoreHtml;
-				if (scoreVal <= 0) scoreHtml = '';
-				else if (settings.separateBoost) {
-					scoreHtml = `Score: ${Math.floor(scoreVal)}`;
-					if (multiplier > 1) scoreHtml += ` <span style="color: #fc6;">(X${multiplier})</span>`;
-				} else {
-					scoreHtml = 'Score: ' + Math.floor(scoreVal * multiplier);
-				}
-				score.innerHTML = scoreHtml;
-
-				const con = net.connections.get(view);
-				let measuresText = `${Math.floor(render.fps)} FPS`;
-				if (con?.latency !== undefined) {
-					measuresText += ` ${con.latency === -1 ? '????' : Math.floor(con.latency)}ms`;
-					const spectateCon = net.connections.get(world.viewId.spectate);
-					if (settings.spectatorLatency && spectateCon?.latency !== undefined) {
-						measuresText
-							+= ` (${spectateCon.latency === -1 ? '????' : Math.floor(spectateCon.latency)}ms)`;
-					}
-					measuresText += ' ping';
-				}
-				measures.textContent = measuresText;
-			};
-
-			/** @param {object | undefined} stats */
-			const updateStats = (stats) => {
-				if (!stats) {
-					misc.textContent = '';
-					return;
-				}
-
-				let uptime;
-				if (stats.uptime < 60) {
-					uptime = Math.floor(stats.uptime) + 's';
-				} else {
-					uptime = Math.floor(stats.uptime / 60 % 60) + 'min';
-					if (stats.uptime >= 60 * 60)
-						uptime = Math.floor(stats.uptime / 60 / 60 % 24) + 'hr ' + uptime;
-					if (stats.uptime >= 24 * 60 * 60)
-						uptime = Math.floor(stats.uptime / 24 / 60 / 60 % 60) + 'd ' + uptime;
-				}
-
-				misc.textContent = [
-					`${stats.name} (${stats.gamemode})`,
-					`${stats.external} / ${stats.limit} players`,
-					// bots do not count towards .playing **except in my private server**
-					`${stats.playing} playing` + (stats.internal > 0 ? ` + ${stats.internal} bots` : ''),
-					`${stats.spectating} spectating`,
-					`${(stats.loadTime / 40 * 100).toFixed(1)}% load @ ${uptime}`,
-				].join('\r\n');
-			};
-
-			/** @type {object | undefined} */
-			let lastStats;
-			setInterval(() => { // update as frequently as possible
-				const currentStats = world.views.get(world.selected)?.stats;
-				if (currentStats !== lastStats) updateStats(lastStats = currentStats);
-			});
-
-			return { update };
-		})();
-
-		ui.leaderboard = (() => {
-			const container = document.createElement('div');
-			container.style.cssText = 'position: fixed; top: 10px; right: 10px; width: 200px; height: fit-content; \
-				user-select: none; z-index: 2; background: #0006; padding: 15px 5px; transform-origin: top right; \
-				display: none;';
-			document.body.appendChild(container);
-
-			const title = document.createElement('div');
-			title.style.cssText = 'font-family: Ubuntu; font-size: 30px; color: #fff; text-align: center; width: 100%;';
-			title.textContent = 'Leaderboard';
-			container.appendChild(title);
-
-			const linesContainer = document.createElement('div');
-			linesContainer.style.cssText = 'font-family: Ubuntu; font-size: 20px; line-height: 1.2; width: 100%; \
-				height: fit-content; text-align: center; white-space: pre; overflow: hidden;';
-			container.appendChild(linesContainer);
-
-			/** @type {HTMLDivElement[]} */
-			const lines = [];
-			/** @param {{ me: boolean, name: string, sub: boolean, place: number | undefined }[]} lb */
-			function update(lb) {
-				const fontFamily = `"${sigmod.settings.font || 'Ubuntu'}", Ubuntu`;
-				if (linesContainer.style.fontFamily !== fontFamily)
-					linesContainer.style.fontFamily = title.style.fontFamily = fontFamily;
-
-				const friends = /** @type {any} */ (window).sigmod?.friend_names;
-				const friendSettings = /** @type {any} */ (window).sigmod?.friends_settings;
-				lb.forEach((entry, i) => {
-					let line = lines[i];
-					if (!line) {
-						line = document.createElement('div');
-						line.style.display = 'none';
-						linesContainer.appendChild(line);
-						lines.push(line);
-					}
-
-					line.style.display = 'block';
-					line.textContent = `${entry.place ?? i + 1}. ${entry.name || 'An unnamed cell'}`;
-					if (entry.me) line.style.color = '#faa';
-					else if (friends instanceof Set && friends.has(entry.name) && friendSettings?.highlight_friends)
-						line.style.color = friendSettings.highlight_color;
-					else if (entry.sub) line.style.color = '#ffc826';
-					else line.style.color = '#fff';
-				});
-
-				for (let i = lb.length; i < lines.length; ++i)
-					lines[i].style.display = 'none';
-
-				container.style.display = lb.length > 0 ? '' : 'none';
-				container.style.fontWeight = settings.boldUi ? 'bold' : 'normal';
-			}
-
-			/** @type {object | undefined} */
-			let lastLb;
-			setInterval(() => { // update leaderboard frequently
-				const currentLb = world.views.get(world.selected)?.leaderboard;
-				if (currentLb !== lastLb) update((lastLb = currentLb) ?? []);
-			});
-		})();
-
-		/** @type {HTMLElement} */
-		const mainMenu = aux.require(
-			document.querySelector('#__line1')?.parentElement,
-			'Can\'t find the main menu UI. Try reloading the page?',
-		);
-
-		/** @type {HTMLElement} */
-		const statsContainer = aux.require(
-			document.querySelector('#__line2'),
-			'Can\'t find the death screen UI. Try reloading the page?',
-		);
-
-		/** @type {HTMLElement} */
-		const continueButton = aux.require(
-			document.querySelector('#continue_button'),
-			'Can\'t find the continue button (on death). Try reloading the page?',
-		);
-
-		/** @type {HTMLElement | null} */
-		const menuLinks = document.querySelector('#menu-links');
-		/** @type {HTMLElement | null} */
-		const overlay = document.querySelector('#overlays');
-
-		// sigmod uses this to detect if the menu is closed or not, otherwise this is unnecessary
-		/** @type {HTMLElement | null} */
-		const menuWrapper = document.querySelector('#menu-wrapper');
-
-		let escOverlayVisible = true;
-		/**
-		 * @param {boolean} [show]
-		 */
-		ui.toggleEscOverlay = show => {
-			escOverlayVisible = show ?? !escOverlayVisible;
-			if (escOverlayVisible) {
-				mainMenu.style.display = '';
-				if (overlay) overlay.style.display = '';
-				if (menuLinks) menuLinks.style.display = '';
-				if (menuWrapper) menuWrapper.style.display = '';
-
-				ui.deathScreen.hide();
-			} else {
-				mainMenu.style.display = 'none';
-				if (overlay) overlay.style.display = 'none';
-				if (menuLinks) menuLinks.style.display = 'none';
-				if (menuWrapper) menuWrapper.style.display = 'none';
-			}
-
-			ui.captcha.reposition();
-		};
-
-		ui.escOverlayVisible = () => escOverlayVisible;
-
-		ui.deathScreen = (() => {
-			const deathScreen = {};
-			let visible = false;
-
-			continueButton.addEventListener('click', () => {
-				ui.toggleEscOverlay(true);
-				visible = false;
-			});
-
-			/** @type {HTMLElement | null} */
-			const bonus = document.querySelector('#menu__bonus');
-
-			deathScreen.check = () => {
-				if (world.stats.spawnedAt === undefined) return;
-				if (world.alive()) return;
-				deathScreen.show();
-			};
-
-			deathScreen.show = () => {
-				const boost = typeof aux.userData?.boost === 'number' && aux.userData.boost > Date.now();
-				if (bonus) {
-					if (boost) {
-						bonus.style.display = '';
-						bonus.textContent = `Bonus score: ${Math.round(world.stats.highestScore)}`;
-					} else {
-						bonus.style.display = 'none';
-					}
-				}
-
-				const foodEatenElement = document.querySelector('#food_eaten');
-				if (foodEatenElement)
-					foodEatenElement.textContent = world.stats.foodEaten.toString();
-
-				const highestMassElement = document.querySelector('#highest_mass');
-				if (highestMassElement)
-					highestMassElement.textContent = (Math.round(world.stats.highestScore) * (boost ? 2 : 1)).toString();
-
-				const highestPositionElement = document.querySelector('#top_leaderboard_position');
-				if (highestPositionElement)
-					highestPositionElement.textContent = world.stats.highestPosition.toString();
-
-				const timeAliveElement = document.querySelector('#time_alive');
-				if (timeAliveElement) {
-					const time = (performance.now() - (world.stats.spawnedAt ?? 0)) / 1000;
-					const hours = Math.floor(time / 60 / 60);
-					const mins = Math.floor(time / 60 % 60);
-					const seconds = Math.floor(time % 60);
-
-					timeAliveElement.textContent = `${hours ? hours + ' h' : ''} ${mins ? mins + ' m' : ''} `
-						+ `${seconds ? seconds + ' s' : ''}`;
-				}
-
-				statsContainer.classList.remove('line--hidden');
-				visible = true;
-				ui.toggleEscOverlay(false);
-				if (overlay) overlay.style.display = '';
-				world.stats = { foodEaten: 0, highestPosition: 200, highestScore: 0, spawnedAt: undefined };
-
-				ui.captcha.reposition();
-			};
-
-			deathScreen.hide = () => {
-				statsContainer?.classList.add('line--hidden');
-				visible = false;
-				// no need for ui.captcha.reposition() because the esc overlay will always be shown on deathScreen.hide
-				// ads are managed by the game client
-			};
-
-			deathScreen.visible = () => visible;
-
-			return deathScreen;
-		})();
-
-		ui.minimap = (() => {
-			const canvas = document.createElement('canvas');
-			canvas.style.cssText = 'position: fixed; bottom: 0; right: 0; background: #0006; width: 200px; \
-				height: 200px; z-index: 2; user-select: none;';
-			canvas.width = canvas.height = 200;
-			document.body.appendChild(canvas);
-
-			const ctx = aux.require(
-				canvas.getContext('2d', { willReadFrequently: false }),
-				'Unable to get 2D context for the minimap. This is probably your browser being dumb, maybe reload ' +
-				'the page?',
-			);
-
-			return { canvas, ctx };
-		})();
-
-		ui.chat = (() => {
-			const chat = {};
-
-			const block = aux.require(
-				document.querySelector('#chat_block'),
-				'Can\'t find the chat UI. Try reloading the page?',
-			);
-
-			/**
-			 * @param {ParentNode} root
-			 * @param {string} selector
-			 */
-			function clone(root, selector) {
-				/** @type {HTMLElement} */
-				const old = aux.require(
-					root.querySelector(selector),
-					`Can't find this chat element: ${selector}. Try reloading the page?`,
-				);
-
-				const el = /** @type {HTMLElement} */ (old.cloneNode(true));
-				el.id = '';
-				old.style.display = 'none';
-				old.insertAdjacentElement('afterend', el);
-
-				return el;
-			}
-
-			// can't just replace the chat box - otherwise sigmod can't hide it - so we make its children invisible
-			// elements grabbed with clone() are only styled by their class, not id
-			const toggle = clone(document, '#chat_vsbltyBtn');
-			const scrollbar = clone(document, '#chat_scrollbar');
-			const thumb = clone(scrollbar, '#chat_thumb');
-
-			const input = chat.input = /** @type {HTMLInputElement} */ (aux.require(
-				document.querySelector('#chat_textbox'),
-				'Can\'t find the chat textbox. Try reloading the page?',
-			));
-
-			// allow zooming in/out on trackpad without moving the UI
-			input.style.position = 'fixed';
-			toggle.style.position = 'fixed';
-			scrollbar.style.position = 'fixed';
-
-			const list = document.createElement('div');
-			list.style.cssText = 'width: 400px; height: 182px; position: fixed; bottom: 54px; left: 46px; \
-				overflow: hidden; user-select: none; z-index: 301;';
-			block.appendChild(list);
-
-			let toggled = true;
-			toggle.style.borderBottomLeftRadius = '10px'; // a bug fix :p
-			toggle.addEventListener('click', () => {
-				toggled = !toggled;
-				input.style.display = toggled ? '' : 'none';
-				scrollbar.style.display = toggled ? 'block' : 'none';
-				list.style.display = toggled ? '' : 'none';
-
-				if (toggled) {
-					toggle.style.borderTopRightRadius = toggle.style.borderBottomRightRadius = '';
-					toggle.style.opacity = '';
-				} else {
-					toggle.style.borderTopRightRadius = toggle.style.borderBottomRightRadius = '10px';
-					toggle.style.opacity = '0.25';
-				}
-			});
-
-			scrollbar.style.display = 'block';
-			let scrollTop = 0; // keep a float here, because list.scrollTop is always casted to an int
-			let thumbHeight = 1;
-			let lastY;
-			thumb.style.height = '182px';
-
-			function updateThumb() {
-				thumb.style.bottom = (1 - list.scrollTop / (list.scrollHeight - 182)) * (182 - thumbHeight) + 'px';
-			}
-
-			function scroll() {
-				if (scrollTop >= list.scrollHeight - 182 - 40) {
-					// close to bottom, snap downwards
-					list.scrollTop = scrollTop = list.scrollHeight - 182;
-				}
-
-				thumbHeight = Math.min(Math.max(182 / list.scrollHeight, 0.1), 1) * 182;
-				thumb.style.height = thumbHeight + 'px';
-				updateThumb();
-			}
-
-			let scrolling = false;
-			thumb.addEventListener('mousedown', () => void (scrolling = true));
-			addEventListener('mouseup', () => void (scrolling = false));
-			addEventListener('mousemove', e => {
-				const deltaY = e.clientY - lastY;
-				lastY = e.clientY;
-
-				if (!scrolling) return;
-				e.preventDefault();
-
-				if (lastY === undefined) {
-					lastY = e.clientY;
-					return;
-				}
-
-				list.scrollTop = scrollTop = Math.min(Math.max(
-					scrollTop + deltaY * list.scrollHeight / 182, 0), list.scrollHeight - 182);
-				updateThumb();
-			});
-
-			let lastWasBarrier = true; // init to true, so we don't print a barrier as the first ever message (ugly)
-			/**
-			 * @param {string} authorName
-			 * @param {[number, number, number, number]} rgb
-			 * @param {string} text
-			 * @param {boolean} server
-			 */
-			chat.add = (authorName, rgb, text, server) => {
-				lastWasBarrier = false;
-
-				const container = document.createElement('div');
-				const author = document.createElement('span');
-				author.style.cssText = `color: ${aux.rgba2hex(...rgb)}; padding-right: 0.75em;`;
-				author.textContent = aux.trim(authorName);
-				container.appendChild(author);
-
-				const msg = document.createElement('span');
-				if (server) msg.style.cssText = `color: ${aux.rgba2hex(...rgb)}`;
-				msg.textContent = server ? text : aux.trim(text); // /help text can get cut off
-				container.appendChild(msg);
-
-				while (list.children.length > 100)
-					list.firstChild?.remove();
-
-				list.appendChild(container);
-
-				scroll();
-			};
-
-			chat.barrier = () => {
-				if (lastWasBarrier) return;
-				lastWasBarrier = true;
-
-				const barrier = document.createElement('div');
-				barrier.style.cssText = 'width: calc(100% - 20px); height: 1px; background: #8888; margin: 10px;';
-				list.appendChild(barrier);
-
-				scroll();
-			};
-
-			chat.matchTheme = () => {
-				list.style.color = aux.settings.darkTheme ? '#fffc' : '#000c';
-				// make author names darker in light theme
-				list.style.filter = aux.settings.darkTheme ? '' : 'brightness(75%)';
-			};
-
-			return chat;
-		})();
-
-		/** @param {string} msg */
-		ui.error = msg => {
-			const modal = /** @type {HTMLElement | null} */ (document.querySelector('#errormodal'));
-			if (modal) modal.style.display = 'block';
-			const desc = document.querySelector('#errormodal p');
-			if (desc) desc.innerHTML = msg;
-		};
-
-		ui.captcha = (() => {
-			const captcha = {};
-
-			const modeBtns = /** @type {HTMLElement | null} */ (document.querySelector('.mode-btns'));
-			/** @type {HTMLButtonElement} */
-			const play = aux.require(document.querySelector('button#play-btn'),
-			'Can\'t find the play button. Try reloading the page?');
-			/** @type {HTMLButtonElement} */
-			const spectate = aux.require(document.querySelector('button#spectate-btn'),
-				'Can\'t find the spectate button. Try reloading the page?');
-
-			/** @type {((grecaptcha: any) => void) | undefined} */
-			let grecaptchaResolve;
-			/** @type {Promise<any>} */
-			const grecaptcha = new Promise(r => grecaptchaResolve = r);
-			/** @type {((turnstile: any) => void) | undefined} */
-			let turnstileResolve;
-			/** @type {Promise<any>} */
-			const turnstile = new Promise(r => turnstileResolve = r);
-			let CAPTCHA2, CAPTCHA3, TURNSTILE;
-
-			let readyCheck;
-			readyCheck = setInterval(() => {
-				// it's possible that recaptcha or turnstile may be removed in the future, so we be redundant to stay
-				// safe
-				if (grecaptchaResolve) {
-					let grecaptchaReal;
-					({ grecaptcha: grecaptchaReal, CAPTCHA2, CAPTCHA3 } = /** @type {any} */ (window));
-					if (grecaptchaReal?.ready && CAPTCHA2 && CAPTCHA3) {
-						const resolve = grecaptchaResolve;
-						grecaptchaResolve = undefined;
-
-						grecaptchaReal.ready(() => {
-							// prevent game.js from using grecaptcha and messing things up
-							let { grecaptcha: grecaptchaNew } = /** @type {any} */ (window);
-							/** @type {any} */ (window).grecaptcha = {
-								execute: () => {},
-								ready: () => {},
-								render: () => {},
-								reset: () => {},
-							};
-							resolve(grecaptchaNew);
-						});
-					}
-				}
-
-				if (turnstileResolve) {
-					let turnstileReal;
-					({ turnstile: turnstileReal, TURNSTILE } = /** @type {any} */ (window));
-					if (turnstileReal?.ready && TURNSTILE) {
-						const resolve = turnstileResolve;
-						turnstileResolve = undefined;
-
-						// turnstile.ready not needed
-						// prevent game.js from using turnstile and messing things up
-						/** @type {any} */ (window).turnstile = {
-							execute: () => {},
-							ready: () => {},
-							render: () => {},
-							reset: () => {},
-						};
-						resolve(turnstileReal);
-					}
-				}
-
-				if (!grecaptchaResolve && !turnstileResolve)
-					clearInterval(readyCheck);
-			}, 50);
-
-			/**
-			 * @typedef {{
-			 * 	cb: ((token: string) => void) | undefined,
-			 * 	handle: any,
-			 * 	mount: HTMLElement,
-			 * 	reposition: () => boolean,
-			 * 	type: string,
-			 * }} CaptchaInstance
-			 * @type {Map<symbol, CaptchaInstance>}
-			 */
-			const captchas = new Map();
-
-			/** @param {symbol} view */
-			captcha.remove = view => {
-				const inst = captchas.get(view);
-				if (!inst) return;
-
-				if (inst.type === 'v2') grecaptcha.then(g => g.reset(inst.handle));
-				// don't do anything for v3
-				else if (inst.type === 'turnstile') turnstile.then(t => t.remove(inst.handle));
-
-				inst.cb = () => {}; // ensure the token gets voided if solved
-				inst.mount.remove();
-				captchas.delete(view);
-				captcha.reposition(); // ensure play/spectate buttons reappear
-			};
-
-			/**
-			 * @param {symbol} view
-			 * @param {string} type
-			 * @param {(token: string) => void} cb
-			 */
-			captcha.request = (view, type, cb) => {
-				const oldInst = captchas.get(view);
-				if (oldInst?.type === type && oldInst.cb) {
-					oldInst.cb = cb;
-					return;
-				}
-
-				captcha.remove(view);
-
-				const mount = document.createElement('div');
-				document.body.appendChild(mount);
-				const reposition = () => {
-					let replacesModeButtons = false;
-					if (view === world.viewId.spectate) {
-						mount.style.cssText = 'position: fixed; bottom: 10px; left: 50vw; transform: translateX(-50%); \
-							z-index: 1000;';
-					} else if (view !== world.selected || ui.deathScreen.visible()) {
-						mount.style.cssText = 'opacity: 0;'; // don't use display: none;
-					} else if (escOverlayVisible && modeBtns) {
-						const place = modeBtns?.getBoundingClientRect();
-						mount.style.cssText = `position: fixed; top: ${place ? place.top + 'px' : '50vh'};
-							left: ${place ? (place.left + place.width / 2) + 'px' : '50vw'};
-							transform: translate(-50%, ${place ? '0%' : '-50%'}); z-index: 1000;`;
-						replacesModeButtons = type !== 'v3'; // v3 is invisible, so it shouldn't hide the play buttons
-					} else {
-						mount.style.cssText = `position: fixed; top: 50vh; left: 50vw; transform: translate(-50%, -50%);
-							z-index: 1000;`;
-					}
-
-					return replacesModeButtons;
-				};
-
-				/** @type {CaptchaInstance} */
-				const inst = { cb, handle: undefined, mount, reposition, type };
-				captchas.set(view, inst);
-				captcha.reposition();
-
-				if (type === 'v2') {
-					grecaptcha.then(g => {
-						inst.handle = g.render(mount, {
-							callback: token => {
-								inst.cb?.(token);
-								inst.cb = undefined;
-							},
-							'error-callback': () => setTimeout(() => g.reset(inst.handle), 1000),
-							'expired-callback': () => setTimeout(() => g.reset(inst.handle), 1000),
-							sitekey: CAPTCHA2,
-							theme: sigmod.exists ? 'dark' : 'light',
-						});
-					});
-				} else if (type === 'v3') {
-					grecaptcha.then(g => {
-						g.execute(CAPTCHA3).then(token => {
-							inst.cb?.(token);
-							inst.cb = undefined;
-						});
-					});
-				} else if (type === 'turnstile') {
-					turnstile.then(t => {
-						inst.handle = t.render(mount, {
-							callback: token => {
-								inst.cb?.(token);
-								inst.cb = undefined;
-							},
-							'error-callback': () => setTimeout(() => t.reset(inst.handle), 1000),
-							'expired-callback': () => setTimeout(() => t.reset(inst.handle), 1000),
-							sitekey: TURNSTILE,
-							theme: sigmod.exists ? 'dark' : 'light',
-						});
-					});
-				}
-			};
-
-			captcha.reposition = () => {
-				let replacingModeButtons = false;
-				for (const inst of captchas.values()) replacingModeButtons = inst.reposition() || replacingModeButtons;
-
-				play.style.display = spectate.style.display = replacingModeButtons ? 'none' : '';
-			};
-
-			addEventListener('resize', () => captcha.reposition());
-
-			return captcha;
-		})();
-
-		const style = document.createElement('style');
-		style.innerHTML = `
-			/* make sure nothing gets cut off on the center menu panel */
-			#menu-wrapper > .menu-center { height: fit-content !important; }
-			/* hide the outline that sigmod puts on the minimap (i don't like it) */
-			.minimap { border: none !important; box-shadow: none !important; }
-		`;
-		document.head.appendChild(style);
-
-		return ui;
-	})();
-
-
 
 	/////////////////////////
 	// Create Options Menu //
@@ -1490,6 +724,7 @@
 			textOutlinesFactor: 1,
 			tracer: false,
 			unsplittableColor: /** @type {[number, number, number, number]} */ ([1, 1, 1, 1]),
+			yx: false, // hehe
 		};
 
 		const settingsExt = {};
@@ -2065,6 +1300,10 @@
 			'When disabled, transparent skins will be see-through and not show your cell color. Turn this off ' +
 			'if using a bubble skin, for example.');
 
+		setting(`<span style="padding: 2px 5px; border-radius: 10px; background: #76f; color: #fff;
+			font-weight: bold; font-size: 0.95rem; user-select: none;">yx's secret setting</span>`,
+			[checkbox('yx')], () => settings.yx, 'yx\'s top secret settings');
+
 		// #3 : create options for sigmod
 		let sigmodInjection;
 		sigmodInjection = setInterval(() => {
@@ -2098,6 +1337,773 @@
 		}, 100);
 
 		return settings;
+	})();
+
+
+
+	/////////////////////
+	// Prepare Game UI //
+	/////////////////////
+	const ui = (() => {
+		const ui = {};
+
+		(() => {
+			const title = document.querySelector('#title');
+			if (!title) return;
+
+			const watermark = document.createElement('span');
+			watermark.innerHTML = `<a href="https://greasyfork.org/scripts/483587/versions" \
+				target="_blank">Sigmally Fixes ${sfVersion}</a> by yx`;
+			if (sfVersion.includes('BETA')) {
+				watermark.innerHTML += ' <br><a \
+					href="https://raw.githubusercontent.com/8y8x/sigmally-fixes/refs/heads/main/sigmally-fixes.user.js"\
+					target="_blank">[Update beta here]</a>';
+			}
+			title.insertAdjacentElement('afterend', watermark);
+
+			// check if this version is problematic, don't do anything if this version is too new to be in versions.json
+			// take care to ensure users can't be logged
+			fetch('https://raw.githubusercontent.com/8y8x/sigmally-fixes/main/versions.json')
+				.then(res => res.json())
+				.then(res => {
+					if (sfVersion in res && !res[sfVersion].ok && res[sfVersion].alert) {
+						const color = res[sfVersion].color || '#f00';
+						const box = document.createElement('div');
+						box.style.cssText = `background: ${color}3; border: 1px solid ${color}; width: 100%; \
+							height: fit-content; font-size: 1em; padding: 5px; margin: 5px 0; border-radius: 3px; \
+							color: ${color}`;
+						box.innerHTML = String(res[sfVersion].alert)
+							.replace(/\<|\>/g, '') // never allow html tag injection
+							.replace(/\{link\}/g, '<a href="https://greasyfork.org/scripts/483587">[click here]</a>')
+							.replace(/\{autolink\}/g, '<a href="\
+								https://update.greasyfork.org/scripts/483587/Sigmally%20Fixes%20V2.user.js">\
+								[click here]</a>');
+
+						watermark.insertAdjacentElement('afterend', box);
+					}
+				})
+				.catch(err => console.warn('Failed to check Sigmally Fixes version:', err));
+		})();
+
+		ui.game = (() => {
+			const game = {};
+
+			/** @type {HTMLCanvasElement | null} */
+			const oldCanvas = document.querySelector('canvas#canvas');
+			if (!oldCanvas) {
+				throw 'exiting script - no canvas found';
+			}
+
+			const newCanvas = document.createElement('canvas');
+			newCanvas.id = 'sf-canvas';
+			newCanvas.style.cssText = `background: #003; width: 100vw; height: 100vh; position: fixed; top: 0; left: 0;
+				z-index: 1;`;
+			game.canvas = newCanvas;
+			(document.querySelector('body div') ?? document.body).appendChild(newCanvas);
+
+			// leave the old canvas so the old client can actually run
+			oldCanvas.style.display = 'none';
+
+			// forward macro inputs from the canvas to the old one - this is for sigmod mouse button controls
+			newCanvas.addEventListener('mousedown', e => oldCanvas.dispatchEvent(new MouseEvent('mousedown', e)));
+			newCanvas.addEventListener('mouseup', e => oldCanvas.dispatchEvent(new MouseEvent('mouseup', e)));
+			// forward mouse movements from the old canvas to the window - this is for sigmod keybinds that move
+			// the mouse
+			oldCanvas.addEventListener('mousemove', e => dispatchEvent(new MouseEvent('mousemove', e)));
+
+			const gl = aux.require(
+				newCanvas.getContext('webgl2', { alpha: false, antialias: false, depth: false }),
+				'Couldn\'t get WebGL2 context. Possible causes:\r\n' +
+				'- Maybe GPU/Hardware acceleration needs to be enabled in your browser settings; \r\n' +
+				'- Maybe your browser is just acting weird and it might fix itself after a restart; \r\n' +
+				'- Maybe your GPU drivers are exceptionally old.',
+			);
+
+			game.gl = gl;
+
+			// indicate that we will restore the context
+			newCanvas.addEventListener('webglcontextlost', e => {
+				e.preventDefault(); // signal that we want to restore the context
+			});
+			newCanvas.addEventListener('webglcontextrestored', () => {
+				glconf.init();
+				// cleanup old caches (after render), as we can't do this within glconf.init()
+				render.resetDatabaseCache();
+				render.resetTextCache();
+				render.resetTextureCache();
+			});
+
+			function resize() {
+				// devicePixelRatio does not have very high precision; it could be 0.800000011920929 for example
+				newCanvas.width = Math.ceil(innerWidth * (devicePixelRatio - 0.0001));
+				newCanvas.height = Math.ceil(innerHeight * (devicePixelRatio - 0.0001));
+				game.gl.viewport(0, 0, newCanvas.width, newCanvas.height);
+			}
+
+			addEventListener('resize', resize);
+			resize();
+
+			return game;
+		})();
+
+		ui.stats = (() => {
+			const container = document.createElement('div');
+			container.style.cssText = 'position: fixed; top: 10px; left: 10px; width: 400px; height: fit-content; \
+				user-select: none; z-index: 2; transform-origin: top left; font-family: Ubuntu;';
+			document.body.appendChild(container);
+
+			const score = document.createElement('div');
+			score.style.cssText = 'font-size: 30px; color: #fff; line-height: 1.0;';
+			container.appendChild(score);
+
+			const measures = document.createElement('div');
+			measures.style.cssText = 'font-size: 20px; color: #fff; line-height: 1.1;';
+			container.appendChild(measures);
+
+			const misc = document.createElement('div');
+			// white-space: pre; allows using \r\n to insert line breaks
+			misc.style.cssText = 'font-size: 14px; color: #fff; white-space: pre; line-height: 1.1; opacity: 0.5;';
+			container.appendChild(misc);
+
+			/** @param {symbol} view */
+			const update = view => {
+				const fontFamily = `"${sigmod.settings.font || 'Ubuntu'}", Ubuntu`;
+				if (container.style.fontFamily !== fontFamily) container.style.fontFamily = fontFamily;
+
+				const color = aux.settings.darkTheme ? '#fff' : '#000';
+				score.style.color = color;
+				measures.style.color = color;
+				misc.style.color = color;
+
+				score.style.fontWeight = measures.style.fontWeight = settings.boldUi ? 'bold' : 'normal';
+				measures.style.opacity = settings.showStats ? '1' : '0.5';
+				misc.style.opacity = settings.showStats ? '0.5' : '0';
+
+				const scoreVal = world.score(world.selected);
+				const multiplier = (typeof aux.userData?.boost === 'number' && aux.userData.boost > Date.now()) ? 2 : 1;
+				if (scoreVal > world.stats.highestScore) world.stats.highestScore = scoreVal;
+				let scoreHtml;
+				if (scoreVal <= 0) scoreHtml = '';
+				else if (settings.separateBoost) {
+					scoreHtml = `Score: ${Math.floor(scoreVal)}`;
+					if (multiplier > 1) scoreHtml += ` <span style="color: #fc6;">(X${multiplier})</span>`;
+				} else {
+					scoreHtml = 'Score: ' + Math.floor(scoreVal * multiplier);
+				}
+				score.innerHTML = scoreHtml;
+
+				const con = net.connections.get(view);
+				let measuresText = `${Math.floor(render.fps)} FPS`;
+				if (con?.latency !== undefined) {
+					measuresText += ` ${con.latency === -1 ? '????' : Math.floor(con.latency)}ms`;
+					const spectateCon = net.connections.get(world.viewId.spectate);
+					if (settings.spectatorLatency && spectateCon?.latency !== undefined) {
+						measuresText
+							+= ` (${spectateCon.latency === -1 ? '????' : Math.floor(spectateCon.latency)}ms)`;
+					}
+					measuresText += ' ping';
+				}
+				measures.textContent = measuresText;
+			};
+
+			/** @param {object | undefined} stats */
+			const updateStats = (stats) => {
+				if (!stats) {
+					misc.textContent = '';
+					return;
+				}
+
+				let uptime;
+				if (stats.uptime < 60) {
+					uptime = Math.floor(stats.uptime) + 's';
+				} else {
+					uptime = Math.floor(stats.uptime / 60 % 60) + 'min';
+					if (stats.uptime >= 60 * 60)
+						uptime = Math.floor(stats.uptime / 60 / 60 % 24) + 'hr ' + uptime;
+					if (stats.uptime >= 24 * 60 * 60)
+						uptime = Math.floor(stats.uptime / 24 / 60 / 60 % 60) + 'd ' + uptime;
+				}
+
+				misc.textContent = [
+					`${stats.name} (${stats.gamemode})`,
+					`${stats.external} / ${stats.limit} players`,
+					// bots do not count towards .playing **except in my private server**
+					`${stats.playing} playing` + (stats.internal > 0 ? ` + ${stats.internal} bots` : ''),
+					`${stats.spectating} spectating`,
+					`${(stats.loadTime / 40 * 100).toFixed(1)}% load @ ${uptime}`,
+				].join('\r\n');
+			};
+
+			/** @type {object | undefined} */
+			let lastStats;
+			setInterval(() => { // update as frequently as possible
+				const currentStats = world.views.get(world.selected)?.stats;
+				if (currentStats !== lastStats) updateStats(lastStats = currentStats);
+			});
+
+			return { update };
+		})();
+
+		ui.leaderboard = (() => {
+			const container = document.createElement('div');
+			container.style.cssText = 'position: fixed; top: 10px; right: 10px; width: 200px; height: fit-content; \
+				user-select: none; z-index: 2; background: #0006; padding: 15px 5px; transform-origin: top right; \
+				display: none;';
+			document.body.appendChild(container);
+
+			const title = document.createElement('div');
+			title.style.cssText = 'font-family: Ubuntu; font-size: 30px; color: #fff; text-align: center; width: 100%;';
+			title.textContent = 'Leaderboard';
+			container.appendChild(title);
+
+			const linesContainer = document.createElement('div');
+			linesContainer.style.cssText = `font-family: Ubuntu; font-size: 20px; line-height: 1.2; width: 100%;
+				height: fit-content; text-align: ${settings.yx ? 'right' : 'center'}; white-space: pre; overflow: hidden;`;
+			container.appendChild(linesContainer);
+
+			/** @type {HTMLDivElement[]} */
+			const lines = [];
+			/** @param {{ me: boolean, name: string, sub: boolean, place: number | undefined }[]} lb */
+			function update(lb) {
+				const fontFamily = `"${sigmod.settings.font || 'Ubuntu'}", Ubuntu`;
+				if (linesContainer.style.fontFamily !== fontFamily)
+					linesContainer.style.fontFamily = title.style.fontFamily = fontFamily;
+
+				const friends = /** @type {any} */ (window).sigmod?.friend_names;
+				const friendSettings = /** @type {any} */ (window).sigmod?.friends_settings;
+				lb.forEach((entry, i) => {
+					let line = lines[i];
+					if (!line) {
+						line = document.createElement('div');
+						line.style.display = 'none';
+						linesContainer.appendChild(line);
+						lines.push(line);
+					}
+
+					line.style.display = 'block';
+					line.textContent = `${entry.place ?? i + 1}. ${entry.name || 'An unnamed cell'}`;
+					if (entry.me) line.style.color = '#faa';
+					else if (friends instanceof Set && friends.has(entry.name) && friendSettings?.highlight_friends)
+						line.style.color = friendSettings.highlight_color;
+					else if (entry.sub) line.style.color = '#ffc826';
+					else line.style.color = '#fff';
+				});
+
+				for (let i = lb.length; i < lines.length; ++i)
+					lines[i].style.display = 'none';
+
+				container.style.display = lb.length > 0 ? '' : 'none';
+				container.style.fontWeight = settings.boldUi ? 'bold' : 'normal';
+			}
+
+			/** @type {object | undefined} */
+			let lastLb;
+			setInterval(() => { // update leaderboard frequently
+				const currentLb = world.views.get(world.selected)?.leaderboard;
+				if (currentLb !== lastLb) update((lastLb = currentLb) ?? []);
+			});
+		})();
+
+		/** @type {HTMLElement} */
+		const mainMenu = aux.require(
+			document.querySelector('#__line1')?.parentElement,
+			'Can\'t find the main menu UI. Try reloading the page?',
+		);
+
+		/** @type {HTMLElement} */
+		const statsContainer = aux.require(
+			document.querySelector('#__line2'),
+			'Can\'t find the death screen UI. Try reloading the page?',
+		);
+
+		/** @type {HTMLElement} */
+		const continueButton = aux.require(
+			document.querySelector('#continue_button'),
+			'Can\'t find the continue button (on death). Try reloading the page?',
+		);
+
+		/** @type {HTMLElement | null} */
+		const menuLinks = document.querySelector('#menu-links');
+		/** @type {HTMLElement | null} */
+		const overlay = document.querySelector('#overlays');
+
+		// sigmod uses this to detect if the menu is closed or not, otherwise this is unnecessary
+		/** @type {HTMLElement | null} */
+		const menuWrapper = document.querySelector('#menu-wrapper');
+
+		let escOverlayVisible = true;
+		/**
+		 * @param {boolean} [show]
+		 */
+		ui.toggleEscOverlay = show => {
+			escOverlayVisible = show ?? !escOverlayVisible;
+			if (escOverlayVisible) {
+				mainMenu.style.display = '';
+				if (overlay) overlay.style.display = '';
+				if (menuLinks) menuLinks.style.display = '';
+				if (menuWrapper) menuWrapper.style.display = '';
+
+				ui.deathScreen.hide();
+			} else {
+				mainMenu.style.display = 'none';
+				if (overlay) overlay.style.display = 'none';
+				if (menuLinks) menuLinks.style.display = 'none';
+				if (menuWrapper) menuWrapper.style.display = 'none';
+			}
+
+			ui.captcha.reposition();
+		};
+
+		ui.escOverlayVisible = () => escOverlayVisible;
+
+		ui.deathScreen = (() => {
+			const deathScreen = {};
+			let visible = false;
+
+			continueButton.addEventListener('click', () => {
+				ui.toggleEscOverlay(true);
+				visible = false;
+			});
+
+			/** @type {HTMLElement | null} */
+			const bonus = document.querySelector('#menu__bonus');
+
+			deathScreen.check = () => {
+				if (world.stats.spawnedAt === undefined) return;
+				if (world.alive()) return;
+				deathScreen.show();
+			};
+
+			deathScreen.show = () => {
+				const boost = typeof aux.userData?.boost === 'number' && aux.userData.boost > Date.now();
+				if (bonus) {
+					if (boost) {
+						bonus.style.display = '';
+						bonus.textContent = `Bonus score: ${Math.round(world.stats.highestScore)}`;
+					} else {
+						bonus.style.display = 'none';
+					}
+				}
+
+				const foodEatenElement = document.querySelector('#food_eaten');
+				if (foodEatenElement)
+					foodEatenElement.textContent = world.stats.foodEaten.toString();
+
+				const highestMassElement = document.querySelector('#highest_mass');
+				if (highestMassElement)
+					highestMassElement.textContent = (Math.round(world.stats.highestScore) * (boost ? 2 : 1)).toString();
+
+				const highestPositionElement = document.querySelector('#top_leaderboard_position');
+				if (highestPositionElement)
+					highestPositionElement.textContent = world.stats.highestPosition.toString();
+
+				const timeAliveElement = document.querySelector('#time_alive');
+				if (timeAliveElement) {
+					const time = (performance.now() - (world.stats.spawnedAt ?? 0)) / 1000;
+					const hours = Math.floor(time / 60 / 60);
+					const mins = Math.floor(time / 60 % 60);
+					const seconds = Math.floor(time % 60);
+
+					timeAliveElement.textContent = `${hours ? hours + ' h' : ''} ${mins ? mins + ' m' : ''} `
+						+ `${seconds ? seconds + ' s' : ''}`;
+				}
+
+				statsContainer.classList.remove('line--hidden');
+				visible = true;
+				ui.toggleEscOverlay(false);
+				if (overlay) overlay.style.display = '';
+				world.stats = { foodEaten: 0, highestPosition: 200, highestScore: 0, spawnedAt: undefined };
+
+				ui.captcha.reposition();
+			};
+
+			deathScreen.hide = () => {
+				statsContainer?.classList.add('line--hidden');
+				visible = false;
+				// no need for ui.captcha.reposition() because the esc overlay will always be shown on deathScreen.hide
+				// ads are managed by the game client
+			};
+
+			deathScreen.visible = () => visible;
+
+			return deathScreen;
+		})();
+
+		ui.minimap = (() => {
+			const canvas = document.createElement('canvas');
+			canvas.style.cssText = 'position: fixed; bottom: 0; right: 0; background: #0006; width: 200px; \
+				height: 200px; z-index: 2; user-select: none;';
+			canvas.width = canvas.height = 200;
+			document.body.appendChild(canvas);
+
+			const ctx = aux.require(
+				canvas.getContext('2d', { willReadFrequently: false }),
+				'Unable to get 2D context for the minimap. This is probably your browser being dumb, maybe reload ' +
+				'the page?',
+			);
+
+			return { canvas, ctx };
+		})();
+
+		ui.chat = (() => {
+			const chat = {};
+
+			const block = aux.require(
+				document.querySelector('#chat_block'),
+				'Can\'t find the chat UI. Try reloading the page?',
+			);
+
+			/**
+			 * @param {ParentNode} root
+			 * @param {string} selector
+			 */
+			function clone(root, selector) {
+				/** @type {HTMLElement} */
+				const old = aux.require(
+					root.querySelector(selector),
+					`Can't find this chat element: ${selector}. Try reloading the page?`,
+				);
+
+				const el = /** @type {HTMLElement} */ (old.cloneNode(true));
+				el.id = '';
+				old.style.display = 'none';
+				old.insertAdjacentElement('afterend', el);
+
+				return el;
+			}
+
+			// can't just replace the chat box - otherwise sigmod can't hide it - so we make its children invisible
+			// elements grabbed with clone() are only styled by their class, not id
+			const toggle = clone(document, '#chat_vsbltyBtn');
+			const scrollbar = clone(document, '#chat_scrollbar');
+			const thumb = clone(scrollbar, '#chat_thumb');
+
+			const input = chat.input = /** @type {HTMLInputElement} */ (aux.require(
+				document.querySelector('#chat_textbox'),
+				'Can\'t find the chat textbox. Try reloading the page?',
+			));
+
+			// allow zooming in/out on trackpad without moving the UI
+			input.style.position = 'fixed';
+			toggle.style.position = 'fixed';
+			scrollbar.style.position = 'fixed';
+
+			const list = document.createElement('div');
+			list.style.cssText = 'width: 400px; height: 182px; position: fixed; bottom: 54px; left: 46px; \
+				overflow: hidden; user-select: none; z-index: 301;';
+			block.appendChild(list);
+
+			let toggled = true;
+			toggle.style.borderBottomLeftRadius = '10px'; // a bug fix :p
+			toggle.addEventListener('click', () => {
+				toggled = !toggled;
+				input.style.display = toggled ? '' : 'none';
+				scrollbar.style.display = toggled ? 'block' : 'none';
+				list.style.display = toggled ? '' : 'none';
+
+				if (toggled) {
+					toggle.style.borderTopRightRadius = toggle.style.borderBottomRightRadius = '';
+					toggle.style.opacity = '';
+				} else {
+					toggle.style.borderTopRightRadius = toggle.style.borderBottomRightRadius = '10px';
+					toggle.style.opacity = '0.25';
+				}
+			});
+
+			scrollbar.style.display = 'block';
+			let scrollTop = 0; // keep a float here, because list.scrollTop is always casted to an int
+			let thumbHeight = 1;
+			let lastY;
+			thumb.style.height = '182px';
+
+			function updateThumb() {
+				thumb.style.bottom = (1 - list.scrollTop / (list.scrollHeight - 182)) * (182 - thumbHeight) + 'px';
+			}
+
+			function scroll() {
+				if (scrollTop >= list.scrollHeight - 182 - 40) {
+					// close to bottom, snap downwards
+					list.scrollTop = scrollTop = list.scrollHeight - 182;
+				}
+
+				thumbHeight = Math.min(Math.max(182 / list.scrollHeight, 0.1), 1) * 182;
+				thumb.style.height = thumbHeight + 'px';
+				updateThumb();
+			}
+
+			let scrolling = false;
+			thumb.addEventListener('mousedown', () => void (scrolling = true));
+			addEventListener('mouseup', () => void (scrolling = false));
+			addEventListener('mousemove', e => {
+				const deltaY = e.clientY - lastY;
+				lastY = e.clientY;
+
+				if (!scrolling) return;
+				e.preventDefault();
+
+				if (lastY === undefined) {
+					lastY = e.clientY;
+					return;
+				}
+
+				list.scrollTop = scrollTop = Math.min(Math.max(
+					scrollTop + deltaY * list.scrollHeight / 182, 0), list.scrollHeight - 182);
+				updateThumb();
+			});
+
+			let lastWasBarrier = true; // init to true, so we don't print a barrier as the first ever message (ugly)
+			/**
+			 * @param {string} authorName
+			 * @param {[number, number, number, number]} rgb
+			 * @param {string} text
+			 * @param {boolean} server
+			 */
+			chat.add = (authorName, rgb, text, server) => {
+				lastWasBarrier = false;
+
+				const container = document.createElement('div');
+				const author = document.createElement('span');
+				author.style.cssText = `color: ${aux.rgba2hex(...rgb)}; padding-right: 0.75em;`;
+				author.textContent = aux.trim(authorName);
+				container.appendChild(author);
+
+				const msg = document.createElement('span');
+				if (server) msg.style.cssText = `color: ${aux.rgba2hex(...rgb)}`;
+				msg.textContent = server ? text : aux.trim(text); // /help text can get cut off
+				container.appendChild(msg);
+
+				while (list.children.length > 100)
+					list.firstChild?.remove();
+
+				list.appendChild(container);
+
+				scroll();
+			};
+
+			chat.barrier = () => {
+				if (lastWasBarrier) return;
+				lastWasBarrier = true;
+
+				const barrier = document.createElement('div');
+				barrier.style.cssText = 'width: calc(100% - 20px); height: 1px; background: #8888; margin: 10px;';
+				list.appendChild(barrier);
+
+				scroll();
+			};
+
+			chat.matchTheme = () => {
+				list.style.color = aux.settings.darkTheme ? '#fffc' : '#000c';
+				// make author names darker in light theme
+				list.style.filter = aux.settings.darkTheme ? '' : 'brightness(75%)';
+			};
+
+			return chat;
+		})();
+
+		/** @param {string} msg */
+		ui.error = msg => {
+			const modal = /** @type {HTMLElement | null} */ (document.querySelector('#errormodal'));
+			if (modal) modal.style.display = 'block';
+			const desc = document.querySelector('#errormodal p');
+			if (desc) desc.innerHTML = msg;
+		};
+
+		ui.captcha = (() => {
+			const captcha = {};
+
+			const modeBtns = /** @type {HTMLElement | null} */ (document.querySelector('.mode-btns'));
+			/** @type {HTMLButtonElement} */
+			const play = aux.require(document.querySelector('button#play-btn'),
+			'Can\'t find the play button. Try reloading the page?');
+			/** @type {HTMLButtonElement} */
+			const spectate = aux.require(document.querySelector('button#spectate-btn'),
+				'Can\'t find the spectate button. Try reloading the page?');
+
+			/** @type {((grecaptcha: any) => void) | undefined} */
+			let grecaptchaResolve;
+			/** @type {Promise<any>} */
+			const grecaptcha = new Promise(r => grecaptchaResolve = r);
+			/** @type {((turnstile: any) => void) | undefined} */
+			let turnstileResolve;
+			/** @type {Promise<any>} */
+			const turnstile = new Promise(r => turnstileResolve = r);
+			let CAPTCHA2, CAPTCHA3, TURNSTILE;
+
+			let readyCheck;
+			readyCheck = setInterval(() => {
+				// it's possible that recaptcha or turnstile may be removed in the future, so we be redundant to stay
+				// safe
+				if (grecaptchaResolve) {
+					let grecaptchaReal;
+					({ grecaptcha: grecaptchaReal, CAPTCHA2, CAPTCHA3 } = /** @type {any} */ (window));
+					if (grecaptchaReal?.ready && CAPTCHA2 && CAPTCHA3) {
+						const resolve = grecaptchaResolve;
+						grecaptchaResolve = undefined;
+
+						grecaptchaReal.ready(() => {
+							// prevent game.js from using grecaptcha and messing things up
+							let { grecaptcha: grecaptchaNew } = /** @type {any} */ (window);
+							/** @type {any} */ (window).grecaptcha = {
+								execute: () => {},
+								ready: () => {},
+								render: () => {},
+								reset: () => {},
+							};
+							resolve(grecaptchaNew);
+						});
+					}
+				}
+
+				if (turnstileResolve) {
+					let turnstileReal;
+					({ turnstile: turnstileReal, TURNSTILE } = /** @type {any} */ (window));
+					if (turnstileReal?.ready && TURNSTILE) {
+						const resolve = turnstileResolve;
+						turnstileResolve = undefined;
+
+						// turnstile.ready not needed
+						// prevent game.js from using turnstile and messing things up
+						/** @type {any} */ (window).turnstile = {
+							execute: () => {},
+							ready: () => {},
+							render: () => {},
+							reset: () => {},
+						};
+						resolve(turnstileReal);
+					}
+				}
+
+				if (!grecaptchaResolve && !turnstileResolve)
+					clearInterval(readyCheck);
+			}, 50);
+
+			/**
+			 * @typedef {{
+			 * 	cb: ((token: string) => void) | undefined,
+			 * 	handle: any,
+			 * 	mount: HTMLElement,
+			 * 	reposition: () => boolean,
+			 * 	type: string,
+			 * }} CaptchaInstance
+			 * @type {Map<symbol, CaptchaInstance>}
+			 */
+			const captchas = new Map();
+
+			/** @param {symbol} view */
+			captcha.remove = view => {
+				const inst = captchas.get(view);
+				if (!inst) return;
+
+				if (inst.type === 'v2') grecaptcha.then(g => g.reset(inst.handle));
+				// don't do anything for v3
+				else if (inst.type === 'turnstile') turnstile.then(t => t.remove(inst.handle));
+
+				inst.cb = () => {}; // ensure the token gets voided if solved
+				inst.mount.remove();
+				captchas.delete(view);
+				captcha.reposition(); // ensure play/spectate buttons reappear
+			};
+
+			/**
+			 * @param {symbol} view
+			 * @param {string} type
+			 * @param {(token: string) => void} cb
+			 */
+			captcha.request = (view, type, cb) => {
+				const oldInst = captchas.get(view);
+				if (oldInst?.type === type && oldInst.cb) {
+					oldInst.cb = cb;
+					return;
+				}
+
+				captcha.remove(view);
+
+				const mount = document.createElement('div');
+				document.body.appendChild(mount);
+				const reposition = () => {
+					let replacesModeButtons = false;
+					if (view === world.viewId.spectate) {
+						mount.style.cssText = 'position: fixed; bottom: 10px; left: 50vw; transform: translateX(-50%); \
+							z-index: 1000;';
+					} else if (view !== world.selected || ui.deathScreen.visible()) {
+						mount.style.cssText = 'opacity: 0;'; // don't use display: none;
+					} else if (escOverlayVisible && modeBtns) {
+						const place = modeBtns?.getBoundingClientRect();
+						mount.style.cssText = `position: fixed; top: ${place ? place.top + 'px' : '50vh'};
+							left: ${place ? (place.left + place.width / 2) + 'px' : '50vw'};
+							transform: translate(-50%, ${place ? '0%' : '-50%'}); z-index: 1000;`;
+						replacesModeButtons = type !== 'v3'; // v3 is invisible, so it shouldn't hide the play buttons
+					} else {
+						mount.style.cssText = `position: fixed; top: 50vh; left: 50vw; transform: translate(-50%, -50%);
+							z-index: 1000;`;
+					}
+
+					return replacesModeButtons;
+				};
+
+				/** @type {CaptchaInstance} */
+				const inst = { cb, handle: undefined, mount, reposition, type };
+				captchas.set(view, inst);
+				captcha.reposition();
+
+				if (type === 'v2') {
+					grecaptcha.then(g => {
+						inst.handle = g.render(mount, {
+							callback: token => {
+								inst.cb?.(token);
+								inst.cb = undefined;
+							},
+							'error-callback': () => setTimeout(() => g.reset(inst.handle), 1000),
+							'expired-callback': () => setTimeout(() => g.reset(inst.handle), 1000),
+							sitekey: CAPTCHA2,
+							theme: sigmod.exists ? 'dark' : 'light',
+						});
+					});
+				} else if (type === 'v3') {
+					grecaptcha.then(g => {
+						g.execute(CAPTCHA3).then(token => {
+							inst.cb?.(token);
+							inst.cb = undefined;
+						});
+					});
+				} else if (type === 'turnstile') {
+					turnstile.then(t => {
+						inst.handle = t.render(mount, {
+							callback: token => {
+								inst.cb?.(token);
+								inst.cb = undefined;
+							},
+							'error-callback': () => setTimeout(() => t.reset(inst.handle), 1000),
+							'expired-callback': () => setTimeout(() => t.reset(inst.handle), 1000),
+							sitekey: TURNSTILE,
+							theme: sigmod.exists ? 'dark' : 'light',
+						});
+					});
+				}
+			};
+
+			captcha.reposition = () => {
+				let replacingModeButtons = false;
+				for (const inst of captchas.values()) replacingModeButtons = inst.reposition() || replacingModeButtons;
+
+				play.style.display = spectate.style.display = replacingModeButtons ? 'none' : '';
+			};
+
+			addEventListener('resize', () => captcha.reposition());
+
+			return captcha;
+		})();
+
+		const style = document.createElement('style');
+		style.innerHTML = `
+			/* make sure nothing gets cut off on the center menu panel */
+			#menu-wrapper > .menu-center { height: fit-content !important; }
+			/* hide the outline that sigmod puts on the minimap (i don't like it) */
+			.minimap { border: none !important; box-shadow: none !important; }
+		`;
+		document.head.appendChild(style);
+
+		return ui;
 	})();
 
 
@@ -5472,25 +5478,19 @@
 				const gameHeight = (border.b - border.t);
 
 				// highlight current section
-				ctx.fillStyle = '#ff0';
+				ctx.fillStyle = settings.yx ? '#76f' : '#ff0';
 				ctx.globalAlpha = 0.3;
 
 				const sectionX = Math.floor((vision.camera.x - border.l) / gameWidth * 5);
 				const sectionY = Math.floor((vision.camera.y - border.t) / gameHeight * 5);
 				ctx.fillRect(sectionX * sectorSize, sectionY * sectorSize, sectorSize, sectorSize);
 
-				// draw section names
-				ctx.font = `${Math.floor(sectorSize / 3)}px Ubuntu`;
-				ctx.fillStyle = aux.settings.darkTheme ? '#fff' : '#000';
-				ctx.textAlign = 'center';
-				ctx.textBaseline = 'middle';
-
 				ctx.globalAlpha = 1;
 
 				// draw cells
 				/**
 				 * @param {{ nx: number, ny: number, nr: number }} frame
-				 * @param {{ rgb: [number, number, number] }} desc
+				 * @param {{ rgb: [number, number, number] | [number, number, number, number] }} desc
 				 */
 				const drawCell = (frame, desc) => {
 					const x = (frame.nx - border.l) / gameWidth * canvas.width;
@@ -5579,7 +5579,7 @@
 					drawCell({
 						nx: vision.camera.x, ny: vision.camera.y, nr: gameWidth / canvas.width * 5,
 					}, { 
-						rgb: [1, 0.6, 0.6],
+						rgb: settings.yx ? aux.hex2rgba('#76f') : [1, 0.6, 0.6],
 					});
 				} else {
 					ownX /= ownN;
