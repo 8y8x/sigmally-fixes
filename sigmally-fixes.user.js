@@ -1424,9 +1424,13 @@
 			return captcha;
 		})();
 
-		// make sure nothing gets cut off on the center menu panel
 		const style = document.createElement('style');
-		style.innerHTML = '#menu-wrapper > .menu-center { height: fit-content !important; }';
+		style.innerHTML = `
+			/* make sure nothing gets cut off on the center menu panel */
+			#menu-wrapper > .menu-center { height: fit-content !important; }
+			/* hide the outline that sigmod puts on the minimap (i don't like it) */
+			.minimap { border: none !important; box-shadow: none !important; }
+		`;
 		document.head.appendChild(style);
 
 		return ui;
