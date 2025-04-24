@@ -2254,12 +2254,15 @@
 
 		/**
 		 * @param {symbol} view
-		 * @param {Vision} vision
+		 * @param {Vision | undefined} vision
 		 * @param {number} weightExponent
 		 * @param {number} now
 		 * @returns {{ mass: number, scale: number, sumX: number, sumY: number, weight: number }}
 		 */
 		world.singleCamera = (view, vision, weightExponent, now) => {
+			vision ??= world.views.get(view);
+			if (!vision) return { mass: 0, scale: 1, sumX: 0, sumY: 0, weight: 0 };
+
 			let mass = 0;
 			let r = 0;
 			let sumX = 0;
@@ -3436,7 +3439,6 @@
 		 * @param {number} y
 		 */
 		net.move = (view, x, y) => {
-			if (view === world.selected) console.log(x, y);
 			const connection = net.connections.get(view);
 			if (!connection?.handshake || connection.ws?.readyState !== WebSocket.OPEN) return;
 			const dat = new DataView(new ArrayBuffer(13));
@@ -3638,7 +3640,11 @@
 					return;
 
 				case 'fixed':
-					let [x, y] = inputs.mouse;
+					// rotate around the tab's camera center (otherwise, spinning around on a tab feels unnatural)
+					const worldMouse = input.toWorld(view, inputs.mouse);
+					const worldCenter = world.singleCamera(view, undefined, settings.camera !== 'default' ? 2 : 0,
+						performance.now());
+					let [x, y] = [worldMouse[0] - worldCenter.sumX / worldCenter.weight, worldMouse[1] - worldCenter.sumY / worldCenter.weight];
 					x *= innerWidth / innerHeight;
 					// create two points along the 2^31 integer boundary (OgarII uses ~~x and ~~y to truncate positions
 					// to 32-bit integers), choose which one is closer to zero (the one actually within the boundary)
@@ -5531,12 +5537,16 @@
 
 					const mouse = input.toWorld(world.selected, input.current);
 					const inputs = input.views.get(world.selected);
+					if (!inputs) return; // tracers are the last step in cells(), so a return is OK
 
 					// resize by powers of 2
 					let capacity = tracerFloats.length || 1;
 					while (vision.owned.length * 4 > capacity) capacity *= 2;
 					const resizing = capacity !== tracerFloats.length;
 					if (resizing) tracerFloats = new Float32Array(capacity);
+
+					const camera
+						= world.singleCamera(world.selected, vision, settings.camera !== 'default' ? 2 : 0, now);
 
 					let i = 0;
 					for (const id of vision.owned) {
@@ -5551,7 +5561,7 @@
 						tracerFloats[i * 4 + 2] = mouse[0];
 						tracerFloats[i * 4 + 3] = mouse[1];
 
-						switch (inputs?.lock?.type) {
+						switch (inputs.lock?.type) {
 							case 'point':
 								if (now > inputs.lock.until) break;
 								tracerFloats[i * 4 + 2] = inputs.lock.world[0];
@@ -5564,8 +5574,11 @@
 								tracerFloats[i * 4 + 2] = inputs.lock.world[0];
 								break;
 							case 'fixed':
-								tracerFloats[i * 4 + 2] = x + input.current[0] * innerWidth / innerHeight * 1e6;
-								tracerFloats[i * 4 + 3] = y + input.current[1] * 1e6;
+								const dx = mouse[0] - camera.sumX / camera.weight;
+								const dy = mouse[1] - camera.sumY / camera.weight;
+								const d = Math.hypot(dx, dy);
+								tracerFloats[i * 4 + 2] = x + dx * innerWidth / innerHeight * 1e6 / d;
+								tracerFloats[i * 4 + 3] = y + dy * 1e6 / d;
 						}
 						++i;
 					}
