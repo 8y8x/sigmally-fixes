@@ -519,16 +519,19 @@
 
 		/** @type {{
 		 * 	cellColor?: [number, number, number, number],
+		 * 	fixedLineKey?: string,
 		 * 	foodColor?: [number, number, number, number],
 		 * 	font?: string,
+		 * 	horizontalLineKey?: string,
 		 * 	mapColor?: [number, number, number, number],
-		 * 	outlineColor?: [number, number, number, number],
 		 * 	nameColor1?: [number, number, number, number],
 		 * 	nameColor2?: [number, number, number, number],
+		 * 	outlineColor?: [number, number, number, number],
 		 * 	rapidFeedKey?: string,
 		 * 	removeOutlines?: boolean,
 		 * 	showNames?: boolean,
 		 * 	tripleKey?: string,
+		 * 	verticalLineKey?: string,
 		 * 	virusImage?: string,
 		 * }} */
 		sigmod.settings = {};
@@ -617,6 +620,26 @@
 					if (modMessages.children.length > 200) return old.call(modMessages, node);
 					else return node;
 				};
+			}
+
+			// disable linesplit keys on sigmod's end and enable them here
+			const lineKeys = real.settings?.macros?.keys?.line;
+			if (lineKeys) {
+				sigmod.settings.horizontalLineKey = lineKeys.horizontal;
+				sigmod.settings.verticalLineKey = lineKeys.vertical;
+				sigmod.settings.fixedLineKey = lineKeys.fixed;
+				/** @param {keyof typeof sigmod.settings} key */
+				const getset = key => ({
+					// toJSON and toString are implemented so that the key still displays and saves properly,
+					// while returning an object that would never match anything in a keydown event
+					get: () => ({ toJSON: () => sigmod.settings[key], toString: () => sigmod.settings[key] }),
+					set: x => sigmod.settings[key] = x,
+				});
+				Object.defineProperties(lineKeys, {
+					horizontal: getset('horizontalLineKey'),
+					vertical: getset('verticalLineKey'),
+					fixed: getset('fixedLineKey'),
+				});
 			}
 
 			// create a fake sigmally proxy for sigmod, which properly relays some packets (because SigMod does not
@@ -2096,6 +2119,52 @@
 			return captcha;
 		})();
 
+		ui.linesplit = (() => {
+			const linesplit = {};
+
+			const overlay = document.createElement('div');
+			overlay.style.cssText = `position: fixed; bottom: 10px; left: 50vw; transform: translateX(-50%);
+				font: bold 24px Ubuntu; color: #fffc; z-index: 999;`;
+			document.body.appendChild(overlay);
+
+			linesplit.update = () => {
+				const inputs = input.views.get(world.selected);
+				if (!inputs?.lock) {
+					overlay.style.display = 'none';
+					return;
+				}
+
+				if (inputs.lock.type === 'horizontal') {
+					// left-right arrow svg
+					overlay.innerHTML = `
+						<svg viewBox="-6 0 36 24" style="width: 36px; height: 24px; vertical-align: bottom;">
+    						<path stroke="currentColor" stroke-width="3" fill="none"
+								d="M22,12 L2,12 M6,8 L2,12 L6,16 M18,8 L22,12 L18,16"></path>
+    					</svg>(${sigmod.settings?.horizontalLineKey?.toUpperCase()})`;
+					overlay.style.display = '';
+				} else if (inputs.lock.type === 'vertical') {
+					// up-down arrow svg
+					overlay.innerHTML = `
+						<svg viewBox="0 0 24 24" style="width: 24px; height: 24px; vertical-align: bottom;">
+    						<path stroke="currentColor" stroke-width="3" fill="none"
+								d="M12,22 L12,2 M8,6 L12,2 L16,6 M8,18 L12,22 L16,18"></path>
+    					</svg>(${sigmod.settings?.verticalLineKey?.toUpperCase()})`;
+					overlay.style.display = '';
+				} else if (inputs.lock.type === 'fixed') {
+					// left-right + up-down arrow svg
+					overlay.innerHTML = `
+						<svg viewBox="-6 0 36 24" style="width: 36px; height: 24px; vertical-align: bottom;">
+    						<path stroke="currentColor" stroke-width="3" fill="none"
+								d="M22,12 L2,12 M6,8 L2,12 L6,16 M18,8 L22,12 L18,16
+								M12,22 L12,2 M8,6 L12,2 L16,6 M8,18 L12,22 L16,18"></path>
+    					</svg>(${sigmod.settings?.fixedLineKey?.toUpperCase()})`;
+					overlay.style.display = '';
+				}
+			};
+
+			return linesplit;
+		})();
+
 		const style = document.createElement('style');
 		style.innerHTML = `
 			/* make sure nothing gets cut off on the center menu panel */
@@ -3367,6 +3436,7 @@
 		 * @param {number} y
 		 */
 		net.move = (view, x, y) => {
+			if (view === world.selected) console.log(x, y);
 			const connection = net.connections.get(view);
 			if (!connection?.handshake || connection.ws?.readyState !== WebSocket.OPEN) return;
 			const dat = new DataView(new ArrayBuffer(13));
@@ -3428,7 +3498,9 @@
 			if (!settings.multibox) {
 				world.selected = world.viewId.primary;
 				ui.captcha.reposition();
+				ui.linesplit.update();
 			}
+
 			if (settings.spectator) {
 				const vision = world.create(world.viewId.spectate);
 				net.create(world.viewId.spectate);
@@ -3484,11 +3556,11 @@
 		input.current = [0, 0];
 		/** @type {Map<symbol, {
 		 * 		forceW: boolean,
-		 * 		lock: {
-		 * 			mouse: [number, number],
-		 * 			world: [number, number],
-		 * 			until: number,
-		 * 		} | undefined,
+		 * 		lock: { type: 'point', mouse: [number, number], world: [number, number], until: number }
+		 * 			| { type: 'horizontal', world: [number, number] }
+		 * 			| { type: 'vertical', world: [number, number], lastSplit: number }
+		 * 			| { type: 'fixed' }
+		 * 			| undefined,
 		 * 		mouse: [number, number], // between -1 and 1
 		 * 		w: boolean,
 		 * 		world: [number, number], // world position; only updates when tab is selected
@@ -3540,20 +3612,57 @@
 		input.move = (view, forceUpdate) => {
 			const now = performance.now();
 			const inputs = input.views.get(view) ?? create(view);
-			if (inputs.lock && now <= inputs.lock.until) {
-				const d = Math.hypot(input.current[0] - inputs.lock.mouse[0], input.current[1] - inputs.lock.mouse[1]);
-				// only lock the mouse as long as the mouse has not moved further than 25% (of 2) of the screen away
-				if (d < 0.5 || Number.isNaN(d)) {
+			if (view === world.selected) inputs.mouse = input.current;
+
+			switch (inputs.lock?.type) {
+				case 'point':
+					if (now > inputs.lock.until) break;
+					const d = Math.hypot(inputs.mouse[0] - inputs.lock.mouse[0], inputs.mouse[1] - inputs.lock.mouse[1]);
+					// only lock the mouse as long as the mouse has not moved further than 25% (of 2) of the screen away
+					if (d < 0.5 || Number.isNaN(d)) {
+						net.move(view, ...inputs.lock.world);
+						return;
+					}
+					break;
+				
+				case 'horizontal':
 					net.move(view, ...inputs.lock.world);
 					return;
-				}
+
+				case 'vertical':
+					if (performance.now() - inputs.lock.lastSplit <= 150) {
+						net.move(view, inputs.lock.world[0], (2 ** 31 - 1) * (inputs.mouse[1] >= 0 ? 1 : -1));
+					} else {
+						net.move(view, ...inputs.lock.world);
+					}
+					return;
+
+				case 'fixed':
+					let [x, y] = inputs.mouse;
+					x *= innerWidth / innerHeight;
+					// create two points along the 2^31 integer boundary (OgarII uses ~~x and ~~y to truncate positions
+					// to 32-bit integers), choose which one is closer to zero (the one actually within the boundary)
+					const max = 2 ** 31 - 1;
+					const xClamp = /** @type {const} */ ([max * Math.sign(x), y / x * max * Math.sign(x)]);
+					const yClamp = /** @type {const} */ ([x / y * max * Math.sign(y), max * Math.sign(y)]);
+					if (Math.hypot(...xClamp) < Math.hypot(...yClamp)) net.move(view, ...xClamp);
+					else net.move(view, ...yClamp);
+					return;
 			}
 
 			inputs.lock = undefined;
 			if (world.selected === view || forceUpdate) {
-				inputs.world = input.toWorld(view, inputs.mouse = input.current);
+				inputs.world = input.toWorld(view, inputs.mouse);
 			}
 			net.move(view, ...inputs.world);
+		};
+
+		/** @param {symbol} view */
+		input.split = view => {
+			const inputs = create(view);
+			if (inputs?.lock?.type === 'vertical') inputs.lock.lastSplit = performance.now();
+			input.move(view, true);
+			net.split(view);
 		};
 
 		setInterval(() => {
@@ -3614,6 +3723,7 @@
 				}
 
 				ui.captcha.reposition();
+				ui.linesplit.update();
 				return;
 			}
 
@@ -3667,10 +3777,7 @@
 						// send mouse position immediately, so the split will go in the correct direction.
 						// setTimeout is used to ensure that our mouse position is actually updated (it comes after
 						// keydown events)
-						setTimeout(() => {
-							input.move(view, true);
-							net.split(view);
-						});
+						setTimeout(() => input.split(view));
 					}
 					break;
 				}
@@ -3680,12 +3787,54 @@
 				}
 			}
 
+			// use e.isTrusted in case the key was bound to W
 			if (e.isTrusted && e.key.toLowerCase() === sigmod.settings.tripleKey?.toLowerCase()) {
+				// don't override any locks, and don't update 'until'
 				inputs.lock ||= {
+					type: 'point',
 					mouse: inputs.mouse,
 					world: input.toWorld(world.selected, inputs.mouse),
 					until: performance.now() + 650,
 				};
+			}
+
+			const vision = world.views.get(view);
+			if (!vision) return;
+			const camera = world.singleCamera(view, vision, 0, Infinity); // use latest data (.nx, .ny), uninterpolated
+
+			if (e.isTrusted && e.key.toLowerCase() === sigmod.settings.horizontalLineKey?.toLowerCase()) {
+				if (inputs.lock?.type === 'horizontal') {
+					inputs.lock = undefined;
+					ui.linesplit.update();
+					return;
+				}
+
+				inputs.lock = { type: 'horizontal', world: [camera.sumX / camera.weight, camera.sumY / camera.weight] };
+				ui.linesplit.update();
+				return;
+			}
+
+			if (e.isTrusted && e.key.toLowerCase() === sigmod.settings.verticalLineKey?.toLowerCase()) {
+				if (inputs.lock?.type === 'vertical') {
+					inputs.lock = undefined;
+					ui.linesplit.update();
+					return;
+				}
+
+				inputs.lock = {
+					type: 'vertical',
+					world: [camera.sumX / camera.weight, camera.sumY / camera.weight],
+					lastSplit: -Infinity,
+				};
+				ui.linesplit.update();
+				return;
+			}
+
+			if (e.isTrusted && e.key.toLowerCase() === sigmod.settings.fixedLineKey?.toLowerCase()) {
+				if (inputs.lock?.type === 'fixed') inputs.lock = undefined;
+				else inputs.lock = { type: 'fixed' };
+				ui.linesplit.update();
+				return;
 			}
 		});
 
@@ -5144,7 +5293,7 @@
 					// #2 : draw text
 					if (pellet) return;
 					const name = desc.name || 'An unnamed cell';
-					const showThisName = showNames && frame.nr >= 64;
+					const showThisName = (showNames ?? true) && frame.nr >= 64;
 					const showThisMass = aux.settings.showMass && frame.nr >= 64;
 					const clan = (settings.clans && aux.clans.get(desc.clan)) || '';
 					if (!showThisName && !showThisMass && !clan) return;
@@ -5382,10 +5531,6 @@
 
 					const mouse = input.toWorld(world.selected, input.current);
 					const inputs = input.views.get(world.selected);
-					if (inputs?.lock && now <= inputs.lock.until) {
-						if (!Number.isNaN(inputs.lock.world[0])) mouse[0] = inputs.lock.world[0];
-						if (!Number.isNaN(inputs.lock.world[1])) mouse[1] = inputs.lock.world[1];
-					}
 
 					// resize by powers of 2
 					let capacity = tracerFloats.length || 1;
@@ -5405,6 +5550,23 @@
 						tracerFloats[i * 4 + 1] = y;
 						tracerFloats[i * 4 + 2] = mouse[0];
 						tracerFloats[i * 4 + 3] = mouse[1];
+
+						switch (inputs?.lock?.type) {
+							case 'point':
+								if (now > inputs.lock.until) break;
+								tracerFloats[i * 4 + 2] = inputs.lock.world[0];
+								tracerFloats[i * 4 + 3] = inputs.lock.world[1];
+								break;
+							case 'horizontal':
+								tracerFloats[i * 4 + 3] = inputs.lock.world[1];
+								break;
+							case 'vertical':
+								tracerFloats[i * 4 + 2] = inputs.lock.world[0];
+								break;
+							case 'fixed':
+								tracerFloats[i * 4 + 2] = x + input.current[0] * innerWidth / innerHeight * 1e6;
+								tracerFloats[i * 4 + 3] = y + input.current[1] * 1e6;
+						}
 						++i;
 					}
 
