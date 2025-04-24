@@ -403,6 +403,8 @@
 		// get the latest game.js version whenever possible
 		// some players are stuck on an older game.js version which does not allow signing in
 		fetch('https://one.sigmally.com/assets/js/game.js', { cache: 'reload' });
+		// clicking "continue" immediately makes a request for user data, so we can get it even if sigfixes runs late
+		/** @type {HTMLButtonElement | null} */ (document.querySelector('#continue_button'))?.click();
 
 		return aux;
 	})();
@@ -4777,7 +4779,6 @@
 				resizing = true;
 			}
 			if (resizing) {
-				console.log('resized to', capacity);
 				alpha = circleBuffers[pellets ? 'pelletAlpha' : 'cellAlpha'] = new Float32Array(capacity);
 				instances = circleBuffers[pellets ? 'pellet' : 'cell'] = new Float32Array(capacity * 7);
 			}
