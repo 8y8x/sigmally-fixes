@@ -2410,17 +2410,21 @@
 			// - if there are no connections, then we're done.
 			//
 			// now if there are more views, start at the first view[1] (meaning 1st index). then:
-			// - check for a compatible connection to the second view[1], [2], ..., [16].
+			// - check for a compatible connection to the second view[1], [2], ..., [12].
 			// - if there is a compatible connection on index i:
-			//     - check for a compatible connection from second view[i] to the third view[1], [2], ..., [16].
+			//     - check for a compatible connection from second view[i] to the third view[1], [2], ..., [12].
 			//     - if there is a compatible connection on index j:
 			//         - first, ensure it is also compatible with the first view[1] (backwards compatibility)
 			//         - if it isn't, then treat this as an incompatible connection
 			//         - otherwise, if all views agree, then try checking the fourth view
 			//     - if there isn't, but there is an incompatible connection, then flag a disagreement
 			// - if there isn't, but there is an incompatible connection, then flag a disagreement
-			// - otherwise, a "cluster" has been found (a collection of nearby views). go to the next view that isn't
-			//   part of any cluster, and repeat
+			// - otherwise, a "cluster" has been completely found (a collection of nearby views). go to the next view
+			//   that isn't part of any cluster, and repeat
+			//
+			// note that if one tab sees a cell as "dead", the connection is also deemed compatible. this is to ensure
+			// there are no long lag spikes while one tab leaves from another tab (for example, when the spectator tab
+			// teleports away).
 
 			const now = performance.now();
 			/** @type {{ [x: number | symbol]: number }} indexed by viewInt or symbol view */
@@ -2438,12 +2442,12 @@
 				}
 				const viewDim = viewToInt.size;
 
-				// each pair of views (view1, view2, where view1Int < view2Int) has a 16x16 graph, where
-				// graph[i * viewDim + j] describes the existence of an undirected connection between index i on view1 and
-				// index j on view2.
+				// each pair of views (view1, view2, where view1Int < view2Int) has a 12x12 graph, where
+				// graph[i * viewDim + j] describes the existence of an undirected connection between index i on view1
+				// and index j on view2.
 				const COMPATIBLE = 1 << 0;
 				const INCOMPATIBLE = 1 << 1;
-				const graphDim = 16; // same as maximum history size
+				const graphDim = 12; // same as maximum history size
 				/** @type {Map<number, Uint8Array>} */
 				const graphs = new Map();
 				for (let i = 0; i < viewToInt.size; ++i) {
@@ -2468,12 +2472,12 @@
 
 							for (let i = 0; i < record1.frames.length; ++i) {
 								const frame1 = record1.frames[i];
-								if (frame1.deadAt !== undefined) continue;
+								// if (frame1.deadAt !== undefined) continue;
 								for (let j = 0; j < record2.frames.length; ++j) {
 									const frame2 = record2.frames[j];
-									if (frame2.deadAt !== undefined) continue;
+									// if (frame2.deadAt !== undefined) continue;
 
-									if (frame1.nx === frame2.nx && frame1.ny === frame2.ny && frame1.nr === frame2.nr) {
+									if (frame1.deadAt !== undefined || frame2.deadAt !== undefined || (frame1.nx === frame2.nx && frame1.ny === frame2.ny && frame1.nr === frame2.nr)) {
 										graph[i * graphDim + j] |= COMPATIBLE;
 									} else {
 										graph[i * graphDim + j] |= INCOMPATIBLE;
@@ -2550,7 +2554,6 @@
 				}
 			}
 
-
 			// #4 : find a model frame for all cells and pellets
 			for (const key of /** @type {const} */ (['cells', 'pellets'])) {
 				for (const cell of world[key].values()) {
@@ -2573,7 +2576,7 @@
 
 						if (modelDisappeared && thisDisappeared) {
 							// both have currently disappeared; prefer the one that "disappeared" later
-							for (let off = 1; off < 16; ++off) {
+							for (let off = 1; off < 12; ++off) {
 								const modelFrameOffset = model.frames[indices[modelView] + off];
 								const frameOffset = record.frames[indices[view] + off];
 
@@ -2626,7 +2629,7 @@
 							jr: model.nr, a: 0, updated: now,
 						};
 					} else {
-						if (merged.deadAt === undefined && (model.nx !== merged.nx || model.ny !== merged.ny || model.nr !== merged.nr)) {
+						if (merged.deadAt === undefined && (model.deadAt !== undefined || model.nx !== merged.nx || model.ny !== merged.ny || model.nr !== merged.nr)) {
 							const xyr = world.xyr(merged, merged, undefined, undefined, key === 'pellets', now);
 
 							merged.ox = xyr.x;
@@ -2934,7 +2937,7 @@
 								if (!record) continue;
 
 								record.frames.unshift(record.frames[0]);
-								record.frames.splice(16, Infinity);
+								record.frames.splice(12, Infinity);
 							}
 						}
 
@@ -4299,10 +4302,11 @@
 				gl.bindBuffer(gl.ARRAY_BUFFER, lineBuffer);
 				// a_pos1, vec2 (location = 1)
 				gl.enableVertexAttribArray(1);
-				gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 2, 0);
+				gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 4 * 4, 0);
 				gl.vertexAttribDivisor(1, 1);
 				// a_pos2, vec2 (location = 2)
-				gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 2, 2);
+				gl.enableVertexAttribArray(2);
+				gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 4 * 4, 4 * 2);
 				gl.vertexAttribDivisor(2, 1);
 
 				return lineBuffer;
@@ -4850,7 +4854,7 @@
 			circleBuffers[pellets ? 'lastPelletVao' : 'lastCellVao'] = vao;
 		};
 
-		let tracerFloats = new Float32Array(16 * 4); // might need more if in a private server
+		let tracerFloats = new Float32Array(0);
 
 		// #4 : define ubo views
 		// firefox (and certain devices) adds some padding to uniform buffer sizes, so best to check its size
@@ -5365,14 +5369,11 @@
 					gl.bufferSubData(gl.UNIFORM_BUFFER, 0, tracerUboFloats);
 					gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 
-					let mouse = [0, 0];
+					const mouse = input.toWorld(world.selected, input.current);
 					const inputs = input.views.get(world.selected);
-					if (inputs) {
-						mouse = [input.current[0], input.current[1]];
-						if (inputs.lock && now <= inputs.lock.until) {
-							if (!Number.isNaN(inputs.lock.world[0])) mouse[0] = inputs.lock.world[0];
-							if (!Number.isNaN(inputs.lock.world[1])) mouse[1] = inputs.lock.world[1];
-						}
+					if (inputs?.lock && now <= inputs.lock.until) {
+						if (!Number.isNaN(inputs.lock.world[0])) mouse[0] = inputs.lock.world[0];
+						if (!Number.isNaN(inputs.lock.world[1])) mouse[1] = inputs.lock.world[1];
 					}
 
 					// resize by powers of 2
@@ -5386,7 +5387,7 @@
 						const cell = world.cells.get(id);
 						const frame = world.synchronized ? cell?.merged : cell?.views.get(world.selected)?.frames[0];
 						const interp = world.synchronized ? cell?.merged : cell?.views.get(world.selected);
-						if (!frame || !interp || frame.deadAt !== undefined) return;
+						if (!frame || !interp || frame.deadAt !== undefined) continue;
 
 						const { x, y } = world.xyr(frame, interp, undefined, undefined, false, now);
 						tracerFloats[i * 4] = x;
@@ -5399,6 +5400,7 @@
 					gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao.tracer.line);
 					if (resizing) gl.bufferData(gl.ARRAY_BUFFER, tracerFloats, gl.STATIC_DRAW);
 					else gl.bufferSubData(gl.ARRAY_BUFFER, 0, tracerFloats);
+					gl.bindBuffer(gl.ARRAY_BUFFER, null);
 					gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, i);
 				}
 			})();
