@@ -144,6 +144,20 @@
 			return o + (n - o) * (1 - (1 - 1 / factor) ** (60 * dt));
 		};
 
+		/** @param {KeyboardEvent} e */
+		aux.keybind = e => {
+			if (!e.isTrusted) return undefined; // custom key events are usually missing properties
+
+			let keybind = e.key;
+			keybind = keybind[0].toUpperCase() + keybind.slice(1); // capitalize first letter (e.g. Shift, R, /, ...)
+			if (keybind === '+') keybind = '='; // ensure + can be used to split up keybinds
+			if (e.ctrlKey) keybind = 'Ctrl+' + keybind;
+			if (e.altKey) keybind = 'Alt+' + keybind;
+			if (e.metaKey) keybind = 'Cmd+' + keybind;
+			if (e.shiftKey) keybind = 'Shift' + keybind;
+			return keybind;
+		};
+
 		/**
 		 * @param {string} hex
 		 * @returns {[number, number, number, number]}
@@ -466,14 +480,15 @@
 					&& new Uint8Array(buf).toString().includes(cmdRepresentation)) {
 					const now = performance.now();
 					let con, view, vision; // cba to put explicit types here
+					world.cameras(now);
 					for (const [otherView, otherCon] of net.connections) {
-						world.camera(otherView, now); // ensure all tabs update their cameras
 						if (otherCon.ws !== this) continue;
 
 						con = otherCon;
 						view = otherView;
 						vision = world.views.get(otherView);
 					}
+
 					if (con && view && vision) {
 						// block respawns if we haven't actually respawned yet
 						// (with a 500ms max in case something fails)
@@ -730,6 +745,12 @@
 			multiNames: [],
 			nameBold: false,
 			nameScaleFactor: 1,
+			nbox: false,
+			nboxCount: 3,
+			nboxCyclePair: '',
+			nboxHoldKeybinds: ['', '', '', '', '', '', '', ''],
+			nboxSelectKeybinds: ['', '', '', '', '', '', '', ''],
+			nboxSwitchPair: '',
 			outlineMulti: 0.2,
 			// delta's default colors, #ff00aa and #ffffff
 			outlineMultiColor: /** @type {[number, number, number, number]} */ ([1, 0, 2/3, 1]),
@@ -739,6 +760,7 @@
 			scrollFactor: 1,
 			selfSkin: '',
 			selfSkinMulti: '',
+			selfSkinNbox: ['', '', '', '', '', ''],
 			slowerJellyPhysics: false,
 			separateBoost: false,
 			showStats: true,
@@ -1004,25 +1026,27 @@
 		};
 
 		/**
-		 * @param {PropertyOfType<typeof settings, string>} property
+		 * @param {any} property
+		 * @param {any} parent
+		 * @param {string} key
 		 */
-		const image = property => {
+		const image = (property, parent = settings, key = property) => {
 			/**
 			 * @param {HTMLInputElement} input
 			 * @param {boolean} isSigmod
 			 */
 			const listen = (input, isSigmod) => {
-				onSyncs.push(() => input.value = settings[property]);
-				input.value = settings[property];
+				onSyncs.push(() => input.value = parent[property]);
+				input.value = parent[property];
 
 				input.addEventListener('input', e => {
 					if (input.value.startsWith('🖼️')) {
-						input.value = settings[property];
+						input.value = parent[property];
 						e.preventDefault();
 						return;
 					}
 
-					/** @type {string} */ (settings[property]) = input.value;
+					/** @type {string} */ (parent[property]) = input.value;
 					settingsExt.save();
 				});
 				input.addEventListener('dragenter', () => void (input.style.borderColor = '#00ccff'));
@@ -1041,10 +1065,10 @@
 					input.value = '(importing)';
 
 					const transaction = database.transaction('images', 'readwrite');
-					transaction.objectStore('images').put(file, property);
+					transaction.objectStore('images').put(file, key);
 
 					transaction.addEventListener('complete', () => {
-						/** @type {string} */ (settings[property]) = input.value = `🖼️ ${file.name}`;
+						/** @type {string} */ (parent[property]) = input.value = `🖼️ ${file.name}`;
 						settingsExt.save();
 						render.resetDatabaseCache();
 					});
@@ -1153,11 +1177,7 @@
 					if (e.code === 'Escape' || e.code === 'Backspace') {
 						parent[property] = input.value = '';
 					} else {
-						let key = e.key;
-						if (e.ctrlKey && e.key !== 'Control') key = 'Ctrl+' + key;
-						if (e.altKey) key = 'Alt+' + key;
-						if (e.metaKey) key = 'Cmd+' + key;
-						parent[property] = input.value = key;
+						parent[property] = input.value = aux.keybind(e) ?? '';
 					}
 					settingsExt.save();
 					e.preventDefault(); // prevent the key being typed in
@@ -1201,9 +1221,10 @@
 			'How opaque cells should be. 1 = fully visible, 0 = invisible. It can be helpful to see the size of a ' +
 			'smaller cell under a big cell.');
 		setting('Self skin URL', [image('selfSkin')], () => true,
-			'Direct URL to a custom skin for yourself. Not visible to others.');
+			'A custom skin for yourself. You can drag+drop a skin here, or use a direct URL. Not visible to others.');
 		setting('Secondary skin URL', [image('selfSkinMulti')], () => !!settings.multibox,
-			'Direct URL to a custom skin for your secondary multibox tab. Not visible to others.');
+			'A custom skin for your secondary multibox tab. You can drag+drop a skin here, or use a direct URL. Not ' +
+			'visible to others.');
 		setting('Map background', [image('background')], () => true,
 			'A square background image to use within the entire map border. Images 512x512 and under will be treated ' +
 			'as a repeating pattern, where 50 pixels = 1 grid square.');
@@ -1272,6 +1293,42 @@
 		setting('Block respawns near other tabs', [checkbox('blockNearbyRespawns')], () => !!settings.multibox,
 			'When enabled, the respawn key (using SigMod) will be disabled if your multibox tabs are close. ' +
 			'This means you can spam the respawn key until your multibox tab spawns nearby.');
+
+		setting('N-boxing', [checkbox('nbox')], () => !!settings.multibox,
+			'<h1>ADVANCED USERS ONLY.</h1>' +
+			'Enables multiboxing with 3 or more tabs (known as triboxing or quadboxing). <br>' +
+			'Official Sigmally servers limit how many connections can be made from an IP address (usually 3). If you ' +
+			'can\'t connect some of your tabs: <br>' +
+			'- Try disabling the spectator tab for a third connection. <br>' +
+			'- Try using proxies to connect via multiple IP addresses. <br>' +
+			'- Try playing on a private server instead. <br>' +
+			'When enabled, the multibox keybind above will cycle between all tabs.');
+		setting('N-box tab count', [slider('nboxCount', 3, 3, 8, 1, 0)], () => !!settings.multibox && settings.nbox,
+			'The number of tabs to make available for selection.');
+		setting('N-box change pair', [keybind('nboxCyclePair')],
+			() => !!settings.multibox && settings.nbox,
+			'Pressing this key will cycle between selecting pairs #1/#2, #3/#4, #5/#6, and #7/#8. The last used tab ' +
+			'in this pair will be selected. (Think of this as switching between multiple multibox game windows.)');
+		setting('N-box switch within pair', [keybind('nboxSwitchPair')],
+			() => !!settings.multibox && settings.nbox,
+			'Pressing this key will switch between tabs within your current pair (from #1/#2, #3/#4, #5/#6, or #7/#8).');
+		for (let i = 0; i < 8; ++i) {
+			setting(`N-box select tab #${i + 1}`, [keybind(i, settings.nboxSelectKeybinds)],
+				() => !!settings.multibox && settings.nbox && settings.nboxCount >= i + 1,
+				`Pressing this key will switch to tab #${i + 1}.`);
+		}
+		for (let i = 0; i < 8; ++i) {
+			setting(`N-box hold tab #${i + 1}`, [keybind(i, settings.nboxSelectKeybinds)],
+				() => !!settings.multibox && settings.nbox && settings.nboxCount >= i + 1,
+				`Holding this key will temporarily switch to tab #${i + 1}. Releasing all n-box keys will return you ` +
+				'to the last selected tab.');
+		}
+		for (let i = 2; i < 8; ++i) {
+			setting(`N-box skin #${i + 1}`, [image(i, settings.selfSkinNbox, `selfSkinNbox.${i}`)],
+				() => !!settings.multibox && settings.nbox && settings.nboxCount >= i + 1,
+				`A custom skin for tab #${i + 1}. You can drag+drop a skin here, or use a direct URL. Not ` +
+				'visible to others.');
+		}
 
 		separator('• text •');
 		setting('Name scale factor', [slider('nameScaleFactor', 1, 0.5, 2, 0.01, 2)], () => true,
@@ -2210,7 +2267,7 @@
 	 * 		x: number, tx: number,
 	 * 		y: number, ty: number,
 	 * 		scale: number, tscale: number,
-	 * 		merging: symbol[],
+	 * 		merged: boolean,
 	 * 		updated: number,
 	 * 	},
 	 * 	leaderboard: { name: string, me: boolean, sub: boolean, place: number | undefined }[],
@@ -2228,10 +2285,10 @@
 		world.cells = new Map();
 		/** @type {Map<number, Cell>} */
 		world.pellets = new Map();
-		world.viewId = { // decoupling views like this should make it easier to do n-boxing in the future
-			// these could be swapped around at any time (for example, if the spectate tab is promoted)
-			primary: Symbol(),
-			secondary: Symbol(),
+		world.multis = [Symbol(), Symbol(), Symbol(), Symbol(), Symbol(), Symbol(), Symbol(), Symbol()];
+		world.viewId = {
+			primary: world.multis[0],
+			secondary: world.multis[1],
 			spectate: Symbol(),
 		};
 		world.selected = world.viewId.primary;
@@ -2253,11 +2310,12 @@
 		};
 
 		/**
+		 * @typedef {{ mass: number, scale: number, sumX: number, sumY: number, weight: number }} SingleCamera
 		 * @param {symbol} view
 		 * @param {Vision | undefined} vision
 		 * @param {number} weightExponent
 		 * @param {number} now
-		 * @returns {{ mass: number, scale: number, sumX: number, sumY: number, weight: number }}
+		 * @returns {SingleCamera}
 		 */
 		world.singleCamera = (view, vision, weightExponent, now) => {
 			vision ??= world.views.get(view);
@@ -2303,105 +2361,98 @@
 		};
 
 		/**
-		 * @param {symbol} view
 		 * @param {number} now
 		 */
-		world.camera = (view, now) => {
-			// temporary default camera for now
-			const vision = world.views.get(view);
-			if (!vision) return;
+		world.cameras = now => {
+			const weightExponent = settings.camera !== 'default' ? 2 : 0;
 
-			const dt = (now - vision.camera.updated) / 1000;
-			vision.camera.updated = now;
+			// #1 : create disjoint sets of all cameras that are close together
+			/** @type {Map<symbol, SingleCamera>}>} */
+			const cameras = new Map();
+			/** @type {Map<symbol, Set<symbol>>} */
+			const sets = new Map();
+			for (const [view, vision] of world.views) {
+				cameras.set(view, world.singleCamera(view, vision, weightExponent, now));
+				sets.set(view, new Set([view]));
+			}
 
-			const weighted = settings.camera !== 'default';
-			/** @type {symbol[]} */
-			const merging = [];
-			/** @type {{ mass: number, sumX: number, sumY: number, weight: number }[]} */
-			const mergingCameras = [];
-			const desc = world.singleCamera(view, vision, weighted ? 2 : 0, now);
-			let xyFactor;
-			if (desc.weight > 0) {
-				const mainX = desc.sumX / desc.weight;
-				const mainY = desc.sumY / desc.weight;
-				if (settings.multibox) {
-					const mainWeight = desc.weight;
-					const mainWidth = 1920 / 2 / desc.scale;
-					const mainHeight = 1080 / 2 / desc.scale;
+			if (settings.multibox && settings.mergeCamera) {
+				for (const [view, vision] of world.views) {
+					const set = /** @type {Set<symbol>} */ (sets.get(view));
+
+					const camera = /** @type {SingleCamera} */ (cameras.get(view));
+					if (camera.weight <= 0 || now - vision.used > 20_000) continue; // don't merge with inactive tabs
+					const x = camera.sumX / camera.weight;
+					const y = camera.sumY / camera.weight;
+					const width = 1920 / 2 / camera.scale;
+					const height = 1080 / 2 / camera.scale;
+
 					for (const [otherView, otherVision] of world.views) {
-						if (otherView === view) continue;
-						if (now - otherVision.used > 20_000) continue; // don't merge with inactive tabs
-						const otherDesc = world.singleCamera(otherView, otherVision, 2, now);
-						if (otherDesc.weight <= 0) continue;
+						const otherSet = /** @type {Set<symbol>} */ (sets.get(otherView));
+						if (set === otherSet || now - otherVision.used > 20_000) continue;
 
-						const otherX = otherDesc.sumX / otherDesc.weight;
-						const otherY = otherDesc.sumY / otherDesc.weight;
-						const otherWidth = 1920 / 2 / otherDesc.scale;
-						const otherHeight = 1080 / 2 / otherDesc.scale;
+						const otherCamera = /** @type {SingleCamera} */ (cameras.get(otherView));
+						if (otherCamera.weight <= 0) continue;
+						const otherX = otherCamera.sumX / otherCamera.weight;
+						const otherY = otherCamera.sumY / otherCamera.weight;
+						const otherWidth = 1920 / 2 / otherCamera.scale;
+						const otherHeight = 1080 / 2 / otherCamera.scale;
 
 						// only merge with tabs if their vision regions are close. expand threshold depending on
 						// how much mass each tab has (if both tabs are large, allow them to go pretty far)
-						const threshold = 1000 + Math.min(mainWeight / 100 / 25, otherDesc.weight / 100 / 25);
-						if (Math.abs(otherX - mainX) < mainWidth + otherWidth + threshold
-							&& Math.abs(otherY - mainY) < mainHeight + otherHeight + threshold) {
-							merging.push(otherView);
-							mergingCameras.push(otherDesc);
+						const threshold = 1000 + Math.min(camera.weight / 100 / 25, otherCamera.weight / 100 / 25);
+						if (Math.abs(x - otherX) <= width + otherWidth + threshold
+								&& Math.abs(y - otherY) <= height + otherHeight + threshold) {
+							// merge disjoint sets
+							for (const connectedView of otherSet) {
+								set.add(connectedView);
+								sets.set(connectedView, set);
+							}
 						}
 					}
 				}
-
-				if (settings.multibox && settings.mergeCamera && settings.camera === 'default') {
-					// merging the default camera would be absolutely disastrous. no one would ever use it.
-					settings.camera = 'natural';
-					settings.refresh();
-				}
-
-				let mass = desc.mass;
-				let targetX, targetY, zoom;
-				if (settings.camera === 'default') {
-					// default, unweighted, **unmerged** camera
-					targetX = desc.sumX / desc.weight;
-					targetY = desc.sumY / desc.weight;
-					zoom = settings.autoZoom ? desc.scale : 0.25;
-				} else { // settings.camera === 'natural'
-					targetX = desc.sumX;
-					targetY = desc.sumY;
-					let totalWeight = desc.weight;
-					if (settings.multibox && settings.mergeCamera) {
-						for (const camera of mergingCameras) {
-							mass += camera.mass;
-							targetX += camera.sumX;
-							targetY += camera.sumY;
-							totalWeight += camera.weight;
-						}
-					}
-					targetX /= totalWeight;
-					targetY /= totalWeight;
-					const scale = Math.min(64 / Math.sqrt(100 * mass), 1) ** 0.4;
-					zoom = settings.autoZoom ? scale : 0.25;
-				}
-
-				vision.camera.tx = targetX;
-				vision.camera.ty = targetY;
-				vision.camera.tscale = zoom;
-
-				if (settings.cameraMovement === 'instant') {
-					xyFactor = 1;
-				} else {
-					// when spawning, move camera quickly (like vanilla), then make it smoother after a bit
-					const aliveFor = (performance.now() - vision.spawned) / 1000;
-					const a = Math.min(Math.max((aliveFor - 0.3) / 0.3, 0), 1);
-					const base = settings.cameraSpawnAnimation ? 2 : 1;
-					xyFactor = Math.min(settings.cameraSmoothness, base * (1-a) + settings.cameraSmoothness * a);
-				}
-			} else {
-				xyFactor = 20;
 			}
 
-			vision.camera.x = aux.exponentialEase(vision.camera.x, vision.camera.tx, xyFactor, dt);
-			vision.camera.y = aux.exponentialEase(vision.camera.y, vision.camera.ty, xyFactor, dt);
-			vision.camera.scale = aux.exponentialEase(vision.camera.scale, input.zoom * vision.camera.tscale, 9, dt);
-			vision.camera.merging = merging;
+			// #2 : calculate and update merged camera positions
+			/** @type {Set<Set<symbol>>} */
+			const computed = new Set();
+			for (const set of sets.values()) {
+				if (computed.has(set)) continue;
+				let mass = 0;
+				let sumX = 0;
+				let sumY = 0;
+				let weight = 0;
+				for (const view of set) {
+					const camera = /** @type {SingleCamera} */ (cameras.get(view));
+					mass += camera.mass;
+					sumX += camera.sumX;
+					sumY += camera.sumY;
+					weight += camera.weight;
+				}
+
+				let xyFactor = weight <= 0 ? 20 : 2;
+				for (const view of set) {
+					const vision = /** @type {Vision} */ (world.views.get(view));
+					if (weight > 0) {
+						vision.camera.tx = sumX / weight;
+						vision.camera.ty = sumY / weight;
+						let scale;
+						if (settings.camera === 'default') scale = /** @type {SingleCamera} */ (cameras.get(view)).scale;
+						else scale = Math.min(64 / Math.sqrt(100 * mass), 1) ** 0.4;
+						vision.camera.tscale = settings.autoZoom ? scale : 0.25;
+					}
+
+					const dt = (now - vision.camera.updated) / 1000;
+					vision.camera.x = aux.exponentialEase(vision.camera.x, vision.camera.tx, xyFactor, dt);
+					vision.camera.y = aux.exponentialEase(vision.camera.y, vision.camera.ty, xyFactor, dt);
+					vision.camera.scale
+						= aux.exponentialEase(vision.camera.scale, input.zoom * vision.camera.tscale, 9, dt);
+
+					vision.camera.merged = set.size > 1;
+				}
+
+				computed.add(set);
+			}
 		};
 
 		/** @param {symbol} view */
@@ -2411,7 +2462,7 @@
 
 			const vision = {
 				border: undefined,
-				camera: { x: 0, tx: 0, y: 0, ty: 0, scale: 0, tscale: 0, merging: [], updated: performance.now() - 1 },
+				camera: { x: 0, tx: 0, y: 0, ty: 0, scale: 0, tscale: 0, merged: false, updated: performance.now() - 1 },
 				leaderboard: [],
 				owned: [],
 				spawned: -Infinity,
@@ -2699,11 +2750,6 @@
 						cell.merged = undefined;
 						continue;
 					}
-
-					// merged was alive, will be alive => interpolate
-					// merged was dead, will be alive => create new
-					// merged was alive, will be dead => interpolate
-					// merged was dead, will be dead => "interpolate"
 
 					if (!merged || (merged.deadAt !== undefined && model.deadAt === undefined)) {
 						cell.merged = {
@@ -3004,6 +3050,11 @@
 					}
 
 					connection.handshake = { shuffle, unshuffle };
+
+					if (world.alive()) {
+						const name = input.nick[world.multis.indexOf(view) || 0].value;
+						net.play(world.selected, input.playData(name, false));
+					}
 					return;
 				}
 
@@ -3295,7 +3346,7 @@
 
 						if (myPosition) { // myPosition could be zero
 							if (myPosition - 1 >= lb.length) {
-								const nick = input.nick[world.selected === world.viewId.primary ? 0 : 1].value;
+								const nick = input.nick[world.multis.indexOf(view) || 0].value;
 								lb.push({
 									me: true,
 									name: aux.parseName(nick),
@@ -3570,6 +3621,11 @@
 		input.views = new Map();
 		input.zoom = 1;
 
+		input.nboxSelectedPairs = [world.multis[0], world.multis[2], world.multis[4], world.multis[6]];
+		input.nboxSelectedReal = world.viewId.primary;
+		/** @type {Set<symbol>} */
+		input.nboxSelectedTemporary = new Set();
+
 		/** @param {symbol} view */
 		const create = view => {
 			const old = input.views.get(view);
@@ -3671,6 +3727,32 @@
 			net.split(view);
 		};
 
+		/** @param {symbol} view */
+		input.autoRespawn = view => {
+			if (!world.alive()) return;
+			const name = input.nick[world.multis.indexOf(view) || 0].value;
+			net.play(world.selected, input.playData(name, false));
+		};
+
+		/**
+		 * @param {symbol} view
+		 */
+		input.tab = view => {
+			if (view === world.selected) return;
+			const inputs = create(view);
+
+			inputs.w = false; // stop current tab from feeding; don't change forceW
+			// update mouse immediately (after setTimeout, when mouse events happen)
+			setTimeout(() => inputs.world = input.toWorld(view, inputs.mouse = input.current));
+
+			world.selected = view;
+			world.create(world.selected);
+			net.create(world.selected);
+
+			ui.captcha.reposition();
+			ui.linesplit.update();
+		};
+
 		setInterval(() => {
 			create(world.selected);
 			for (const [view, inputs] of input.views) {
@@ -3701,37 +3783,10 @@
 			const view = world.selected;
 			const inputs = input.views.get(view) ?? create(view);
 
-			let keybind = e.key;
-			if (e.ctrlKey) keybind = 'Ctrl+' + keybind;
-			if (e.altKey) keybind = 'Alt+' + keybind;
-			if (e.metaKey) keybind = 'Cmd+' + keybind;
+			const keybind = aux.keybind(e)?.toLowerCase();
 
 			// never allow pressing Tab by itself
 			if (e.code === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) e.preventDefault();
-
-			if (settings.multibox && keybind.toLowerCase() === settings.multibox.toLowerCase()) {
-				e.preventDefault(); // prevent selecting anything on the page
-
-				inputs.w = false; // stop current tab from feeding; don't change forceW
-				// update mouse immediately (after setTimeout, when mouse events happen)
-				setTimeout(() => inputs.world = input.toWorld(view, inputs.mouse = input.current));
-
-				// swap tabs
-				if (world.selected === world.viewId.primary) world.selected = world.viewId.secondary;
-				else world.selected = world.viewId.primary;
-				world.create(world.selected);
-				net.create(world.selected);
-
-				// also, press play on the current tab ONLY if any tab is alive
-				if (world.alive()) {
-					const name = input.nick[world.selected === world.viewId.primary ? 0 : 1].value;
-					net.play(world.selected, playData(name, false));
-				}
-
-				ui.captcha.reposition();
-				ui.linesplit.update();
-				return;
-			}
 
 			if (e.code === 'Escape') {
 				if (document.activeElement === ui.chat.input) ui.chat.input.blur();
@@ -3747,6 +3802,62 @@
 				}
 
 				return;
+			}
+
+			if (settings.multibox && keybind === settings.multibox.toLowerCase()) {
+				e.preventDefault(); // prevent selecting anything on the page
+
+				// cycle to the next tab
+				const tabs = settings.nbox ? settings.nboxCount : 2;
+				const i = world.multis.indexOf(world.selected);
+				const newI = Math.min((i + 1) % tabs, world.multis.length);
+				input.nboxSelectedNonTemporary = world.multis[newI];
+
+				input.nboxSelectedTemporary.clear();
+				input.nboxSelectedNonTemporary = world.multis[newI];
+				input.nboxSelectedPairs[Math.floor(newI / 2)] = world.multis[newI];
+
+				input.tab(world.multis[newI]);
+				input.autoRespawn(world.multis[newI]);
+				return;
+			}
+
+			if (settings.multibox && settings.nbox) {
+				console.log(keybind, settings.nboxSwitchPair.toLowerCase());
+				if (keybind === settings.nboxSwitchPair.toLowerCase()) {
+					const i = world.multis.indexOf(input.nboxSelectedReal);
+					const pair = Math.floor(i / 2);
+					// don't allow switching in a pair that doesn't exist
+					const partner = pair * 2 === i ? (i + 1 < settings.nboxCount ? i + 1 : i) : i - 1;
+					input.nboxSelectedReal = input.nboxSelectedPairs[pair] = world.multis[partner];
+					input.nboxSelectedTemporary.clear(); // but still clear the temporary holds regardless
+					input.tab(world.multis[partner]);
+					return;
+				}
+
+				if (keybind === settings.nboxCyclePair.toLowerCase()) {
+					const i = world.multis.indexOf(input.nboxSelectedReal);
+					const pair = Math.floor(i / 2);
+					const newPair = (pair + 1) % Math.ceil(settings.nboxCount / 2);
+					input.nboxSelectedReal = input.nboxSelectedPairs[newPair];
+					input.nboxSelectedTemporary.clear();
+					input.tab(input.nboxSelectedReal);
+				}
+
+				for (let i = 0; i < settings.nboxCount; ++i) {
+					if (keybind === settings.nboxSelectKeybinds[i].toLowerCase()) {
+						input.nboxSelectedReal = input.nboxSelectedPairs[Math.floor(i / 2)] = world.multis[i];
+						input.nboxSelectedTemporary.clear();
+						input.tab(world.multis[i]);
+						return;
+					}
+
+					if (keybind === settings.nboxHoldKeybinds[i].toLowerCase()) {
+						input.nboxSelectedTemporary.add(world.multis[i]);
+						input.tab(world.multis[i]);
+						return;
+					}
+				}
 			}
 
 			if (settings.blockBrowserKeybinds) {
@@ -3851,6 +3962,17 @@
 				const inputs = input.views.get(world.selected) ?? create(world.selected);
 				inputs.w = false; // don't change forceW
 			}
+
+			if (settings.multibox && settings.nbox) {
+				const keybind = aux.keybind(e)?.toLowerCase();
+				for (let i = 0; i < settings.nboxCount; ++i) {
+					// if a keybind is Ctrl+Tab for example, permit releasing Tab
+					if (keybind === settings.nboxHoldKeybinds[i] || settings.nboxHoldKeybinds[i].endsWith('+' + keybind)) {
+						input.nboxSelectedTemporary.delete(world.multis[i]);
+						return;
+					}
+				}
+			}
 		});
 
 		// prompt before closing window
@@ -3870,7 +3992,7 @@
 		 * @param {string} name
 		 * @param {boolean} spectating
 		 */
-		const playData = (name, spectating) => {
+		input.playData = (name, spectating) => {
 			/** @type {HTMLInputElement | null} */
 			const password = document.querySelector('input#password');
 
@@ -3891,7 +4013,7 @@
 			'Can\'t find the nickname element. Try reloading the page?')];
 
 		const nickList = () => {
-			const target = settings.multibox ? 2 : 1;
+			const target = settings.multibox ? settings.nbox ? settings.nboxCount : 2 : 1;
 			for (let i = input.nick.length; i < target; ++i) {
 				const el = /** @type {HTMLInputElement} */ (input.nick[0].cloneNode(true));
 				el.maxLength = 50;
@@ -3905,12 +4027,12 @@
 
 				const row = /** @type {Element} */ (input.nick[0].parentElement?.cloneNode());
 				row.appendChild(el);
-				input.nick[0].parentElement?.insertAdjacentElement('afterend', row);
+				input.nick[input.nick.length - 1].parentElement?.insertAdjacentElement('afterend', row);
 				input.nick.push(el);
 			}
 
 			for (let i = input.nick.length; i > target; --i) {
-				input.nick.pop()?.remove();
+				input.nick.pop()?.parentElement?.remove();
 			}
 		};
 		nickList();
@@ -3924,18 +4046,18 @@
 			'Can\'t find the spectate button. Try reloading the page?');
 
 		play.addEventListener('click', () => {
-			const name = input.nick[world.selected === world.viewId.secondary ? 1 : 0].value;
+			const name = input.nick[world.multis.indexOf(world.selected) || 0].value;
 			const con = net.connections.get(world.selected);
 			if (!con?.handshake) return;
 			ui.toggleEscOverlay(false);
-			net.play(world.selected, playData(name, false));
+			net.play(world.selected, input.playData(name, false));
 		});
 		spectate.addEventListener('click', () => {
-			const name = input.nick[world.selected === world.viewId.secondary ? 1 : 0].value;
+			const name = input.nick[world.multis.indexOf(world.selected) || 0].value;
 			const con = net.connections.get(world.selected);
 			if (!con?.handshake) return;
 			ui.toggleEscOverlay(false);
-			net.play(world.selected, playData(name, true));
+			net.play(world.selected, input.playData(name, true));
 		});
 
 		play.disabled = spectate.disabled = true;
@@ -4584,13 +4706,13 @@
 				},
 				resetDatabaseCache: () => dbCache.clear(),
 				/**
-				 * @param {string} property
+				 * @param {string} key
 				 * @returns {{
 				 * 	color: [number, number, number, number], texture: WebGLTexture, width: number, height: number
 				 * } | undefined}
 				 */
-				textureFromDatabase: property => {
-					const cached = dbCache.get(property);
+				textureFromDatabase: key => {
+					const cached = dbCache.get(key);
 					if (cached !== undefined)
 						return cached ?? undefined;
 
@@ -4598,8 +4720,8 @@
 					const database = settings.database;
 					if (!database) return undefined;
 
-					dbCache.set(property, null);
-					const req = database.transaction('images').objectStore('images').get(property);
+					dbCache.set(key, null);
+					const req = database.transaction('images').objectStore('images').get(key);
 					req.addEventListener('success', () => {
 						if (!req.result) return;
 
@@ -4617,14 +4739,14 @@
 								gl.generateMipmap(gl.TEXTURE_2D);
 
 								const color = aux.dominantColor(image);
-								dbCache.set(property, { color, texture, width: image.width, height: image.height });
+								dbCache.set(key, { color, texture, width: image.width, height: image.height });
 							});
 							image.src = /** @type {string} */ (reader.result);
 						});
 						reader.readAsDataURL(req.result);
 					});
 					req.addEventListener('error', err => {
-						console.warn(`sigfix database failed to get ${property}:`, err);
+						console.warn(`sigfix database failed to get ${key}:`, err);
 					});
 				},
 			};
@@ -4871,12 +4993,18 @@
 			// 🖼️
 			let texture;
 			if (ownerView) {
-				// owned by primary === selected primary => use primary skin
-				// else use multi skin
-				const prop = ownerView === world.viewId.primary ? 'selfSkin' : 'selfSkinMulti';
-				if (settings[prop]) {
-					if (settings[prop].startsWith('🖼️')) texture = textureFromDatabase(prop);
-					else texture = textureFromCache(settings[prop]);
+				const index = world.multis.indexOf(ownerView);
+				if (index >= 2) {
+					if (settings.selfSkinNbox[index]) {
+						if (settings.selfSkinNbox[index].startsWith('🖼️')) texture = textureFromDatabase(`selfSkinNbox.${index}`);
+						else texture = textureFromCache(settings.selfSkinNbox[index]);
+					}
+				} else {
+					const prop = ownerView === world.viewId.secondary ? 'selfSkinMulti' : 'selfSkin';
+					if (settings[prop]) {
+						if (settings[prop].startsWith('🖼️')) texture = textureFromDatabase(prop);
+						else texture = textureFromCache(settings[prop]);
+					}
 				}
 			}
 
@@ -5073,9 +5201,7 @@
 
 			const vision = aux.require(world.views.get(world.selected), 'no selected vision (BAD BUG)');
 			vision.used = performance.now();
-			for (const view of world.views.keys()) {
-				world.camera(view, now);
-			}
+			world.cameras(now);
 
 			// note: most routines are named, for benchmarking purposes
 			(function setGlobalUniforms() {
@@ -5279,9 +5405,9 @@
 							const myIndex = vision.owned.indexOf(cell.id);
 							if (!canSplit[myIndex]) cellUboInts[9] |= 0x10;
 
-							if (vision.camera.merging.length > 0) cellUboInts[9] |= 0x04;
+							if (vision.camera.merged) cellUboInts[9] |= 0x04;
 						} else if (ownerVision) {
-							if (ownerVision.camera.merging.length > 0) cellUboInts[9] |= 0x08;
+							if (ownerVision.camera.merged) cellUboInts[9] |= 0x08;
 						}
 
 						const texture = render.skin(cell);
