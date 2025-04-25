@@ -5783,17 +5783,19 @@
 				const canvasLength = canvas.width = canvas.height = Math.ceil(200 * (devicePixelRatio - 0.0001));
 				const sectorSize = canvas.width / 5;
 
+				// always use this style for drawing section and minimap names
+				ctx.font = `${Math.floor(sectorSize / 3)}px "${sigmod.settings.font || 'Ubuntu'}", Ubuntu`;
+				ctx.textAlign = 'center';
+				ctx.textBaseline = 'middle';
+
 				// cache the background if necessary (25 texts = bad)
 				if (minimapCache && minimapCache.bg.width === canvasLength
 					&& minimapCache.darkTheme === aux.settings.darkTheme) {
 					ctx.putImageData(minimapCache.bg, 0, 0);
 				} else {
 					// draw section names
-					ctx.font = `${Math.floor(sectorSize / 3)}px "${sigmod.settings.font || 'Ubuntu'}", Ubuntu`;
 					ctx.fillStyle = '#fff';
 					ctx.globalAlpha = aux.settings.darkTheme ? 0.3 : 0.7;
-					ctx.textAlign = 'center';
-					ctx.textBaseline = 'middle';
 
 					const cols = ['1', '2', '3', '4', '5'];
 					const rows = ['A', 'B', 'C', 'D', 'E'];
