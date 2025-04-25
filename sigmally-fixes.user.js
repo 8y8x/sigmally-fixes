@@ -144,18 +144,22 @@
 			return o + (n - o) * (1 - (1 - 1 / factor) ** (60 * dt));
 		};
 
-		/** @param {KeyboardEvent} e */
+		/** @param {KeyboardEvent | MouseEvent} e */
 		aux.keybind = e => {
 			if (!e.isTrusted) return undefined; // custom key events are usually missing properties
 
-			let keybind = e.key;
-			keybind = keybind[0].toUpperCase() + keybind.slice(1); // capitalize first letter (e.g. Shift, R, /, ...)
-			if (keybind === '+') keybind = '='; // ensure + can be used to split up keybinds
-			if (e.ctrlKey) keybind = 'Ctrl+' + keybind;
-			if (e.altKey) keybind = 'Alt+' + keybind;
-			if (e.metaKey) keybind = 'Cmd+' + keybind;
-			if (e.shiftKey) keybind = 'Shift' + keybind;
-			return keybind;
+			if (e instanceof KeyboardEvent) {
+				let keybind = e.key;
+				keybind = keybind[0].toUpperCase() + keybind.slice(1); // capitalize first letter (e.g. Shift, R, /, ...)
+				if (keybind === '+') keybind = '='; // ensure + can be used to split up keybinds
+				if (e.ctrlKey) keybind = 'Ctrl+' + keybind;
+				if (e.altKey) keybind = 'Alt+' + keybind;
+				if (e.metaKey) keybind = 'Cmd+' + keybind;
+				if (e.shiftKey) keybind = 'Shift' + keybind;
+				return keybind;
+			} else {
+				return `Mouse${e.button}`;
+			}
 		};
 
 		/**
@@ -1182,6 +1186,13 @@
 					settingsExt.save();
 					e.preventDefault(); // prevent the key being typed in
 				});
+				input.addEventListener('mousedown', e => {
+					if (e.button === 0 && document.activeElement !== input) return; // do default action
+					parent[property] = input.value = aux.keybind(e) ?? '';
+					settingsExt.save();
+					e.preventDefault();
+				});
+				input.addEventListener('contextmenu', e => void e.preventDefault());
 			};
 
 			const vanilla = fromHTML(`<input id="sf-${property}" placeholder="..." type="text" style="
@@ -1222,7 +1233,7 @@
 			'smaller cell under a big cell.');
 		setting('Self skin URL', [image('selfSkin')], () => true,
 			'A custom skin for yourself. You can drag+drop a skin here, or use a direct URL. Not visible to others.');
-		setting('Secondary skin URL', [image('selfSkinMulti')], () => !!settings.multibox,
+		setting('Secondary skin URL', [image('selfSkinMulti')], () => !!settings.multibox || settings.nbox,
 			'A custom skin for your secondary multibox tab. You can drag+drop a skin here, or use a direct URL. Not ' +
 			'visible to others.');
 		setting('Map background', [image('background')], () => true,
@@ -1268,7 +1279,7 @@
 			'most other keybinds.');
 		setting(`Vision merging ${newTag}`,
 			[dropdown('synchronization', [['flawless', 'Flawless (recommended)'], ['latest', 'Latest'], ['none', 'None']])],
-			() => !!settings.multibox || settings.spectator,
+			() => !!settings.multibox || settings.nbox || settings.spectator,
 			'How multiple connections synchronize the cells they can see. <br>' +
 			'- "Flawless" ensures all connections are synchronized to be on the same ping. If one connection gets a ' +
 			'lag spike, all connections will get that lag spike too. <br>' +
@@ -1276,25 +1287,26 @@
 			'however cells that are farther away might sometimes warp around and appear buggy. <br>' +
 			'- "None" only shows what your current tab can see. <br>' +
 			'"Flawless" is recommended for all users, however if you find it laggy you should try "Latest".');
-		setting('One-tab mode', [checkbox('mergeCamera')], () => !!settings.multibox,
+		setting('One-tab mode', [checkbox('mergeCamera')], () => !!settings.multibox || settings.nbox,
 			'When enabled, your camera will focus on both multibox tabs at once. Disable this if you prefer two-tab-' +
 			'style multiboxing. <br>' +
 			'When one-tab multiboxing, you <b>must</b> use the Natural (weighted) camera style.');
 		setting('Multibox outline thickness', [slider('outlineMulti', 0.2, 0, 1, 0.01, 2)],
-			() => !!settings.multibox,
+			() => !!settings.multibox || settings.nbox,
 			'When multiboxing, rings appear on your cells, the thickness being a % of your cell radius. This only ' +
 			'shows when you\'re near one of your tabs.');
-		setting('Current tab outline color', [color('outlineMultiColor')], () => !!settings.multibox,
+		setting('Current tab outline color', [color('outlineMultiColor')], () => !!settings.multibox || settings.nbox,
 			'The color of the rings around your current multibox tab. Only shown when near another tab. The slider ' +
 			'is the outline opacity.');
-		setting('Other tab outline color', [color('outlineMultiInactiveColor')], () => !!settings.multibox,
+		setting('Other tab outline color', [color('outlineMultiInactiveColor')], () => !!settings.multibox || settings.nbox,
 			'The color of the rings around your other inactive multibox tabs. Only shown when near another tab. The ' +
 			'slider is the outline opacity.');
-		setting('Block respawns near other tabs', [checkbox('blockNearbyRespawns')], () => !!settings.multibox,
+		setting('Block respawns near other tabs', [checkbox('blockNearbyRespawns')], () => !!settings.multibox || settings.nbox,
 			'When enabled, the respawn key (using SigMod) will be disabled if your multibox tabs are close. ' +
 			'This means you can spam the respawn key until your multibox tab spawns nearby.');
 
-		setting('N-boxing', [checkbox('nbox')], () => !!settings.multibox,
+		// don't allow turning on without multiboxing enabled first
+		setting('N-boxing', [checkbox('nbox')], () => !!settings.multibox || settings.nbox,
 			'<h1>ADVANCED USERS ONLY.</h1>' +
 			'Enables multiboxing with 3 or more tabs (known as triboxing or quadboxing). <br>' +
 			'Official Sigmally servers limit how many connections can be made from an IP address (usually 3). If you ' +
@@ -1303,29 +1315,29 @@
 			'- Try using proxies to connect via multiple IP addresses. <br>' +
 			'- Try playing on a private server instead. <br>' +
 			'When enabled, the multibox keybind above will cycle between all tabs.');
-		setting('N-box tab count', [slider('nboxCount', 3, 3, 8, 1, 0)], () => !!settings.multibox && settings.nbox,
+		setting('N-box tab count', [slider('nboxCount', 3, 3, 8, 1, 0)], () => settings.nbox,
 			'The number of tabs to make available for selection.');
 		setting('N-box change pair', [keybind('nboxCyclePair')],
-			() => !!settings.multibox && settings.nbox,
+			() => settings.nbox,
 			'Pressing this key will cycle between selecting pairs #1/#2, #3/#4, #5/#6, and #7/#8. The last used tab ' +
 			'in this pair will be selected. (Think of this as switching between multiple multibox game windows.)');
 		setting('N-box switch within pair', [keybind('nboxSwitchPair')],
-			() => !!settings.multibox && settings.nbox,
+			() => settings.nbox,
 			'Pressing this key will switch between tabs within your current pair (from #1/#2, #3/#4, #5/#6, or #7/#8).');
 		for (let i = 0; i < 8; ++i) {
 			setting(`N-box select tab #${i + 1}`, [keybind(i, settings.nboxSelectKeybinds)],
-				() => !!settings.multibox && settings.nbox && settings.nboxCount >= i + 1,
+				() => settings.nbox && settings.nboxCount >= i + 1,
 				`Pressing this key will switch to tab #${i + 1}.`);
 		}
 		for (let i = 0; i < 8; ++i) {
-			setting(`N-box hold tab #${i + 1}`, [keybind(i, settings.nboxSelectKeybinds)],
-				() => !!settings.multibox && settings.nbox && settings.nboxCount >= i + 1,
+			setting(`N-box hold tab #${i + 1}`, [keybind(i, settings.nboxHoldKeybinds)],
+				() => settings.nbox && settings.nboxCount >= i + 1,
 				`Holding this key will temporarily switch to tab #${i + 1}. Releasing all n-box keys will return you ` +
 				'to the last selected tab.');
 		}
 		for (let i = 2; i < 8; ++i) {
 			setting(`N-box skin #${i + 1}`, [image(i, settings.selfSkinNbox, `selfSkinNbox.${i}`)],
-				() => !!settings.multibox && settings.nbox && settings.nboxCount >= i + 1,
+				() => settings.nbox && settings.nboxCount >= i + 1,
 				`A custom skin for tab #${i + 1}. You can drag+drop a skin here, or use a direct URL. Not ` +
 				'visible to others.');
 		}
@@ -2376,7 +2388,7 @@
 				sets.set(view, new Set([view]));
 			}
 
-			if (settings.multibox && settings.mergeCamera) {
+			if ((settings.multibox || settings.nbox) && settings.mergeCamera) {
 				for (const [view, vision] of world.views) {
 					const set = /** @type {Set<symbol>} */ (sets.get(view));
 
@@ -2430,9 +2442,22 @@
 					weight += camera.weight;
 				}
 
-				let xyFactor = weight <= 0 ? 20 : 2;
 				for (const view of set) {
 					const vision = /** @type {Vision} */ (world.views.get(view));
+
+					let xyFactor;
+					if (weight <= 0) {
+						xyFactor = 20;
+					} else if (settings.cameraMovement === 'instant') {
+						xyFactor = 1;
+					} else {
+						// when spawning, move camera quickly (like vanilla), then make it smoother after a bit
+						const aliveFor = (performance.now() - vision.spawned) / 1000;
+						const a = Math.min(Math.max((aliveFor - 0.3) / 0.3, 0), 1);
+						const base = settings.cameraSpawnAnimation ? 2 : 1;
+						xyFactor = Math.min(settings.cameraSmoothness, base * (1-a) + settings.cameraSmoothness * a);
+					}
+
 					if (weight > 0) {
 						vision.camera.tx = sumX / weight;
 						vision.camera.ty = sumY / weight;
@@ -2449,6 +2474,7 @@
 						= aux.exponentialEase(vision.camera.scale, input.zoom * vision.camera.tscale, 9, dt);
 
 					vision.camera.merged = set.size > 1;
+					vision.camera.updated = now;
 				}
 
 				computed.add(set);
@@ -3548,7 +3574,7 @@
 		net.create(world.viewId.primary);
 		let lastChangedSpectate = -Infinity;
 		setInterval(() => {
-			if (!settings.multibox) {
+			if (!settings.multibox && !settings.nbox) {
 				world.selected = world.viewId.primary;
 				ui.captcha.reposition();
 				ui.linesplit.update();
@@ -3775,15 +3801,91 @@
 			// i don't think browsers support DOM_DELTA_LINE, so assume DOM_DELTA_PIXEL otherwise
 			const deltaY = e.deltaMode === e.DOM_DELTA_PAGE ? e.deltaY : e.deltaY / 100;
 			input.zoom *= 0.8 ** (deltaY * settings.scrollFactor);
-			const minZoom = (!settings.multibox && !aux.settings.zoomout) ? 1 : 0.8 ** 15;
+			const minZoom = (!settings.multibox && !settings.nbox && !aux.settings.zoomout) ? 1 : 0.8 ** 15;
 			input.zoom = Math.min(Math.max(input.zoom, minZoom), 0.8 ** -21);
 		});
+
+		/**
+		 * @param {KeyboardEvent | MouseEvent} e
+		 * @returns {boolean}
+		 */
+		const handleKeybind = e => {
+			const keybind = aux.keybind(e)?.toLowerCase();
+			if (!keybind) return false;
+
+			const release = e.type === 'keyup' || e.type === 'mouseup';
+			if (!release && settings.multibox && keybind === settings.multibox.toLowerCase()) {
+				e.preventDefault(); // prevent selecting anything on the page
+
+				// cycle to the next tab
+				const tabs = settings.nbox ? settings.nboxCount : 2;
+				const i = world.multis.indexOf(world.selected);
+				const newI = Math.min((i + 1) % tabs, world.multis.length);
+				input.nboxSelectedNonTemporary = world.multis[newI];
+
+				input.nboxSelectedTemporary.clear();
+				input.nboxSelectedNonTemporary = world.multis[newI];
+				input.nboxSelectedPairs[Math.floor(newI / 2)] = world.multis[newI];
+
+				input.tab(world.multis[newI]);
+				input.autoRespawn(world.multis[newI]);
+				return true;
+			}
+
+			if (settings.nbox) {
+				if (!release && keybind === settings.nboxSwitchPair.toLowerCase()) {
+					const i = world.multis.indexOf(input.nboxSelectedReal);
+					const pair = Math.floor(i / 2);
+					// don't allow switching in a pair that doesn't exist
+					const partner = pair * 2 === i ? (i + 1 < settings.nboxCount ? i + 1 : i) : i - 1;
+					input.nboxSelectedReal = input.nboxSelectedPairs[pair] = world.multis[partner];
+					input.nboxSelectedTemporary.clear(); // but still clear the temporary holds regardless
+					input.tab(world.multis[partner]);
+					input.autoRespawn(world.selected);
+					return true;
+				}
+
+				if (!release && keybind === settings.nboxCyclePair.toLowerCase()) {
+					const i = world.multis.indexOf(input.nboxSelectedReal);
+					const pair = Math.floor(i / 2);
+					const newPair = (pair + 1) % Math.ceil(settings.nboxCount / 2);
+					input.nboxSelectedReal = input.nboxSelectedPairs[newPair];
+					input.nboxSelectedTemporary.clear();
+					input.tab(input.nboxSelectedReal);
+					input.autoRespawn(world.selected);
+					return true;
+				}
+
+				for (let i = 0; i < settings.nboxCount; ++i) {
+					if (!release && keybind === settings.nboxSelectKeybinds[i].toLowerCase()) {
+						input.nboxSelectedReal = input.nboxSelectedPairs[Math.floor(i / 2)] = world.multis[i];
+						input.nboxSelectedTemporary.clear();
+						input.tab(world.multis[i]);
+						input.autoRespawn(world.selected);
+						return true;
+					}
+
+					const hold = settings.nboxHoldKeybinds[i].toLowerCase();
+					if (keybind === hold || (release && hold.endsWith('+' + keybind))) {
+						if (release) {
+							input.nboxSelectedTemporary.delete(world.multis[i]);
+							if (input.nboxSelectedTemporary.size === 0) input.tab(input.nboxSelectedReal);
+						} else {
+							input.nboxSelectedTemporary.add(world.multis[i]);
+							input.tab(world.multis[i]);
+						}
+						input.autoRespawn(world.selected);
+						return true;
+					}
+				}
+			}
+
+			return false;
+		};
 
 		addEventListener('keydown', e => {
 			const view = world.selected;
 			const inputs = input.views.get(view) ?? create(view);
-
-			const keybind = aux.keybind(e)?.toLowerCase();
 
 			// never allow pressing Tab by itself
 			if (e.code === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) e.preventDefault();
@@ -3804,61 +3906,7 @@
 				return;
 			}
 
-			if (settings.multibox && keybind === settings.multibox.toLowerCase()) {
-				e.preventDefault(); // prevent selecting anything on the page
-
-				// cycle to the next tab
-				const tabs = settings.nbox ? settings.nboxCount : 2;
-				const i = world.multis.indexOf(world.selected);
-				const newI = Math.min((i + 1) % tabs, world.multis.length);
-				input.nboxSelectedNonTemporary = world.multis[newI];
-
-				input.nboxSelectedTemporary.clear();
-				input.nboxSelectedNonTemporary = world.multis[newI];
-				input.nboxSelectedPairs[Math.floor(newI / 2)] = world.multis[newI];
-
-				input.tab(world.multis[newI]);
-				input.autoRespawn(world.multis[newI]);
-				return;
-			}
-
-			if (settings.multibox && settings.nbox) {
-				console.log(keybind, settings.nboxSwitchPair.toLowerCase());
-				if (keybind === settings.nboxSwitchPair.toLowerCase()) {
-					const i = world.multis.indexOf(input.nboxSelectedReal);
-					const pair = Math.floor(i / 2);
-					// don't allow switching in a pair that doesn't exist
-					const partner = pair * 2 === i ? (i + 1 < settings.nboxCount ? i + 1 : i) : i - 1;
-					input.nboxSelectedReal = input.nboxSelectedPairs[pair] = world.multis[partner];
-					input.nboxSelectedTemporary.clear(); // but still clear the temporary holds regardless
-					input.tab(world.multis[partner]);
-					return;
-				}
-
-				if (keybind === settings.nboxCyclePair.toLowerCase()) {
-					const i = world.multis.indexOf(input.nboxSelectedReal);
-					const pair = Math.floor(i / 2);
-					const newPair = (pair + 1) % Math.ceil(settings.nboxCount / 2);
-					input.nboxSelectedReal = input.nboxSelectedPairs[newPair];
-					input.nboxSelectedTemporary.clear();
-					input.tab(input.nboxSelectedReal);
-				}
-
-				for (let i = 0; i < settings.nboxCount; ++i) {
-					if (keybind === settings.nboxSelectKeybinds[i].toLowerCase()) {
-						input.nboxSelectedReal = input.nboxSelectedPairs[Math.floor(i / 2)] = world.multis[i];
-						input.nboxSelectedTemporary.clear();
-						input.tab(world.multis[i]);
-						return;
-					}
-
-					if (keybind === settings.nboxHoldKeybinds[i].toLowerCase()) {
-						input.nboxSelectedTemporary.add(world.multis[i]);
-						input.tab(world.multis[i]);
-						return;
-					}
-				}
-			}
+			if (handleKeybind(e)) return;
 
 			if (settings.blockBrowserKeybinds) {
 				if (e.code === 'F11') {
@@ -3963,16 +4011,16 @@
 				inputs.w = false; // don't change forceW
 			}
 
-			if (settings.multibox && settings.nbox) {
-				const keybind = aux.keybind(e)?.toLowerCase();
-				for (let i = 0; i < settings.nboxCount; ++i) {
-					// if a keybind is Ctrl+Tab for example, permit releasing Tab
-					if (keybind === settings.nboxHoldKeybinds[i] || settings.nboxHoldKeybinds[i].endsWith('+' + keybind)) {
-						input.nboxSelectedTemporary.delete(world.multis[i]);
-						return;
-					}
-				}
-			}
+			if (handleKeybind(e)) return;
+		});
+
+		addEventListener('mousedown', e => {
+			if (unfocused()) return;
+			handleKeybind(e);
+		});
+		addEventListener('mouseup', e => {
+			if (unfocused()) return;
+			handleKeybind(e);
 		});
 
 		// prompt before closing window
@@ -4013,7 +4061,7 @@
 			'Can\'t find the nickname element. Try reloading the page?')];
 
 		const nickList = () => {
-			const target = settings.multibox ? settings.nbox ? settings.nboxCount : 2 : 1;
+			const target = settings.nbox ? settings.nboxCount : settings.multibox ? 2 : 1;
 			for (let i = input.nick.length; i < target; ++i) {
 				const el = /** @type {HTMLInputElement} */ (input.nick[0].cloneNode(true));
 				el.maxLength = 50;
