@@ -3417,12 +3417,6 @@
 						break;
 					}
 
-					case 0xdd: {
-						// request for analytics (idk if used anymore) (previously "howarewelosingmoney")
-						sendJson(view, 0xd0, { session: null });
-						break;
-					}
-
 					case 0xfe: { // server stats (in response to a ping)
 						let statString; [statString, o] = aux.readZTString(dat, o);
 						vision.stats = JSON.parse(statString);
@@ -3727,7 +3721,6 @@
 					const worldCenter = world.singleCamera(view, undefined, settings.camera !== 'default' ? 2 : 0,
 						performance.now());
 					let [x, y] = [worldMouse[0] - worldCenter.sumX / worldCenter.weight, worldMouse[1] - worldCenter.sumY / worldCenter.weight];
-					x *= innerWidth / innerHeight;
 					// create two points along the 2^31 integer boundary (OgarII uses ~~x and ~~y to truncate positions
 					// to 32-bit integers), choose which one is closer to zero (the one actually within the boundary)
 					const max = 2 ** 31 - 1;
@@ -5751,7 +5744,7 @@
 								const dx = mouse[0] - camera.sumX / camera.weight;
 								const dy = mouse[1] - camera.sumY / camera.weight;
 								const d = Math.hypot(dx, dy);
-								tracerFloats[i * 4 + 2] = x + dx * innerWidth / innerHeight * 1e6 / d;
+								tracerFloats[i * 4 + 2] = x + dx * 1e6 / d;
 								tracerFloats[i * 4 + 3] = y + dy * 1e6 / d;
 						}
 						++i;
