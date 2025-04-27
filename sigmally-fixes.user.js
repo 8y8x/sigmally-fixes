@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.7.1
+// @version      2.7.2-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.7.1';
+	const sfVersion = '2.7.2-BETA';
 	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -330,14 +330,11 @@
 			return text;
 		};
 
-		/** @type {{ token: string, updated: number } | undefined} */
-		aux.token = undefined;
-
 		// @ts-expect-error
 		let handler = window.signOut;
 		Object.defineProperty(window, 'signOut', {
 			get: () => () => {
-				aux.token = undefined;
+				aux.userData = undefined;
 				return handler?.();
 			},
 			set: x => handler = x,
@@ -375,12 +372,12 @@
 						}
 
 						// patch the current token in the url and body of the request
-						if (aux.token) {
+						if (aux.userData?.token) {
 							// 128 hex characters surrounded by non-hex characters (lookahead and lookbehind)
 							const tokenTest = /(?<![0-9a-fA-F])[0-9a-fA-F]{128}(?![0-9a-fA-F])/g;
-							url = url.replaceAll(tokenTest, aux.token.token);
+							url = url.replaceAll(tokenTest, aux.userData.token);
 							if (typeof data?.body === 'string')
-								data.body = data.body.replaceAll(tokenTest, aux.token.token);
+								data.body = data.body.replaceAll(tokenTest, aux.userData.token);
 						}
 
 						args[0] = url;
@@ -404,10 +401,6 @@
 									let updated = Number(new Date(aux.userData.updateTime));
 									if (Number.isNaN(updated))
 										updated = Date.now();
-
-									if (!aux.token || updated >= aux.token.updated) {
-										aux.token = { token: aux.userData.token, updated };
-									}
 								}
 
 								return obj;
@@ -4044,12 +4037,12 @@
 				state: spectating ? 2 : undefined,
 				name,
 				skin: aux.userData ? aux.settings.skin : '',
-				token: aux.token?.token,
+				token: aux.userData?.token,
 				sub: (aux.userData?.subscription ?? 0) > Date.now(),
 				clan: aux.userData?.clan,
 				showClanmates: aux.settings.showClanmates,
 				password: password?.value,
-				email: aux.userData?.email
+				email: aux.userData?.email,
 			};
 		};
 
