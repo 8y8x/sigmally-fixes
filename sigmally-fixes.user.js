@@ -4046,6 +4046,7 @@
 				clan: aux.userData?.clan,
 				showClanmates: aux.settings.showClanmates,
 				password: password?.value,
+				email: aux.userData?.email
 			};
 		};
 
