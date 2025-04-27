@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.7.0-BETA
+// @version      2.7.0
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.7.0-BETA';
+	const sfVersion = '2.7.0';
 	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -1284,7 +1284,7 @@
 			'- "Flawless" ensures all connections are synchronized to be on the same ping. If one connection gets a ' +
 			'lag spike, all connections will get that lag spike too. <br>' +
 			'- "Latest" uses the most recent data across all connections. Lag spikes will be much less noticeable, ' +
-			'however cells that are farther away might sometimes warp around and appear buggy. <br>' +
+			'however cells that are farther away might warp around and appear buggy. <br>' +
 			'- "None" only shows what your current tab can see. <br>' +
 			'"Flawless" is recommended for all users, however if you find it laggy you should try "Latest".');
 		setting('One-tab mode', [checkbox('mergeCamera')], () => !!settings.multibox || settings.nbox,
