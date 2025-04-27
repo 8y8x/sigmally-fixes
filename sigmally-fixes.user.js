@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.7.0
+// @version      2.7.1
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.7.0';
+	const sfVersion = '2.7.1';
 	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -770,8 +770,8 @@
 			showStats: true,
 			spectator: false,
 			spectatorLatency: false,
-			/** @type {'none' | 'latest' | 'flawless'} */
-			synchronization: 'none',
+			/** @type {'' | 'latest' | 'flawless'} */
+			synchronization: 'flawless',
 			textOutlinesFactor: 1,
 			tracer: false,
 			unsplittableColor: /** @type {[number, number, number, number]} */ ([1, 1, 1, 1]),
@@ -795,7 +795,7 @@
 				delete settings.unsplittableOpacity;
 			}
 
-			const { autoZoom, multiCamera } = /** @type {any} */ (settings);
+			const { autoZoom, multiCamera, synchronization } = /** @type {any} */ (settings);
 			if (multiCamera !== undefined) {
 				if (multiCamera === 'natural' || multiCamera === 'delta' || multiCamera === 'weighted') {
 					settings.camera = 'natural';
@@ -807,6 +807,9 @@
 
 			if (autoZoom === 'auto') settings.autoZoom = true;
 			else if (autoZoom === 'never') settings.autoZoom = false;
+
+			// accidentally set the default to 'none' which sucks
+			if (synchronization === 'none') settings.synchronization = 'flawless';
 		}
 
 		/** @type {(() => void)[]} */
@@ -1278,7 +1281,7 @@
 			'The key to press for switching multibox tabs. "Tab" is recommended, but you can also use "Ctrl+Tab" and ' +
 			'most other keybinds.');
 		setting(`Vision merging ${newTag}`,
-			[dropdown('synchronization', [['flawless', 'Flawless (recommended)'], ['latest', 'Latest'], ['none', 'None']])],
+			[dropdown('synchronization', [['flawless', 'Flawless (recommended)'], ['latest', 'Latest'], ['', 'None']])],
 			() => !!settings.multibox || settings.nbox || settings.spectator,
 			'How multiple connections synchronize the cells they can see. <br>' +
 			'- "Flawless" ensures all connections are synchronized to be on the same ping. If one connection gets a ' +
@@ -2503,7 +2506,7 @@
 		let disagreementAt, disagreementStart;
 		world.synchronized = false;
 		world.merge = () => {
-			if (settings.synchronization === 'none' || world.views.size <= 1) {
+			if (!settings.synchronization || world.views.size <= 1) {
 				disagreementStart = disagreementAt = undefined;
 				world.synchronized = false;
 				return;
