@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.7.2
+// @version      2.7.3-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.7.2';
+	const sfVersion = '2.7.3-BETA';
 	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -3744,11 +3744,13 @@
 		 */
 		input.tab = view => {
 			if (view === world.selected) return;
-			const inputs = create(view);
+			const inputs = create(world.selected);
+			const newInputs = create(view);
 
+			newInputs.w = inputs.w;
 			inputs.w = false; // stop current tab from feeding; don't change forceW
 			// update mouse immediately (after setTimeout, when mouse events happen)
-			setTimeout(() => inputs.world = input.toWorld(view, inputs.mouse = input.current));
+			setTimeout(() => inputs.world = input.toWorld(world.selected, inputs.mouse = input.current));
 
 			world.selected = view;
 			world.create(world.selected);
