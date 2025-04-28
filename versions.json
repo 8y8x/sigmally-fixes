@@ -9,100 +9,135 @@
 		"Keep the alert short and unintrusive, as it shifts all the buttons down and out of the main UI.",
 		"No HTML; the < and > characters are stripped."
 	],
+	"2.7.0": {
+		"ok": false,
+		"alert": "Sigmally Fixes 2.7.0 was released with a huge mistake. Update to fix: {autolink}",
+		"color": "#f00"
+	},
+	"2.6.8": {
+		"ok": false,
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes, including chat, respawns, and lag: {autolink}",
+		"color": "#f90"
+	},
+	"2.6.7": {
+		"ok": false,
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes, including chat, respawns, and lag: {autolink}",
+		"color": "#f90"
+	},
+	"2.6.6": {
+		"ok": false,
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes, including chat, respawns, and lag: {autolink}",
+		"color": "#f90"
+	},
+	"2.6.5": {
+		"ok": false,
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes, including chat, respawns, and lag: {autolink}",
+		"color": "#f90"
+	},
+	"2.6.4": {
+		"ok": false,
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes, including chat, respawns, and lag: {autolink}",
+		"color": "#f90"
+	},
+	"2.6.3": {
+		"ok": false,
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes, including chat, respawns, and lag: {autolink}",
+		"color": "#f90"
+	},
 	"2.6.2": {
 		"ok": false,
-		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
-		"color": "#09f"
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes, including chat, respawns, and lag: {autolink}",
+		"color": "#f90"
 	},
 	"2.6.1": {
 		"ok": false,
-		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
-		"color": "#09f"
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes, including chat, respawns, and lag: {autolink}",
+		"color": "#f90"
 	},
 	"2.6.0": {
 		"ok": false,
-		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
-		"color": "#09f"
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes, including chat, respawns, and lag: {autolink}",
+		"color": "#f90"
 	},
 	"2.5.9": {
 		"ok": false,
-		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
-		"color": "#09f"
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes, including chat, respawns, and lag: {autolink}",
+		"color": "#f90"
 	},
 	"2.5.8": {
 		"ok": false,
-		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
-		"color": "#09f"
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes, including chat, respawns, and lag: {autolink}",
+		"color": "#f90"
 	},
 	"2.5.7": {
 		"ok": false,
-		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
-		"color": "#09f"
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes, including chat, respawns, and lag: {autolink}",
+		"color": "#f90"
 	},
 	"2.5.6": {
 		"ok": false,
-		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
-		"color": "#09f"
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes, including chat, respawns, and lag: {autolink}",
+		"color": "#f90"
 	},
 	"2.5.5": {
 		"ok": false,
-		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
-		"color": "#09f"
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes, including chat, respawns, and lag: {autolink}",
+		"color": "#f90"
 	},
 	"2.5.4": {
 		"ok": false,
-		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
-		"color": "#09f"
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes, including chat, respawns, and lag: {autolink}",
+		"color": "#f90"
 	},
 	"2.5.3": {
 		"ok": false,
-		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
-		"color": "#09f"
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes, including chat, respawns, and lag: {autolink}",
+		"color": "#f90"
 	},
 	"2.5.2": {
 		"ok": false,
-		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
-		"color": "#09f"
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes, including chat, respawns, and lag: {autolink}",
+		"color": "#f90"
 	},
 	"2.5.1": {
 		"ok": false,
-		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
-		"color": "#09f"
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes, including chat, respawns, and lag: {autolink}",
+		"color": "#f90"
 	},
 	"2.5.0": {
 		"ok": false,
-		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
-		"color": "#09f"
+		"alert": "Upgrade Sigmally Fixes for the latest bug fixes, including chat, respawns, and lag: {autolink}",
+		"color": "#f90"
 	},
 	"2.4.2.1": {
 		"ok": false,
-		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
-		"color": "#f90"
+		"alert": "Upgrade Sigmally Fixes for tons of bug fixes and features: {autolink}",
+		"color": "#f00"
 	},
 	"2.4.2": {
 		"ok": false,
-		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
-		"color": "#f90"
+		"alert": "Upgrade Sigmally Fixes for tons of bug fixes and features: {autolink}",
+		"color": "#f00"
 	},
 	"2.4.1": {
 		"ok": false,
-		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
-		"color": "#f90"
+		"alert": "Upgrade Sigmally Fixes for tons of bug fixes and features: {autolink}",
+		"color": "#f00"
 	},
 	"2.4.0": {
 		"ok": false,
-		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
-		"color": "#f90"
+		"alert": "Upgrade Sigmally Fixes for tons of bug fixes and features: {autolink}",
+		"color": "#f00"
 	},
 	"2.3.19": {
 		"ok": false,
-		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
-		"color": "#f90"
+		"alert": "Upgrade Sigmally Fixes for tons of bug fixes and features: {autolink}",
+		"color": "#f00"
 	},
 	"2.3.18": {
 		"ok": false,
-		"alert": "Upgrade Sigmally Fixes for the latest bug fixes and features: {autolink}",
-		"color": "#f90"
+		"alert": "Upgrade Sigmally Fixes for tons of bug fixes and features: {autolink}",
+		"color": "#f00"
 	},
 	"2.3.17": {
 		"ok": false,
