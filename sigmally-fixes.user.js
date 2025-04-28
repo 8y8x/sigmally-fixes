@@ -467,51 +467,6 @@
 				throw new Error('sigfix: Preventing .send on unknown Sigmally connection');
 			}
 
-			if (settings.blockNearbyRespawns) {
-				let buf;
-				if (x instanceof ArrayBuffer) buf = x;
-				else if (x instanceof DataView) buf = x.buffer;
-				else if (x instanceof Uint8Array) buf = x.buffer;
-
-				if (buf && buf.byteLength === '/leaveworld'.length + 3
-					&& new Uint8Array(buf).toString().includes(cmdRepresentation)) {
-					const now = performance.now();
-					let con, view, vision; // cba to put explicit types here
-					world.cameras(now);
-					for (const [otherView, otherCon] of net.connections) {
-						if (otherCon.ws !== this) continue;
-
-						con = otherCon;
-						view = otherView;
-						vision = world.views.get(otherView);
-					}
-
-					if (con && view && vision) {
-						// block respawns if we haven't actually respawned yet
-						// (with a 500ms max in case something fails)
-						if (performance.now() - (con.respawnBlock?.started ?? -Infinity) < 500) return;
-						con.respawnBlock = undefined;
-						// trying to respawn; see if we are nearby an alive multi-tab
-						if (world.score(view) > 0 && vision.border) {
-							const { border } = vision;
-							// use a smaller respawn radius on EU servers
-							const radius = Math.min(border.r - border.l, border.b - border.t) / 4;
-							for (const [otherView, otherVision] of world.views) {
-								if (vision === otherVision) continue;
-								if (world.score(otherView) <= 0) continue;
-								const dx = vision.camera.tx - otherVision.camera.tx;
-								const dy = vision.camera.ty - otherVision.camera.ty;
-								if (Math.hypot(dx, dy) <= radius)
-									return;
-							}
-						}
-
-						// we are allowing a respawn, take note
-						con.respawnBlock = { status: 'pending', started: performance.now() };
-					}
-				}
-			}
-
 			return destructor.realWsSend.apply(this, arguments);
 		};
 
@@ -2933,7 +2888,7 @@
 		 * 		latency: number | undefined,
 		 * 		pinged: number | undefined,
 		 * 		rejections: number,
-		 * 		respawnBlock: { status: 'left' | 'pending', started: number } | undefined,
+		 * 		respawnBlock: { state: 'leaving' | 'joining', started: number } | undefined,
 		 * 		retries: number,
 		 * 		ws: WebSocket | undefined,
 		 * }>} */
@@ -3266,14 +3221,19 @@
 
 						// (e) : clear own cells that don't exist anymore (NOT on world.clean!)
 						for (let i = 0; i < vision.owned.length; ++i) {
-							if (world.cells.has(vision.owned[i])) {
-								// only disable respawnBlock once we're definitely alive
-								if (connection.respawnBlock?.status === 'left') connection.respawnBlock = undefined;
+							const cell = world.cells.get(vision.owned[i]);
+							const record = cell?.views.get(view);
+							if (!record) {
+								vision.owned.splice(i--, 1);
 								continue;
 							}
 
-							vision.owned.splice(i--, 1);
+							if (record.frames[0].deadAt === undefined && connection.respawnBlock?.state === 'joining') {
+								console.log('=> undefined');
+								connection.respawnBlock = undefined;
+							}
 						}
+
 						ui.deathScreen.check();
 						break;
 					}
@@ -3287,7 +3247,10 @@
 
 					case 0x12: { // delete all cells
 						// happens every time you respawn
-						if (connection.respawnBlock?.status === 'pending') connection.respawnBlock.status = 'left';
+						if (connection.respawnBlock?.state === 'leaving') {
+							console.log('=> joining');
+							connection.respawnBlock.state = 'joining';
+						}
 						// the server won't respond to pings if you aren't in a world, and we don't want to show '????'
 						// unless there's actually a problem
 						connection.pinged = undefined;
@@ -3540,6 +3503,33 @@
 		net.chat = (msg, view = world.selected) => {
 			const connection = net.connections.get(view);
 			if (!connection?.handshake || connection.ws?.readyState !== WebSocket.OPEN) return;
+
+			if (settings.blockNearbyRespawns && msg.toLowerCase() === '/leaveworld') {
+				const now = performance.now();
+				// always block new respawns while respawning
+				// in rare cases, the /leaveworld command can be sent while dead. the command won't work then because
+				// of chat anti-spam, so a proper respawn won't ever happen. therefore, respawn blocks should cancel
+				// themselves after some time
+				if (connection.respawnBlock !== undefined && now - connection.respawnBlock.started <= 750) return;
+
+				const vision = world.views.get(view);
+				if (!vision || world.score(view) <= 0 || !vision.border) return; // don't allow respawning if dead
+
+				world.cameras(now);
+				const radius = Math.min(vision.border.r - vision.border.l, vision.border.b - vision.border.t) / 4;
+
+				for (const [otherView, otherVision] of world.views) {
+					if (otherVision === vision) continue;
+					// don't block on inactive/dead tabs
+					if (now - otherVision.used > 20_000 || world.score(otherView) <= 0) continue;
+
+					const d = Math.hypot(vision.camera.tx - otherVision.camera.tx, vision.camera.ty - otherVision.camera.ty);
+					if (d <= radius) return; // too close to this tab, block respawn
+				}
+
+				connection.respawnBlock = { state: 'leaving', started: now };
+			}
+
 			const msgBuf = aux.textEncoder.encode(msg);
 			const dat = new DataView(new ArrayBuffer(msgBuf.byteLength + 3));
 
