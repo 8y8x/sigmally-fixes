@@ -2493,7 +2493,7 @@
 			// we could instead check cells visible on both tabs to see if they share the same target x, y, and r.
 			// if they all do, then the connections are synchronized and both visions can be merged.
 			// this works well, however latency can fluctuate and results in connections being completely unable to
-			// synchronize between themselves if they are off by at least 40ms. this happens often, and significantly 
+			// synchronize between themselves if they are off by at least 40ms. this happens often, and significantly
 			// more to players who usually have higher ping.
 			//
 			// in the below approach, we keep a record of how every cell is updated (where a lower index => more recent)
@@ -2664,7 +2664,7 @@
 
 					return true;
 				};
-				
+
 				startCluster: for (let viewInt = 0; viewInt < viewDim; ++viewInt) {
 					if (indices[viewInt] !== undefined) continue; // don't re-process a cluster
 
@@ -3243,13 +3243,13 @@
 						// (e) : clear own cells that don't exist anymore (NOT on world.clean!)
 						for (let i = 0; i < vision.owned.length; ++i) {
 							const cell = world.cells.get(vision.owned[i]);
-							const record = cell?.views.get(view);
-							if (!record) {
+							if (!cell) {
 								vision.owned.splice(i--, 1);
 								continue;
 							}
+							const record = cell?.views.get(view);
 
-							if (record.frames[0].deadAt === undefined && connection.playBlock?.state === 'joining') {
+							if (record && record.frames[0].deadAt === undefined && connection.playBlock?.state === 'joining') {
 								connection.playBlock = undefined;
 							}
 						}
@@ -3749,7 +3749,7 @@
 					return;
 
 				case 'vertical':
-					if (performance.now() - inputs.lock.lastSplit <= 150) {
+					if (now - inputs.lock.lastSplit <= 150) {
 						net.move(view, inputs.lock.world[0], (2 ** 31 - 1) * (inputs.mouse[1] >= 0 ? 1 : -1));
 					} else {
 						net.move(view, ...inputs.lock.world);
@@ -3759,9 +3759,9 @@
 				case 'fixed':
 					// rotate around the tab's camera center (otherwise, spinning around on a tab feels unnatural)
 					const worldMouse = input.toWorld(view, inputs.mouse);
-					const worldCenter = world.singleCamera(view, undefined, settings.camera !== 'default' ? 2 : 0,
-						performance.now());
-					let [x, y] = [worldMouse[0] - worldCenter.sumX / worldCenter.weight, worldMouse[1] - worldCenter.sumY / worldCenter.weight];
+					const worldCenter = world.singleCamera(view, undefined, settings.camera !== 'default' ? 2 : 0, now);
+					const x = worldMouse[0] - worldCenter.sumX / worldCenter.weight;
+					const y = worldMouse[1] - worldCenter.sumY / worldCenter.weight;
 					// create two points along the 2^31 integer boundary (OgarII uses ~~x and ~~y to truncate positions
 					// to 32-bit integers), choose which one is closer to zero (the one actually within the boundary)
 					const max = 2 ** 31 - 1;
@@ -3773,9 +3773,7 @@
 			}
 
 			inputs.lock = undefined;
-			if (world.selected === view || forceUpdate) {
-				inputs.world = input.toWorld(view, inputs.mouse);
-			}
+			if (world.selected === view || forceUpdate) inputs.world = input.toWorld(view, inputs.mouse);
 			net.move(view, ...inputs.world);
 		};
 
@@ -5195,7 +5193,7 @@
 					} else if (override) {
 						color = override;
 					}
-				} else { 
+				} else {
 					if (override) color = override;
 					const skin = render.skin(cell);
 					if (skin) {
@@ -5968,11 +5966,8 @@
 
 				if (ownN <= 0) {
 					// if no cells were drawn, draw our spectate pos instead
-					drawCell({
-						nx: vision.camera.x, ny: vision.camera.y, nr: gameWidth / canvas.width * 5,
-					}, { 
-						rgb: settings.theme[3] ? settings.theme : [1, 0.6, 0.6],
-					});
+					drawCell({ nx: vision.camera.x, ny: vision.camera.y, nr: gameWidth / canvas.width * 5, },
+						{ rgb: settings.theme[3] ? settings.theme : [1, 0.6, 0.6] });
 				} else {
 					ownX /= ownN;
 					ownY /= ownN;
