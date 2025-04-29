@@ -3458,7 +3458,7 @@
 			const con = net.connections.get(view);
 			if (!vision || !con?.ws) return false;
 
-			return ['ca0.sigmally.com', 'ca1.sigmally.com', 'eu0.sigmally.com'].includes(con.ws.url);
+			return world.score(view) < 5500 || ['ca0.sigmally.com', 'ca1.sigmally.com', 'eu0.sigmally.com'].includes(con.ws.url);
 		};
 
 		// disconnect if a different gamemode is selected
@@ -3535,7 +3535,7 @@
 			const connection = net.connections.get(view);
 			if (!connection?.handshake || connection.ws?.readyState !== WebSocket.OPEN) return;
 
-			if (msg.toLowerCase().startsWith('/leaveworld') && world.score(view) >= 5500) return; // prevent abuse
+			if (msg.toLowerCase().startsWith('/leaveworld') && !net.respawnable(view)) return; // prevent abuse
 
 			const msgBuf = aux.textEncoder.encode(msg);
 			const dat = new DataView(new ArrayBuffer(msgBuf.byteLength + 3));
@@ -3578,7 +3578,7 @@
 			if (score <= 0) { // if dead, no need to leave+rejoin the world
 				net.play(view, data);
 				return;
-			} else if (score >= 5500) return; // exit early if too big to respawn
+			} else if (!net.respawnable(view)) return; // exit early if too big to respawn
 
 			if (settings.blockNearbyRespawns) {
 				const vision = world.views.get(view);
