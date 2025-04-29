@@ -1095,7 +1095,7 @@
 					${toggle ? `<div class="modCheckbox" style="display: inline-block;">
 						<input id="sfsm-${property}-alpha" type="checkbox" />
 						<label class="cbx" for="sfsm-${property}-alpha"></label>
-					</div>` : `<input id="sfsm-${property}-alpha" type="range min="0" max="1" step="0.01" \
+					</div>` : `<input id="sfsm-${property}-alpha" type="range" min="0" max="1" step="0.01" \
 						style="width: 100px" />`}
 					<input id="sfsm-${property}" type="color" />
 				</div>
@@ -2610,10 +2610,8 @@
 
 							for (let i = 0; i < record1.frames.length; ++i) {
 								const frame1 = record1.frames[i];
-								// if (frame1.deadAt !== undefined) continue;
 								for (let j = 0; j < record2.frames.length; ++j) {
 									const frame2 = record2.frames[j];
-									// if (frame2.deadAt !== undefined) continue;
 
 									if (frame1.deadAt !== undefined || frame2.deadAt !== undefined || (frame1.nx === frame2.nx && frame1.ny === frame2.ny && frame1.nr === frame2.nr)) {
 										graph[i * graphDim + j] |= COMPATIBLE;
