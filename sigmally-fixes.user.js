@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.7.3
+// @version      2.7.4
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.7.3';
+	const sfVersion = '2.7.4';
 	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -3572,21 +3572,14 @@
 				if (!vision?.border) return;
 
 				world.cameras(now);
-
 				const { l, r, t, b } = vision.border;
-				const square = [Math.floor((vision.camera.tx - l) / (r - l) * 5),
-					Math.floor((vision.camera.ty - t) / (b - t) * 5)];
 
 				for (const [otherView, otherVision] of world.views) {
 					if (otherView === view || world.score(otherView) <= 0) continue;
 
-					// block respawns if both views are in the same (or adjacent) minimap squares
-					// for example, one view is in A4, block respawns in A3, A5, B3, B4, and B5
-					const otherSquare = [Math.floor((otherVision.camera.tx - l) / (r - l) * 5),
-						Math.floor((otherVision.camera.ty - t) / (b - t) * 5)];
-					if (Math.abs(otherSquare[0] - square[0]) <= 1 && Math.abs(otherSquare[1] - square[1]) <= 1) {
-						return;
-					}
+					// block respawns if both views are close enough (minimap squares give too large of a threshold)
+					const d = Math.hypot(vision.camera.tx - otherVision.camera.tx, vision.camera.ty - otherVision.camera.ty);
+					if (d <= Math.min(r - l, b - t) / 4) return;
 				}
 			}
 
