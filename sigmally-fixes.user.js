@@ -3452,6 +3452,15 @@
 			else return 'wss://' + (gamemode?.value || firstGamemode?.value || 'ca0.sigmally.com/ws/');
 		};
 
+		/** @param {symbol} view */
+		net.respawnable = view => {
+			const vision = world.views.get(view);
+			const con = net.connections.get(view);
+			if (!vision || !con?.ws) return false;
+
+			return ['ca0.sigmally.com', 'ca1.sigmally.com', 'eu0.sigmally.com'].includes(con.ws.url);
+		};
+
 		// disconnect if a different gamemode is selected
 		// an interval is preferred because the game can apply its gamemode setting *after* connecting without
 		// triggering any events
@@ -3731,6 +3740,8 @@
 			const inputs = input.views.get(view) ?? create(view);
 			if (view === world.selected) inputs.mouse = input.current;
 
+			const worldMouse = input.toWorld(view, inputs.mouse);
+
 			switch (inputs.lock?.type) {
 				case 'point':
 					if (now > inputs.lock.until) break;
@@ -3746,7 +3757,7 @@
 					if (settings.moveAfterLinesplit && inputs.lock.lastSplit !== -Infinity) {
 						// move horizontally only after splitting to maximize distance travelled
 						if (Math.abs(inputs.mouse[0]) <= 0.2) {
-							net.move(view, inputs.mouse[0], inputs.lock.world[1]);
+							net.move(view, worldMouse[0], inputs.lock.world[1]);
 						} else {
 							net.move(view, (2 ** 31 - 1) * (inputs.mouse[0] >= 0 ? 1 : -1), inputs.lock.world[1]);
 						}
@@ -3759,7 +3770,7 @@
 					if (settings.moveAfterLinesplit ? inputs.lock.lastSplit !== -Infinity : now - inputs.lock.lastSplit <= 150) {
 						// vertical linesplits require a bit of upwards movement to split upwards
 						if (Math.abs(inputs.mouse[1]) <= 0.2) {
-							net.move(view, inputs.lock.world[0], inputs.mouse[1]);
+							net.move(view, inputs.lock.world[0], worldMouse[1]);
 						} else {
 							net.move(view, inputs.lock.world[0], (2 ** 31 - 1) * (inputs.mouse[1] >= 0 ? 1 : -1));
 						}
@@ -3770,7 +3781,6 @@
 
 				case 'fixed':
 					// rotate around the tab's camera center (otherwise, spinning around on a tab feels unnatural)
-					const worldMouse = input.toWorld(view, inputs.mouse);
 					const worldCenter = world.singleCamera(view, undefined, settings.camera !== 'default' ? 2 : 0, now);
 					const x = worldMouse[0] - worldCenter.sumX / worldCenter.weight;
 					const y = worldMouse[1] - worldCenter.sumY / worldCenter.weight;
@@ -3785,7 +3795,7 @@
 			}
 
 			inputs.lock = undefined;
-			if (world.selected === view || forceUpdate) inputs.world = input.toWorld(view, inputs.mouse);
+			if (world.selected === view || forceUpdate) inputs.world = worldMouse;
 			net.move(view, ...inputs.world);
 		};
 
