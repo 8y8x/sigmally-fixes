@@ -734,6 +734,8 @@
 			/** @type {'' | 'latest' | 'flawless'} */
 			synchronization: 'flawless',
 			textOutlinesFactor: 1,
+			// default is the default chat color
+			theme: /** @type {[number, number, number, number]} */ ([252 / 255, 114 / 255, 0, 0]),
 			tracer: false,
 			unsplittableColor: /** @type {[number, number, number, number]} */ ([1, 1, 1, 1]),
 			yx: false, // hehe
@@ -1057,7 +1059,7 @@
 		};
 
 		/** @param {PropertyOfType<typeof settings, [number, number, number, number]>} property */
-		const color = property => {
+		const color = (property, toggle = false) => {
 			/**
 			 * @param {HTMLInputElement} input
 			 * @param {HTMLInputElement} alpha
@@ -1065,14 +1067,16 @@
 			const listen = (input, alpha) => {
 				const update = () => {
 					input.value = aux.rgba2hex6(...settings[property]);
-					alpha.value = String(settings[property][3]);
+					if (toggle) alpha.checked = settings[property][3] > 0;
+					else alpha.value = String(settings[property][3]);
 				};
 				onSyncs.push(update);
 				update();
 
 				const changed = () => {
 					settings[property] = aux.hex2rgba(input.value);
-					settings[property][3] = Number(alpha.value);
+					if (toggle) settings[property][3] = alpha.checked ? 1 : 0;
+					else settings[property][3] = Number(alpha.value);
 					settingsExt.save();
 				};
 				input.addEventListener('input', changed);
@@ -1081,14 +1085,18 @@
 
 			const vanilla = fromHTML(`
 				<div>
-					<input id="sf-${property}-alpha" type="range" min="0" max="1" step="0.01" style="width: 100px" />
+					<input id="sf-${property}-alpha" type="${toggle ? 'checkbox' : 'range'}" min="0" max="1" \
+						step="0.01" ${toggle ? '' : 'style="width: 100px;"'} />
 					<input id="sf-${property}" type="color" />
 				</div>
 			`);
 			const sigmod = fromHTML(`
-				<div>
-					<input id="sfsm-${property}-alpha" type="range" min="0" max="1" step="0.01" \
-						style="width: 100px" />
+				<div style="margin-right: 25px;">
+					${toggle ? `<div class="modCheckbox" style="display: inline-block;">
+						<input id="sfsm-${property}-alpha" type="checkbox" />
+						<label class="cbx" for="sfsm-${property}-alpha"></label>
+					</div>` : `<input id="sfsm-${property}-alpha" type="range min="0" max="1" step="0.01" \
+						style="width: 100px" />`}
 					<input id="sfsm-${property}" type="color" />
 				</div>
 			`);
@@ -1327,6 +1335,8 @@
 			'this to 0 to disable outlines AND text shadows.');
 
 		separator('• other •');
+		setting('Theme color', [color('theme', true)], () => true,
+			'');
 		setting('Block all browser keybinds', [checkbox('blockBrowserKeybinds')], () => true,
 			'When enabled, only F11 is allowed to be pressed when in fullscreen. Most other browser and system ' +
 			'keybinds will be disabled.');
@@ -1585,7 +1595,7 @@
 				misc.textContent = [
 					`${stats.name} (${stats.gamemode})`,
 					`${stats.external} / ${stats.limit} players`,
-					// bots do not count towards .playing **except in my private server**
+					// bots do not count towards .playing
 					`${stats.playing} playing` + (stats.internal > 0 ? ` + ${stats.internal} bots` : ''),
 					`${stats.spectating} spectating`,
 					`${(stats.loadTime / 40 * 100).toFixed(1)}% load @ ${uptime}`,
@@ -1951,7 +1961,12 @@
 				list.style.color = aux.settings.darkTheme ? '#fffc' : '#000c';
 				// make author names darker in light theme
 				list.style.filter = aux.settings.darkTheme ? '' : 'brightness(75%)';
+
+				toggle.style.backgroundColor = settings.theme[3] ? aux.rgba2hex6(...settings.theme) : '#e37955';
+				thumb.style.backgroundColor = settings.theme[3] ? aux.rgba2hex6(...settings.theme) : '#fc7200';
 			};
+
+			setInterval(() => chat.matchTheme(), 500);
 
 			return chat;
 		})();
@@ -5857,7 +5872,7 @@
 				const gameHeight = (border.b - border.t);
 
 				// highlight current section
-				ctx.fillStyle = settings.yx ? '#76f' : '#ff0';
+				ctx.fillStyle = settings.theme[3] ? aux.rgba2hex6(...settings.theme) : '#ff0';
 				ctx.globalAlpha = 0.3;
 
 				const sectionX = Math.floor((vision.camera.x - border.l) / gameWidth * 5);
@@ -5958,7 +5973,7 @@
 					drawCell({
 						nx: vision.camera.x, ny: vision.camera.y, nr: gameWidth / canvas.width * 5,
 					}, { 
-						rgb: settings.yx ? aux.hex2rgba('#76f') : [1, 0.6, 0.6],
+						rgb: settings.theme[3] ? settings.theme : [1, 0.6, 0.6],
 					});
 				} else {
 					ownX /= ownN;
@@ -5971,8 +5986,6 @@
 					ctx.fillText(`X: ${ownX}, Y: ${ownY}`, 0, -1000);
 				}
 			})();
-
-			ui.chat.matchTheme();
 
 			requestAnimationFrame(renderGame);
 		}
