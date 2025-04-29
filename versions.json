@@ -9,6 +9,16 @@
 		"Keep the alert short and unintrusive, as it shifts all the buttons down and out of the main UI.",
 		"No HTML; the < and > characters are stripped."
 	],
+	"2.7.2": {
+		"ok": false,
+		"alert": "Respawns in Sigmally Fixes 2.7.2 are buggy. Update to fix: {autolink}",
+		"color": "#f90"
+	},
+	"2.7.1": {
+		"ok": false,
+		"alert": "Respawns in Sigmally Fixes 2.7.1 are buggy. Update to fix: {autolink}",
+		"color": "#f90"
+	},
 	"2.7.0": {
 		"ok": false,
 		"alert": "Sigmally Fixes 2.7.0 was released with a huge mistake. Update to fix: {autolink}",

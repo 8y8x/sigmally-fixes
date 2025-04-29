@@ -1336,7 +1336,8 @@
 
 		separator('• other •');
 		setting('Theme color', [color('theme', true)], () => true,
-			'');
+			'If enabled, uses this color for the minimap (and chat, if not using SigMod). It\'s a small detail that ' +
+			'can make the game feel more immersive.');
 		setting('Block all browser keybinds', [checkbox('blockBrowserKeybinds')], () => true,
 			'When enabled, only F11 is allowed to be pressed when in fullscreen. Most other browser and system ' +
 			'keybinds will be disabled.');
