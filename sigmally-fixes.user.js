@@ -496,6 +496,7 @@
 		 * 	outlineColor?: [number, number, number, number],
 		 * 	rapidFeedKey?: string,
 		 * 	removeOutlines?: boolean,
+		 * 	respawnKey?: string,
 		 * 	showNames?: boolean,
 		 * 	tripleKey?: string,
 		 * 	verticalLineKey?: string,
@@ -544,7 +545,7 @@
 			// sigmod's showNames setting is always "true" interally (i think??)
 			sigmod.settings.showNames = aux.setting('input#showNames', true);
 
-			sigmod.settings.tripleKey = real.macros?.keys?.splits?.triple || undefined; // blank keys are ''
+			sigmod.settings.tripleKey = real.macros?.keys?.splits?.triple || undefined;
 			sigmod.settings.font = real.game?.font;
 
 			// sigmod does not download the bold variants of fonts, so we have to do that ourselves
@@ -606,6 +607,18 @@
 					horizontal: getset('horizontalLineKey'),
 					vertical: getset('verticalLineKey'),
 					fixed: getset('fixedLineKey'),
+				});
+			}
+			// also disable sigmod's respawn key and reimplement it here
+			const keys = real.settings?.macros?.keys;
+			if (keys) {
+				sigmod.settings.respawnKey = keys.respawn;
+				Object.defineProperty(keys, 'respawn', {
+					get: () => ({
+						toJSON: () => sigmod.settings.respawnKey,
+						toString: () => sigmod.settings.respawnKey,
+					}),
+					set: x => sigmod.settings.respawnKey = x,
 				});
 			}
 
@@ -1714,9 +1727,7 @@
 			const bonus = document.querySelector('#menu__bonus');
 
 			deathScreen.check = () => {
-				if (world.stats.spawnedAt === undefined) return;
-				if (world.alive()) return;
-				deathScreen.show();
+				if (world.stats.spawnedAt !== undefined && !world.alive()) deathScreen.show();
 			};
 
 			deathScreen.show = () => {
@@ -2265,7 +2276,7 @@
 					// if a cell does not exist yet, we treat it as alive
 					if (!cell) return true;
 
-					const frame = world.synchronized ? cell.merged : cell.views.get(view)?.frames[0];
+					const frame = cell.views.get(view)?.frames[0];
 					if (frame?.deadAt === undefined) return true;
 				}
 			}
@@ -2887,8 +2898,8 @@
 		 * 		handshake: { shuffle: Uint8Array, unshuffle: Uint8Array } | undefined,
 		 * 		latency: number | undefined,
 		 * 		pinged: number | undefined,
+		 * 		playBlock: { state: 'leaving' | 'joining', started: number } | undefined,
 		 * 		rejections: number,
-		 * 		respawnBlock: { state: 'leaving' | 'joining', started: number } | undefined,
 		 * 		retries: number,
 		 * 		ws: WebSocket | undefined,
 		 * }>} */
@@ -2903,8 +2914,8 @@
 				handshake: undefined,
 				latency: undefined,
 				pinged: undefined,
+				playBlock: undefined,
 				rejections: 0,
-				respawnBlock: undefined,
 				retries: 0,
 				ws: connect(view),
 			});
@@ -2953,7 +2964,7 @@
 				connection.handshake = undefined;
 				connection.latency = undefined;
 				connection.pinged = undefined;
-				connection.respawnBlock = undefined;
+				connection.playBlock = undefined;
 				++connection.rejections;
 				if (connection.retries > 0) --connection.retries;
 
@@ -3028,10 +3039,7 @@
 
 					connection.handshake = { shuffle, unshuffle };
 
-					if (world.alive()) {
-						const name = input.nick[world.multis.indexOf(view) || 0].value;
-						net.play(world.selected, input.playData(name, false));
-					}
+					if (world.alive()) net.play(world.selected, input.playData(input.name(view), false));
 					return;
 				}
 
@@ -3228,9 +3236,8 @@
 								continue;
 							}
 
-							if (record.frames[0].deadAt === undefined && connection.respawnBlock?.state === 'joining') {
-								console.log('=> undefined');
-								connection.respawnBlock = undefined;
+							if (record.frames[0].deadAt === undefined && connection.playBlock?.state === 'joining') {
+								connection.playBlock = undefined;
 							}
 						}
 
@@ -3247,10 +3254,7 @@
 
 					case 0x12: { // delete all cells
 						// happens every time you respawn
-						if (connection.respawnBlock?.state === 'leaving') {
-							console.log('=> joining');
-							connection.respawnBlock.state = 'joining';
-						}
+						if (connection.playBlock?.state === 'leaving') connection.playBlock.state = 'joining';
 						// the server won't respond to pings if you aren't in a world, and we don't want to show '????'
 						// unless there's actually a problem
 						connection.pinged = undefined;
@@ -3278,7 +3282,7 @@
 						// this could be cheated (if you alternate respawning your tabs, for example) but i don't think
 						// multiboxers ever see the stats menu anyway
 						if (!world.alive()) world.stats.spawnedAt = undefined;
-						ui.deathScreen.check(); // don't trigger death screen on respawn
+						ui.deathScreen.hide(); // don't trigger death screen on respawn
 						break;
 					}
 
@@ -3504,31 +3508,7 @@
 			const connection = net.connections.get(view);
 			if (!connection?.handshake || connection.ws?.readyState !== WebSocket.OPEN) return;
 
-			if (settings.blockNearbyRespawns && msg.toLowerCase() === '/leaveworld') {
-				const now = performance.now();
-				// always block new respawns while respawning
-				// in rare cases, the /leaveworld command can be sent while dead. the command won't work then because
-				// of chat anti-spam, so a proper respawn won't ever happen. therefore, respawn blocks should cancel
-				// themselves after some time
-				if (connection.respawnBlock !== undefined && now - connection.respawnBlock.started <= 750) return;
-
-				const vision = world.views.get(view);
-				if (!vision || world.score(view) <= 0 || !vision.border) return; // don't allow respawning if dead
-
-				world.cameras(now);
-				const radius = Math.min(vision.border.r - vision.border.l, vision.border.b - vision.border.t) / 4;
-
-				for (const [otherView, otherVision] of world.views) {
-					if (otherVision === vision) continue;
-					// don't block on inactive/dead tabs
-					if (now - otherVision.used > 20_000 || world.score(otherView) <= 0) continue;
-
-					const d = Math.hypot(vision.camera.tx - otherVision.camera.tx, vision.camera.ty - otherVision.camera.ty);
-					if (d <= radius) return; // too close to this tab, block respawn
-				}
-
-				connection.respawnBlock = { state: 'leaving', started: now };
-			}
+			if (msg.toLowerCase().startsWith('/leaveworld') && world.score(view) >= 5500) return; // prevent abuse
 
 			const msgBuf = aux.textEncoder.encode(msg);
 			const dat = new DataView(new ArrayBuffer(msgBuf.byteLength + 3));
@@ -3546,7 +3526,62 @@
 		 * @param {{ name: string, skin: string, [x: string]: any }} data
 		 */
 		net.play = (view, data) => {
+			const connection = net.connections.get(view);
+			const now = performance.now();
+			if (!data.state) {
+				if (!connection || (connection.playBlock !== undefined && now - connection.playBlock.started < 750)) return;
+				connection.playBlock = { state: 'joining', started: now };
+				ui.deathScreen.hide();
+			}
 			sendJson(view, 0x00, data);
+		};
+
+		/**
+		 * @param {symbol} view
+		 * @param {{ name: string, skin: string, [x: string]: any }} data
+		 */
+		net.respawn = (view, data) => {
+			const connection = net.connections.get(view);
+			if (!connection?.handshake || connection.ws?.readyState !== WebSocket.OPEN) return;
+
+			const now = performance.now();
+			if (connection.playBlock !== undefined && now - connection.playBlock.started < 750) return;
+
+			const score = world.score(view);
+			if (score <= 0) { // if dead, no need to leave+rejoin the world
+				net.play(view, data);
+				return;
+			} else if (score >= 5500) return; // exit early if too big to respawn
+
+			if (settings.blockNearbyRespawns) {
+				const vision = world.views.get(view);
+				if (!vision?.border) return;
+
+				world.cameras(now);
+
+				const { l, r, t, b } = vision.border;
+				const square = [Math.floor((vision.camera.tx - l) / (r - l) * 5),
+					Math.floor((vision.camera.ty - t) / (b - t) * 5)];
+
+				for (const [otherView, otherVision] of world.views) {
+					if (otherView === view || world.score(otherView) <= 0) continue;
+
+					// block respawns if both views are in the same (or adjacent) minimap squares
+					// for example, one view is in A4, block respawns in A3, A5, B3, B4, and B5
+					const otherSquare = [Math.floor((otherVision.camera.tx - l) / (r - l) * 5),
+						Math.floor((otherVision.camera.ty - t) / (b - t) * 5)];
+					if (Math.abs(otherSquare[0] - square[0]) <= 1 && Math.abs(otherSquare[1] - square[1]) <= 1) {
+						return;
+					}
+				}
+			}
+
+			connection.playBlock = { state: 'leaving', started: now };
+			net.chat('/leaveworld', view); // immediately remove from world, which removes all player cells
+			sendJson(view, 0x00, data); // enqueue into matchmaker (/joinworld is not available if dead)
+			setTimeout(() => { // wait until Matchmaker.update() puts us into a world
+			 	sendJson(view, 0x00, data); // spawn
+			}, 60); // = 40ms (1 tick) + 20ms (margin of error)
 		};
 
 		// create initial connection
@@ -3669,6 +3704,13 @@
 
 		const unfocused = () => ui.escOverlayVisible() || document.activeElement?.tagName === 'INPUT';
 
+		/** @param {symbol} view */
+		input.name = view => {
+			const i = world.multis.indexOf(view);
+			if (i <= 0) return input.nick[0]?.value ?? '';
+			else return settings.multiNames[i - 1];
+		};
+
 		/**
 		 * @param {symbol} view
 		 * @param {boolean} forceUpdate
@@ -3735,8 +3777,7 @@
 		/** @param {symbol} view */
 		input.autoRespawn = view => {
 			if (!world.alive()) return;
-			const name = input.nick[world.multis.indexOf(view) || 0].value;
-			net.play(world.selected, input.playData(name, false));
+			net.play(world.selected, input.playData(input.name(view), false));
 		};
 
 		/**
@@ -3744,13 +3785,14 @@
 		 */
 		input.tab = view => {
 			if (view === world.selected) return;
-			const inputs = create(world.selected);
+			const oldView = world.selected;
+			const inputs = create(oldView);
 			const newInputs = create(view);
 
 			newInputs.w = inputs.w;
 			inputs.w = false; // stop current tab from feeding; don't change forceW
 			// update mouse immediately (after setTimeout, when mouse events happen)
-			setTimeout(() => inputs.world = input.toWorld(world.selected, inputs.mouse = input.current));
+			setTimeout(() => inputs.world = input.toWorld(oldView, inputs.mouse = input.current));
 
 			world.selected = view;
 			world.create(world.selected);
@@ -3982,6 +4024,11 @@
 				ui.linesplit.update();
 				return;
 			}
+
+			if (e.isTrusted && e.key.toLowerCase() === sigmod.settings.respawnKey?.toLowerCase()) {
+				net.respawn(view, input.playData(input.name(view), false));
+				return;
+			}
 		});
 
 		addEventListener('keyup', e => {
@@ -4076,18 +4123,16 @@
 			'Can\'t find the spectate button. Try reloading the page?');
 
 		play.addEventListener('click', () => {
-			const name = input.nick[world.multis.indexOf(world.selected) || 0].value;
 			const con = net.connections.get(world.selected);
 			if (!con?.handshake) return;
 			ui.toggleEscOverlay(false);
-			net.play(world.selected, input.playData(name, false));
+			net.play(world.selected, input.playData(input.name(world.selected), false));
 		});
 		spectate.addEventListener('click', () => {
-			const name = input.nick[world.multis.indexOf(world.selected) || 0].value;
 			const con = net.connections.get(world.selected);
 			if (!con?.handshake) return;
 			ui.toggleEscOverlay(false);
-			net.play(world.selected, input.playData(name, true));
+			net.play(world.selected, input.playData(input.name(world.selected), true));
 		});
 
 		play.disabled = spectate.disabled = true;
