@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.7.4
+// @version      2.7.5-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.7.4';
+	const sfVersion = '2.7.5-BETA';
 	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -705,6 +705,7 @@
 			massOpacity: 1,
 			massScaleFactor: 1,
 			mergeCamera: true,
+			moveAfterLinesplit: false,
 			multibox: '',
 			/** @type {string[]} */
 			multiNames: [],
@@ -1368,6 +1369,9 @@
 		setting('Color under skin', [checkbox('colorUnderSkin')], () => true,
 			'When disabled, transparent skins will be see-through and not show your cell color. Turn this off ' +
 			'if using a bubble skin, for example.');
+		setting('Move after linesplit', [checkbox('moveAfterLinesplit')], () => true,
+			'When doing a horizontal or vertical linesplit, your position is frozen. With this setting enabled, you ' +
+			'will begin moving forwards in that axis once you split, letting you go farther than normal.');
 
 		setting(`<span style="padding: 2px 5px; border-radius: 10px; background: #76f; color: #fff;
 			font-weight: bold; font-size: 0.95rem; user-select: none;">yx's secret setting</span>`,
@@ -3658,7 +3662,7 @@
 		/** @type {Map<symbol, {
 		 * 		forceW: boolean,
 		 * 		lock: { type: 'point', mouse: [number, number], world: [number, number], until: number }
-		 * 			| { type: 'horizontal', world: [number, number] }
+		 * 			| { type: 'horizontal', world: [number, number], lastSplit: number }
 		 * 			| { type: 'vertical', world: [number, number], lastSplit: number }
 		 * 			| { type: 'fixed' }
 		 * 			| undefined,
@@ -3739,12 +3743,26 @@
 					break;
 				
 				case 'horizontal':
-					net.move(view, ...inputs.lock.world);
+					if (settings.moveAfterLinesplit && inputs.lock.lastSplit !== -Infinity) {
+						// move horizontally only after splitting to maximize distance travelled
+						if (Math.abs(inputs.mouse[0]) <= 0.2) {
+							net.move(view, inputs.mouse[0], inputs.lock.world[1]);
+						} else {
+							net.move(view, (2 ** 31 - 1) * (inputs.mouse[0] >= 0 ? 1 : -1), inputs.lock.world[1]);
+						}
+					} else {
+						net.move(view, ...inputs.lock.world);
+					}
 					return;
 
 				case 'vertical':
-					if (now - inputs.lock.lastSplit <= 150) {
-						net.move(view, inputs.lock.world[0], (2 ** 31 - 1) * (inputs.mouse[1] >= 0 ? 1 : -1));
+					if (settings.moveAfterLinesplit ? inputs.lock.lastSplit !== -Infinity : now - inputs.lock.lastSplit <= 150) {
+						// vertical linesplits require a bit of upwards movement to split upwards
+						if (Math.abs(inputs.mouse[1]) <= 0.2) {
+							net.move(view, inputs.lock.world[0], inputs.mouse[1]);
+						} else {
+							net.move(view, inputs.lock.world[0], (2 ** 31 - 1) * (inputs.mouse[1] >= 0 ? 1 : -1));
+						}
 					} else {
 						net.move(view, ...inputs.lock.world);
 					}
@@ -3774,7 +3792,9 @@
 		/** @param {symbol} view */
 		input.split = view => {
 			const inputs = create(view);
-			if (inputs?.lock?.type === 'vertical') inputs.lock.lastSplit = performance.now();
+			if (inputs?.lock?.type === 'vertical' || inputs?.lock?.type === 'horizontal') {
+				inputs.lock.lastSplit = performance.now();
+			}
 			input.move(view, true);
 			net.split(view);
 		};
@@ -4002,7 +4022,11 @@
 					return;
 				}
 
-				inputs.lock = { type: 'horizontal', world: [camera.sumX / camera.weight, camera.sumY / camera.weight] };
+				inputs.lock = {
+					type: 'horizontal',
+					world: [camera.sumX / camera.weight, camera.sumY / camera.weight],
+					lastSplit: -Infinity,
+				};
 				ui.linesplit.update();
 				return;
 			}
