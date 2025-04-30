@@ -3458,7 +3458,8 @@
 			const con = net.connections.get(view);
 			if (!vision || !con?.ws) return false;
 
-			return world.score(view) < 5500 || ['ca0.sigmally.com', 'ca1.sigmally.com', 'eu0.sigmally.com'].includes(con.ws.url);
+			// only allow respawns on localhost (players on personal private servers can simply append `localhost`)
+			return world.score(view) < 5500 || con.ws.url.includes('localhost');
 		};
 
 		// disconnect if a different gamemode is selected
@@ -3556,7 +3557,7 @@
 			const connection = net.connections.get(view);
 			const now = performance.now();
 			if (!data.state) {
-				if (!connection || (connection.playBlock !== undefined && now - connection.playBlock.started < 750)) return;
+				if (!connection || (connection.playBlock !== undefined && now - connection.playBlock.started < 750) || world.score(view) > 0) return;
 				connection.playBlock = { state: 'joining', started: now };
 				ui.deathScreen.hide();
 			}
@@ -3578,7 +3579,7 @@
 			if (score <= 0) { // if dead, no need to leave+rejoin the world
 				net.play(view, data);
 				return;
-			} else if (!net.respawnable(view)) return; // exit early if too big to respawn
+			} else if (!net.respawnable(view)) return;
 
 			if (settings.blockNearbyRespawns) {
 				const vision = world.views.get(view);
