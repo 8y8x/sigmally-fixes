@@ -2743,8 +2743,8 @@
 						} else; // both are visible and synchronized, so it doesn't matter
 					}
 
-					if (modelPair) cell.model = modelPair[1].frames[indices[modelPair[0]]];
-					else cell.model = undefined; // this 'else' should never happen
+					// in very rare circumstances, this ends up being undefined, for some reason
+					if (modelPair) cell.model = modelPair[1].frames[indices[modelPair[0]]] ?? cell.model;
 				}
 			}
 
