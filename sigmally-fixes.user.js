@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.7.5
+// @version      2.7.6
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.7.5';
+	const sfVersion = '2.7.6';
 	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -3728,8 +3728,8 @@
 		/** @param {symbol} view */
 		input.name = view => {
 			const i = world.multis.indexOf(view);
-			if (i <= 0) return input.nick[0]?.value ?? '';
-			else return settings.multiNames[i - 1];
+			if (i <= 0) return input.nick[0]?.value || '';
+			else return settings.multiNames[i - 1] || '';
 		};
 
 		/**
