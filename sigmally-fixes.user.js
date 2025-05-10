@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.7.6
+// @version      2.7.7
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.7.6';
+	const sfVersion = '2.7.7';
 	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -2370,7 +2370,8 @@
 				sets.set(view, new Set([view]));
 			}
 
-			if ((settings.multibox || settings.nbox) && settings.mergeCamera) {
+			// compute even if tabs won't actually be merged, because the multi outlines must still show
+			if (settings.multibox || settings.nbox) {
 				for (const [view, vision] of world.views) {
 					const set = /** @type {Set<symbol>} */ (sets.get(view));
 
@@ -2416,16 +2417,22 @@
 				let sumX = 0;
 				let sumY = 0;
 				let weight = 0;
-				for (const view of set) {
-					const camera = /** @type {SingleCamera} */ (cameras.get(view));
-					mass += camera.mass;
-					sumX += camera.sumX;
-					sumY += camera.sumY;
-					weight += camera.weight;
+				if (settings.mergeCamera) {
+					for (const view of set) {
+						const camera = /** @type {SingleCamera} */ (cameras.get(view));
+						mass += camera.mass;
+						sumX += camera.sumX;
+						sumY += camera.sumY;
+						weight += camera.weight;
+					}
 				}
 
 				for (const view of set) {
 					const vision = /** @type {Vision} */ (world.views.get(view));
+
+					if (!settings.mergeCamera) {
+						({ mass, sumX, sumY, weight } = /** @type {SingleCamera} */ (cameras.get(view)));
+					}
 
 					let xyFactor;
 					if (weight <= 0) {
