@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.7.7
+// @version      2.7.8-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.7.7';
+	const sfVersion = '2.7.8-BETA';
 	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -560,7 +560,8 @@
 
 		// patch sigmod when it's ready; typically sigmod loads first, but i can't guarantee that
 		sigmod.exists = false;
-		sigmod.proxy = {};
+		/** @type {((dat: DataView) => void) | undefined} */
+		sigmod.handleMessage = undefined;
 		let patchInterval;
 		sigmod.patch = () => {
 			const real = /** @type {any} */ (window).sigmod;
@@ -643,12 +644,9 @@
 					handler.R = handler.C = new Uint8Array(256); // R and C are linked
 					for (let i = 0; i < 256; ++i) handler.C[i] = i;
 
-					// expose some functions here, don't directly access the handler anywhere else
-					sigmod.proxy = {
-						/** @param {DataView} dat */
-						handleMessage: dat => handler.handleMessage({ data: dat.buffer }),
-						isPlaying: () => /** @type {any} */ (window).gameSettings.isPlaying = true,
-					};
+					// don't directly access the handler anywhere else
+					/** @param {DataView} dat */
+					sigmod.handleMessage = dat => handler.handleMessage({ data: dat.buffer });
 
 					// override sendPacket to properly handle what sigmod expects
 					/** @param {object} buf */
@@ -3414,7 +3412,7 @@
 					}
 				}
 
-				sigmod.proxy.handleMessage?.(dat);
+				sigmod.handleMessage?.(dat);
 			});
 			ws.addEventListener('open', () => {
 				establishedCallback?.();
@@ -3516,8 +3514,6 @@
 			dat.setInt32(1, x, true);
 			dat.setInt32(5, y, true);
 			connection.ws.send(dat);
-
-			sigmod.proxy.isPlaying?.(); // without this, the respawn key will build up timeouts and make the game laggy
 		};
 
 		/** @param {number} opcode */
