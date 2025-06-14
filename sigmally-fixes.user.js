@@ -2183,6 +2183,8 @@
 					return;
 				}
 
+				overlay.style.color = aux.settings.darkTheme ? '#fffc' : '#000c';
+
 				if (inputs.lock.type === 'horizontal') {
 					// left-right arrow svg
 					overlay.innerHTML = `
