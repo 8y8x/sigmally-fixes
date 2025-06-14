@@ -2263,7 +2263,7 @@
 	 * 		updated: number,
 	 * 	},
 	 * 	leaderboard: { name: string, me: boolean, sub: boolean, place: number | undefined }[],
-	 * 	owned: number[],
+	 * 	owned: Set<number>,
 	 * 	spawned: number,
 	 * 	stats: object | undefined,
 	 * 	used: number,
@@ -2477,7 +2477,7 @@
 				border: undefined,
 				camera: { x: 0, tx: 0, y: 0, ty: 0, scale: 0, tscale: 0, merged: false, updated: performance.now() - 1 },
 				leaderboard: [],
-				owned: [],
+				owned: new Set(),
 				spawned: -Infinity,
 				stats: undefined,
 				used: -Infinity,
@@ -2991,7 +2991,7 @@
 
 				vision.border = undefined;
 				// don't reset vision.camera
-				vision.owned = [];
+				vision.owned = new Set();
 				vision.leaderboard = [];
 				vision.spawned = -Infinity;
 				vision.stats = undefined;
@@ -3113,7 +3113,7 @@
 								born: frame.born, deadAt: now, deadTo: killerId,
 							};
 
-							if (pellet && vision.owned.includes(killerId)) {
+							if (pellet && vision.owned.has(killerId)) {
 								++world.stats.foodEaten;
 								net.food(view); // dumbass quest code go brrr
 							}
@@ -3233,7 +3233,7 @@
 									}
 
 									if (base && name === base.name && rgb[0] === base.rgb[0] && rgb[1] === base.rgb[1] && rgb[2] === base.rgb[2]) {
-										vision.owned.push(id);
+										vision.owned.add(id);
 									}
 								}
 							}
@@ -3266,10 +3266,10 @@
 						render.upload(true);
 
 						// (e) : clear own cells that don't exist anymore (NOT on world.clean!)
-						for (let i = 0; i < vision.owned.length; ++i) {
-							const cell = world.cells.get(vision.owned[i]);
+						for (const id of vision.owned) {
+							const cell = world.cells.get(id);
 							if (!cell) {
-								vision.owned.splice(i--, 1);
+								vision.owned.delete(id);
 								continue;
 							}
 							const record = cell?.views.get(view);
@@ -3345,7 +3345,7 @@
 						if (first) world.stats.spawnedAt = now;
 						if (firstThis) vision.spawned = now;
 
-						vision.owned.push(dat.getUint32(o, true));
+						vision.owned.add(dat.getUint32(o, true));
 						break;
 					}
 
@@ -5117,7 +5117,7 @@
 
 			let ownerView;
 			for (const [view, vision] of world.views) {
-				if (vision.owned.includes(cell.id)) {
+				if (vision.owned.has(cell.id)) {
 					ownerView = view;
 					break;
 				}
@@ -5421,8 +5421,9 @@
 
 				// for white cell outlines
 				let nextCellIdx = 0;
+				const ownedArray = Array.from(vision.owned);
 				/** @type {(CellFrame | undefined)[]} */
-				const ownedToFrame = vision.owned.map(id => {
+				const ownedToFrame = ownedArray.map(id => {
 					const cell = world.cells.get(id);
 					return world.synchronized ? cell?.merged : cell?.views.get(world.selected)?.frames[0];
 				});
@@ -5528,14 +5529,14 @@
 						let ownerView;
 						let ownerVision;
 						for (const [otherView, otherVision] of world.views) {
-							if (!otherVision.owned.includes(cell.id)) continue;
+							if (!otherVision.owned.has(cell.id)) continue;
 							ownerView = otherView;
 							ownerVision = otherVision;
 							break;
 						}
 
 						if (ownerView === world.selected) {
-							const myIndex = vision.owned.indexOf(cell.id);
+							const myIndex = ownedArray.indexOf(cell.id);
 							if (!canSplit[myIndex]) cellUboInts[9] |= 0x10;
 
 							if (vision.camera.merged) cellUboInts[9] |= 0x04;
@@ -5800,7 +5801,7 @@
 
 					// resize by powers of 2
 					let capacity = tracerFloats.length || 1;
-					while (vision.owned.length * 4 > capacity) capacity *= 2;
+					while (vision.owned.size * 4 > capacity) capacity *= 2;
 					const resizing = capacity !== tracerFloats.length;
 					if (resizing) tracerFloats = new Float32Array(capacity);
 
@@ -5970,7 +5971,7 @@
 					let ownedByOther = false;
 					for (const [view, vision] of world.views) {
 						if (view === world.selected) continue;
-						ownedByOther = vision.owned.includes(cell.id) && frame.born >= vision.spawned;
+						ownedByOther = vision.owned.has(cell.id) && frame.born >= vision.spawned;
 						if (ownedByOther) break;
 					}
 					if ((!desc.clan || desc.clan !== aux.userData?.clan) && !ownedByOther) continue;
