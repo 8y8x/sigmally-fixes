@@ -2917,7 +2917,6 @@
 
 		// #1 : define state
 		/** @type {Map<symbol, {
-		 * 		captchaType: string | undefined,
 		 * 		handshake: { shuffle: Uint8Array, unshuffle: Uint8Array } | undefined,
 		 * 		latency: number | undefined,
 		 * 		pinged: number | undefined,
@@ -2933,7 +2932,6 @@
 			if (net.connections.has(view)) return;
 
 			net.connections.set(view, {
-				captchaType: undefined,
 				handshake: undefined,
 				latency: undefined,
 				pinged: undefined,
@@ -3220,6 +3218,23 @@
 										model: undefined,
 										views: new Map([[ view, record ]]),
 									});
+								}
+
+								if (settings.synchronization === 'latest' && !pellet && !eject && rgb) {
+									// 'latest' requires us to predict which cells we will own
+									// a name + color check should be enough
+									/** @type {CellDescription | undefined} */
+									let base;
+									for (const id of vision.owned) {
+										const desc = world.cells.get(id)?.views.get(view);
+										if (!desc || desc.frames[0].deadAt !== undefined) continue;
+										base = desc;
+										break;
+									}
+
+									if (base && name === base.name && rgb[0] === base.rgb[0] && rgb[1] === base.rgb[1] && rgb[2] === base.rgb[2]) {
+										vision.owned.push(id);
+									}
 								}
 							}
 						} while (true);
