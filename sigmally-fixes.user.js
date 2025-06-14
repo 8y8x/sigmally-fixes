@@ -486,6 +486,7 @@
 
 		/** @type {{
 		 * 	cellColor?: [number, number, number, number],
+		 * 	doubleKey?: string,
 		 * 	fixedLineKey?: string,
 		 * 	foodColor?: [number, number, number, number],
 		 * 	font?: string,
@@ -494,6 +495,7 @@
 		 * 	nameColor1?: [number, number, number, number],
 		 * 	nameColor2?: [number, number, number, number],
 		 * 	outlineColor?: [number, number, number, number],
+		 * 	quadKey?: string,
 		 * 	rapidFeedKey?: string,
 		 * 	removeOutlines?: boolean,
 		 * 	respawnKey?: string,
@@ -545,7 +547,6 @@
 			// sigmod's showNames setting is always "true" interally (i think??)
 			sigmod.settings.showNames = aux.setting('input#showNames', true);
 
-			sigmod.settings.tripleKey = real.macros?.keys?.splits?.triple || undefined;
 			sigmod.settings.font = real.game?.font;
 
 			// sigmod does not download the bold variants of fonts, so we have to do that ourselves
@@ -591,36 +592,40 @@
 				};
 			}
 
-			// disable linesplit keys on sigmod's end and enable them here
-			const lineKeys = real.settings?.macros?.keys?.line;
-			if (lineKeys) {
-				sigmod.settings.horizontalLineKey = lineKeys.horizontal;
-				sigmod.settings.verticalLineKey = lineKeys.vertical;
-				sigmod.settings.fixedLineKey = lineKeys.fixed;
-				/** @param {keyof typeof sigmod.settings} key */
-				const getset = key => ({
-					// toJSON and toString are implemented so that the key still displays and saves properly,
-					// while returning an object that would never match anything in a keydown event
-					get: () => ({ toJSON: () => sigmod.settings[key], toString: () => sigmod.settings[key] }),
-					set: x => sigmod.settings[key] = x,
-				});
-				Object.defineProperties(lineKeys, {
-					horizontal: getset('horizontalLineKey'),
-					vertical: getset('verticalLineKey'),
-					fixed: getset('fixedLineKey'),
-				});
-			}
-			// also disable sigmod's respawn key and reimplement it here
+			// disable all keys on sigmod's end and enable them here
+			/** @param {keyof typeof sigmod.settings} key */
+			const getset = key => ({
+				// toJSON and toString are implemented so that the key still displays and saves properly,
+				// while returning an object that would never match anything in a keydown event
+				get: () => ({ toJSON: () => sigmod.settings[key], toString: () => sigmod.settings[key] }),
+				set: x => sigmod.settings[key] = x,
+			});
 			const keys = real.settings?.macros?.keys;
 			if (keys) {
 				sigmod.settings.respawnKey = keys.respawn;
-				Object.defineProperty(keys, 'respawn', {
-					get: () => ({
-						toJSON: () => sigmod.settings.respawnKey,
-						toString: () => sigmod.settings.respawnKey,
-					}),
-					set: x => sigmod.settings.respawnKey = x,
-				});
+				Object.defineProperty(keys, 'respawn', getset('respawnKey'));
+
+				if (keys.line) {
+					sigmod.settings.horizontalLineKey = keys.line.horizontal;
+					sigmod.settings.verticalLineKey = keys.line.vertical;
+					sigmod.settings.fixedLineKey = keys.line.fixed;
+					Object.defineProperties(keys.line, {
+						horizontal: getset('horizontalLineKey'),
+						vertical: getset('verticalLineKey'),
+						fixed: getset('fixedLineKey'),
+					});
+				}
+
+				if (keys.splits) {
+					sigmod.settings.doubleKey = keys.splits.double;
+					sigmod.settings.tripleKey = keys.splits.triple;
+					sigmod.settings.quadKey = keys.splits.quad;
+					Object.defineProperties(keys.splits, {
+						double: getset('doubleKey'),
+						triple: getset('tripleKey'),
+						quad: getset('quadKey'),
+					});
+				}
 			}
 
 			// create a fake sigmally proxy for sigmod, which properly relays some packets (because SigMod does not
@@ -697,6 +702,7 @@
 			clans: false,
 			clanScaleFactor: 1,
 			colorUnderSkin: true,
+			delayDouble: false,
 			drawDelay: 120,
 			jellySkinLag: true,
 			massBold: false,
@@ -1370,6 +1376,11 @@
 		setting('Move after linesplit', [checkbox('moveAfterLinesplit')], () => true,
 			'When doing a horizontal or vertical linesplit, your position is frozen. With this setting enabled, you ' +
 			'will begin moving forwards in that axis once you split, letting you go farther than normal.');
+		setting(`Delay pushsplits ${newTag}`, [checkbox('delayDouble')], () => true,
+			'When in 5+ cells, doing a doublesplit may cause your cells to go like { O∘∘ } and not { ∘∘∘∘ } - which ' +
+			'is useful, but when using the doublesplit keybind, those small back pieces may go in front. ' +
+			'When this setting is enabled, a 50ms delay will be added to the second split only when in 5+ cells, ' +
+			'typically fixing the problem.');
 
 		setting(`<span style="padding: 2px 5px; border-radius: 10px; background: #76f; color: #fff;
 			font-weight: bold; font-size: 0.95rem; user-select: none;">yx's secret setting</span>`,
@@ -3820,14 +3831,17 @@
 			net.move(view, ...inputs.world);
 		};
 
-		/** @param {symbol} view */
-		input.split = view => {
+		/**
+		 * @param {symbol} view
+		 * @param {number=} count
+		 */
+		input.split = (view, count = 1) => {
 			const inputs = create(view);
 			if (inputs?.lock?.type === 'vertical' || inputs?.lock?.type === 'horizontal') {
 				inputs.lock.lastSplit = performance.now();
 			}
 			input.move(view, true);
-			net.split(view);
+			for (let i = 0; i < count; ++i) net.split(view);
 		};
 
 		/** @param {symbol} view */
@@ -4031,19 +4045,29 @@
 				}
 			}
 
-			// use e.isTrusted in case the key was bound to W
-			if (e.isTrusted && e.key.toLowerCase() === sigmod.settings.tripleKey?.toLowerCase()) {
-				// don't override any locks, and don't update 'until'
-				inputs.lock ||= {
-					type: 'point',
-					mouse: inputs.mouse,
-					world: input.toWorld(world.selected, inputs.mouse),
-					until: performance.now() + 650,
-				};
-			}
-
 			const vision = world.views.get(view);
 			if (!vision) return;
+
+			// use e.isTrusted in case the key was bound to W
+			if (e.isTrusted && !e.repeat) {
+				if (e.key.toLowerCase() === sigmod.settings.doubleKey?.toLowerCase()) {
+					setTimeout(() => input.split(view));
+					// separate both splits by 50ms (at least one tick, 40ms) to ensure the correct piece goes in front
+					// only when pushsplitting
+					setTimeout(() => input.split(view), (vision.owned.size > 4 && settings.delayDouble) ? 50 : 0);
+				} else if (e.key.toLowerCase() === sigmod.settings.tripleKey?.toLowerCase()) {
+					// don't override any locks, and don't update 'until'
+					inputs.lock ||= {
+						type: 'point',
+						mouse: inputs.mouse,
+						world: input.toWorld(world.selected, inputs.mouse),
+						until: performance.now() + 650,
+					};
+					setTimeout(() => input.split(view, 3));
+				} else if (e.key.toLowerCase() === sigmod.settings.quadKey?.toLowerCase()) {
+					setTimeout(() => input.split(view, 4));
+				}
+			}
 			const camera = world.singleCamera(view, vision, 0, Infinity); // use latest data (.nx, .ny), uninterpolated
 
 			if (e.isTrusted && e.key.toLowerCase() === sigmod.settings.horizontalLineKey?.toLowerCase()) {
