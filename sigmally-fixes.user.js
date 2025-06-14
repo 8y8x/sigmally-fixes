@@ -2499,13 +2499,25 @@
 			return vision;
 		};
 
+		let wasFlawlessSynchronized = false;
 		/** @type {number | undefined} */
 		let disagreementAt, disagreementStart;
 		world.synchronized = false;
 		world.merge = () => {
+			if (wasFlawlessSynchronized && settings.synchronization !== 'flawless') {
+				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+					for (const cell of world[key].values()) {
+						for (const record of cell.views.values()) {
+							for (let i = 1, l = record.frames.length; i < l; ++i) record.frames.pop();
+						}
+					}
+				}
+			}
+
 			if (!settings.synchronization || world.views.size <= 1) {
 				disagreementStart = disagreementAt = undefined;
 				world.synchronized = false;
+				wasFlawlessSynchronized = false;
 				return;
 			}
 
@@ -2706,11 +2718,15 @@
 					if (now - disagreementStart > 1000) world.synchronized = false;
 					return;
 				}
+
+				wasFlawlessSynchronized = true;
 			} else { // settings.synchronization === 'latest'
 				let i = 0;
 				for (const view of world.views.keys()) {
 					indices[i++] = indices[view] = 0;
 				}
+
+				wasFlawlessSynchronized = false;
 			}
 
 			// #4 : find a model frame for all cells and pellets
@@ -2735,23 +2751,30 @@
 
 						if (modelDisappeared && thisDisappeared) {
 							// both have currently disappeared; prefer the one that "disappeared" later
-							for (let off = 1; off < 12; ++off) {
-								const modelFrameOffset = model.frames[indices[modelView] + off];
-								const frameOffset = record.frames[indices[view] + off];
+							if (settings.synchronization === 'flawless') {
+								for (let off = 1; off < 12; ++off) {
+									const modelFrameOffset = model.frames[indices[modelView] + off];
+									const frameOffset = record.frames[indices[view] + off];
 
-								const modelOffsetAlive = modelFrameOffset && modelFrameOffset.deadAt === undefined;
-								const frameOffsetAlive = frameOffset && frameOffset.deadAt === undefined;
-								if (modelOffsetAlive && frameOffsetAlive) {
-									// both disappeared at the same time, doesn't matter
-									continue modelViewLoop;
-								} else if (modelOffsetAlive && !frameOffsetAlive) {
-									// model disappeared last, so prefer it
-									continue modelViewLoop;
-								} else if (!modelOffsetAlive && frameOffsetAlive) {
-									// current disappeared last, so prefer it
-									modelPair = pair;
-									continue modelViewLoop;
-								} else; // we haven't found when either one disappeared
+									const modelOffsetAlive = modelFrameOffset && modelFrameOffset.deadAt === undefined;
+									const frameOffsetAlive = frameOffset && frameOffset.deadAt === undefined;
+									if (modelOffsetAlive && frameOffsetAlive) {
+										// both disappeared at the same time, doesn't matter
+										continue modelViewLoop;
+									} else if (modelOffsetAlive && !frameOffsetAlive) {
+										// model disappeared last, so prefer it
+										continue modelViewLoop;
+									} else if (!modelOffsetAlive && frameOffsetAlive) {
+										// current disappeared last, so prefer it
+										modelPair = pair;
+										continue modelViewLoop;
+									} else; // we haven't found when either one disappeared
+								}
+							} else {
+								// if (!modelFrame && !frame) leave the model as is
+								// else if (modelFrame && !frame) leave the model as is
+								if (!modelFrame && frame) modelPair = pair;
+								else if (modelFrame && frame && /** @type {number} */ (frame.deadAt) > /** @type {number} */ (modelFrame.deadAt)) modelPair = pair;
 							}
 						} else if (modelDisappeared && !thisDisappeared) {
 							// current is the only one visible, so prefer it
@@ -2808,7 +2831,7 @@
 				for (const cell of world[key].values()) {
 					for (const [view, record] of cell.views) {
 						// leave the current frame, because .frames must have at least one element
-						record.frames.splice(indices[view] + 1, Infinity);
+						for (let i = indices[view] + 1, l = record.frames.length; i < l; ++i) record.frames.pop();
 					}
 				}
 			}
@@ -3085,13 +3108,15 @@
 				switch (dat.getUint8(0)) {
 					case 0x10: { // world update
 						// carry forward record frames
-						for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-							for (const cell of world[key].values()) {
-								const record = cell.views.get(view);
-								if (!record) continue;
+						if (settings.synchronization === 'flawless') {
+							for (const key of /** @type {const} */ (['cells', 'pellets'])) {
+								for (const cell of world[key].values()) {
+									const record = cell.views.get(view);
+									if (!record) continue;
 
-								record.frames.unshift(record.frames[0]);
-								record.frames.splice(12, Infinity);
+									record.frames.unshift(record.frames[0]);
+									for (let i = 12, l = record.frames.length; i < l; ++i) record.frames.pop();
+								}
 							}
 						}
 
@@ -3318,10 +3343,16 @@
 								if (!record) continue;
 
 								const frame = record.frames[0];
-								record.frames.unshift({
-									nx: frame.nx, ny: frame.ny, nr: frame.nr,
-									born: frame.born, deadAt: frame.deadAt ?? now, deadTo: frame.deadTo || -1,
-								});
+								if (settings.synchronization === 'flawless') {
+									record.frames.unshift({
+										nx: frame.nx, ny: frame.ny, nr: frame.nr,
+										born: frame.born, deadAt: frame.deadAt ?? now, deadTo: frame.deadTo || -1,
+									});
+								} else {
+									const frameWritable = /** @type {CellFrameWritable} */ (frame);
+									frameWritable.deadAt ??= now;
+									frameWritable.deadTo ||= -1;
+								}
 							}
 						}
 						world.merge();
