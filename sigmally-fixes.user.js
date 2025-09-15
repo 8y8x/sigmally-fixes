@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.7.8
+// @version      2.8.0-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -27,7 +27,7 @@
 'use strict';
 
 (async () => {
-	const sfVersion = '2.7.8';
+	const sfVersion = '2.8.0-BETA';
 	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -1500,6 +1500,7 @@
 				'- Maybe your browser is just acting weird and it might fix itself after a restart; \r\n' +
 				'- Maybe your GPU drivers are exceptionally old.',
 			);
+			gl.drawingBufferColorSpace = 'display-p3';
 
 			game.gl = gl;
 
@@ -1817,7 +1818,7 @@
 			document.body.appendChild(canvas);
 
 			const ctx = aux.require(
-				canvas.getContext('2d', { willReadFrequently: false }),
+				canvas.getContext('2d', { colorSpace: 'display-p3', willReadFrequently: false }),
 				'Unable to get 2D context for the minimap. This is probably your browser being dumb, maybe reload ' +
 				'the page?',
 			);
