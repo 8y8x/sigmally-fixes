@@ -1498,7 +1498,6 @@
 				'- Maybe your browser is just acting weird and it might fix itself after a restart; \r\n' +
 				'- Maybe your GPU drivers are exceptionally old.',
 			);
-			gl.drawingBufferColorSpace = 'display-p3';
 
 			game.gl = gl;
 
@@ -1816,7 +1815,7 @@
 			document.body.appendChild(canvas);
 
 			const ctx = aux.require(
-				canvas.getContext('2d', { colorSpace: 'display-p3', willReadFrequently: false }),
+				canvas.getContext('2d', { willReadFrequently: false }),
 				'Unable to get 2D context for the minimap. This is probably your browser being dumb, maybe reload ' +
 				'the page?',
 			);
