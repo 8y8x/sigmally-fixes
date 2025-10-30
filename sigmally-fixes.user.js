@@ -324,9 +324,7 @@
 		 * @param {string} text
 		 */
 		aux.trim = text => {
-			while (trimCtx.measureText(text).width > 250)
-				text = text.slice(0, -1);
-
+			while (trimCtx.measureText(text).width > 250) text = text.slice(0, -1);
 			return text;
 		};
 
@@ -1953,9 +1951,7 @@
 				msg.textContent = server ? text : aux.trim(text); // /help text can get cut off
 				container.appendChild(msg);
 
-				while (list.children.length > 100)
-					list.firstChild?.remove();
-
+				while (list.children.length > 100) list.firstChild?.remove();
 				list.appendChild(container);
 
 				scroll();
@@ -2509,7 +2505,7 @@
 				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
 					for (const cell of world[key].values()) {
 						for (const record of cell.views.values()) {
-							for (let i = 1, l = record.frames.length; i < l; ++i) record.frames.pop();
+							record.frames.length = 1;
 						}
 					}
 				}
@@ -2832,7 +2828,7 @@
 				for (const cell of world[key].values()) {
 					for (const [view, record] of cell.views) {
 						// leave the current frame, because .frames must have at least one element
-						for (let i = indices[view] + 1, l = record.frames.length; i < l; ++i) record.frames.pop();
+						if (record.frames.length > indices[view] + 1) record.frames.length = indices[view] + 1;
 					}
 				}
 			}
@@ -3116,7 +3112,7 @@
 									if (!record) continue;
 
 									record.frames.unshift(record.frames[0]);
-									for (let i = 12, l = record.frames.length; i < l; ++i) record.frames.pop();
+									if (record.frames.length > 12) record.frames.length = 12;
 								}
 							}
 						}
@@ -5079,7 +5075,7 @@
 			const resetTextCache = () => {
 				cache.clear();
 				maxMassWidth = 0;
-				while (massTextCache.length > 0) massTextCache.pop();
+				massTextCache.length = 0;
 			};
 
 			/** @type {{
