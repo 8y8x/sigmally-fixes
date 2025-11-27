@@ -344,9 +344,7 @@
 	////////////////////////
 	// Destroy Old Client //
 	////////////////////////
-	const destructor = (() => {
-		const destructor = {};
-
+	(() => {
 		const vanillaStack = () => {
 			try {
 				throw new Error();
@@ -358,41 +356,31 @@
 
 		// #1 : kill the rendering process
 		const oldRQA = requestAnimationFrame;
-		window.requestAnimationFrame = function(fn) {
-			return vanillaStack() ? -1 : oldRQA(fn);
-		};
+		window.requestAnimationFrame = fn => vanillaStack() ? -1 : oldRQA(fn);
 
 		// #2 : kill access to using a WebSocket
-		destructor.realWebSocket = WebSocket;
-		Object.defineProperty(window, 'WebSocket', {
-			value: new Proxy(WebSocket, {
-				construct(_target, argArray, _newTarget) {
-					if (argArray[0].includes('sigmally.com') && vanillaStack()) {
-						throw new Error('sigfix: Preventing new WebSocket() for unknown Sigmally connection');
-					}
-
-					// @ts-expect-error
-					return new destructor.realWebSocket(...argArray);
-				},
-			}),
+		window.WebSocket = new Proxy(WebSocket, {
+			construct(target, args) {
+				if (args[0].includes('sigmally.com') && vanillaStack())
+					throw new Error('[Sigmally Fixes]: Preventing new WebSocket() for unknown Sigmally connection');
+				
+				return new target(...args);
+			}
 		});
 
-		const cmdRepresentation = new TextEncoder().encode('/leaveworld').toString();
-		destructor.realWsSend = WebSocket.prototype.send;
-		WebSocket.prototype.send = function (x) {
+		const oldWsSend = WebSocket.prototype.send;
+		WebSocket.prototype.send = function(x) {
 			if (vanillaStack() && this.url.includes('sigmally.com')) {
-				this.onclose = null;
+				this.onclose = null; // prevent automatic reconnect
 				this.close();
-				throw new Error('sigfix: Preventing .send on unknown Sigmally connection');
+				throw new Error('[Sigmally Fixes]: Preventing WebSocket.prototype.send on unknown Sigmally connection');
 			}
 
-			return destructor.realWsSend.apply(this, arguments);
-		};
+			return oldWsSend.call(this, x);
+		}
 
-		// #3 : prevent keys from being registered by the game
+		// #3 : prevent keys from being registered by the vanilla game
 		setInterval(() => onkeydown = onkeyup = null, 200);
-
-		return destructor;
 	})();
 
 
