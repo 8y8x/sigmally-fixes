@@ -2015,17 +2015,12 @@
 	const world = (() => {
 		const world = {};
 
-		// #1 : define cell variables and functions
 		/** @type {Map<number, Cell>} */
 		world.cells = new Map();
 		/** @type {Map<number, Cell>} */
 		world.pellets = new Map();
 		world.multis = [Symbol(), Symbol(), Symbol(), Symbol(), Symbol(), Symbol(), Symbol(), Symbol()];
-		world.viewId = {
-			primary: world.multis[0],
-			secondary: world.multis[1],
-			spectate: Symbol(),
-		};
+		world.viewId = { primary: world.multis[0], secondary: world.multis[1], spectate: Symbol() };
 		world.selected = world.viewId.primary;
 		/** @type {Map<symbol, Vision>} */
 		world.views = new Map();
@@ -2036,9 +2031,7 @@
 					const cell = world.cells.get(id);
 					// if a cell does not exist yet, we treat it as alive
 					if (!cell) return true;
-
-					const frame = cell.views.get(view)?.frames[0];
-					if (frame?.deadAt === undefined) return true;
+					if (cell.views.get(view)?.frames[0].deadAt === undefined) return true;
 				}
 			}
 			return false;
@@ -2056,12 +2049,8 @@
 			vision ??= world.views.get(view);
 			if (!vision) return { mass: 0, scale: 1, sumX: 0, sumY: 0, weight: 0 };
 
-			let mass = 0;
-			let r = 0;
-			let sumX = 0;
-			let sumY = 0;
-			let weight = 0;
-			for (const id of (world.views.get(view)?.owned ?? [])) {
+			let mass = 0, r = 0, sumX = 0, sumY = 0, weight = 0;
+			for (const id of (vision.owned ?? [])) {
 				const cell = world.cells.get(id);
 				/** @type {CellFrame | undefined} */
 				const frame = world.synchronized ? cell?.merged : cell?.views.get(view)?.frames[0];
@@ -2091,8 +2080,7 @@
 				}
 			}
 
-			const scale = Math.min(64 / r, 1) ** 0.4;
-			return { mass, scale, sumX, sumY, weight };
+			return { mass, scale: Math.min(64 / r, 1) ** 0.4, sumX, sumY, weight };
 		};
 
 		/**
@@ -2154,10 +2142,7 @@
 			const computed = new Set();
 			for (const set of sets.values()) {
 				if (computed.has(set)) continue;
-				let mass = 0;
-				let sumX = 0;
-				let sumY = 0;
-				let weight = 0;
+				let mass = 0, sumX = 0, sumY = 0, weight = 0;
 				if (settings.mergeCamera) {
 					for (const view of set) {
 						const camera = /** @type {SingleCamera} */ (cameras.get(view));
@@ -2202,7 +2187,6 @@
 					vision.camera.y = aux.exponentialEase(vision.camera.y, vision.camera.ty, xyFactor, dt);
 					vision.camera.scale
 						= aux.exponentialEase(vision.camera.scale, input.zoom * vision.camera.tscale, 9, dt);
-
 					vision.camera.merged = set.size > 1;
 					vision.camera.updated = now;
 				}
@@ -2237,9 +2221,7 @@
 			if (wasFlawlessSynchronized && settings.synchronization !== 'flawless') {
 				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
 					for (const cell of world[key].values()) {
-						for (const record of cell.views.values()) {
-							record.frames.length = 1;
-						}
+						for (const record of cell.views.values()) record.frames.length = 1;
 					}
 				}
 			}
@@ -2250,84 +2232,6 @@
 				wasFlawlessSynchronized = false;
 				return;
 			}
-
-			// the obvious solution to merging tabs is to prefer the primary tab's cells, then tack on the secondary
-			// tab's cells. this is fast and easy, but causes very noticeable flickering and warping when a cell enters
-			// or leaves the primary tab's vision. this is what delta suffers from.
-			//
-			// we could instead check cells visible on both tabs to see if they share the same target x, y, and r.
-			// if they all do, then the connections are synchronized and both visions can be merged.
-			// this works well, however latency can fluctuate and results in connections being completely unable to
-			// synchronize between themselves if they are off by at least 40ms. this happens often, and significantly
-			// more to players who usually have higher ping.
-			//
-			// in the below approach, we keep a record of how every cell is updated (where a lower index => more recent)
-			// and try to figure out the lowest possible index for all views such that they see the same frames across
-			// all cells.
-			// however, doing this is complicated. consider the following scenarios:
-			//
-			// > Scenario #1
-			// > a cell is standing still and visible across multiple views. then every frame will have a perfect match
-			// > between views, regardless of each connection's latency, and no frames will be ruled out.
-			// > therefore, finding a perfect match across multiple indices of 0 MUST NOT imply a perfect match could
-			// > be found on all other cells.
-			//
-			// > Scenario #2
-			// > view A has been alone observing a cell for a while, and view A has abnormally high ping.
-			// > that cell now comes into view B's vision, but view B has much better ping.
-			// > therefore, the frame(s) view B sees of that cell will be completely disjoint from view A's.
-			// > therefore, a match not existing MUST NOT imply the visions cannot be synchronized.
-			//
-			// > Scenario #3
-			// > view A and view B have been observing a cell for a while. view A has abnormally high ping.
-			// > the cell momentarily exits view B's vision, then after a few ticks re-enters its vision.
-			// > once view A catches up to a frame that was missed by view B (because the cell was out of B's vision),
-			// > it will not be able to find a match.
-			// > therefore, this MUST NOT imply that view A's latest frames cannot be used.
-			//
-			// the solution involves undirected bipartite graphs representing two different views and which indices are
-			// compatible with each other. for example:
-			// >       (view A)                      (view B)
-			// > 0 (x=12, y=34, r=56)     ┌─── 0 (x=44, y=55, r=66)
-			// > 1 (x=34, y=56, r=61)     │    1 (x=55, y=66, r=77)
-			// > 2 (x=44, y=55, r=66) ────┘
-			// > there is a compatible connection between 2A - 0B (illustrated)
-			// > there are incompatible connections between 0A - 0B, 0A - 1B, 1A - 0B, 1A - 1B, 2A - 1B
-			// > there are no connections between 0A - 2B, 1A - 2B, 2A - 2B, 0A - 3B, ...etc
-			//
-			// >       (view A)                      (view B)
-			// > 0 (x=1, y=1, r=100)   ┌────── 0 (x=2, y=2, r=100)
-			// > 1 (x=2, y=2, r=100) ──┘ ┌──── 1 (x=3, y=3, r=100)
-			// > 2 (x=3, y=3, r=100) ────┘ ┌── 2 (x=4, y=4, r=100)
-			// > 3 (x=4, y=4, r=100) ──────┘   3 (x=5, y=5, r=101)
-			// > there are compatible connections between 1A - 0B, 2A - 1B, 3A - 2B
-			// > there are incompatible connections between 0A - 0B, 0A - 1B, ..., 1A - 1B, 1A - 1C, ...
-			// > there are no connections between 0A - 4B, 1A - 4B, ..., 0A - 5B, ...
-			//
-			// then, we connect all bipartite graphs together and find the smallest indices across all views.
-			// but how does this actually scale?
-			//
-			// if there are two views, then we start at the first view on the first index. then:
-			// - if there is a compatible connection to the second view, use it, and we're done.
-			// - if not, and if there is an incompatible connection, then increment index by 1. repeat.
-			// - if there are no connections, then we're done.
-			//
-			// now if there are more views, start at the first view[1] (meaning 1st index). then:
-			// - check for a compatible connection to the second view[1], [2], ..., [12].
-			// - if there is a compatible connection on index i:
-			//     - check for a compatible connection from second view[i] to the third view[1], [2], ..., [12].
-			//     - if there is a compatible connection on index j:
-			//         - first, ensure it is also compatible with the first view[1] (backwards compatibility)
-			//         - if it isn't, then treat this as an incompatible connection
-			//         - otherwise, if all views agree, then try checking the fourth view
-			//     - if there isn't, but there is an incompatible connection, then flag a disagreement
-			// - if there isn't, but there is an incompatible connection, then flag a disagreement
-			// - otherwise, a "cluster" has been completely found (a collection of nearby views). go to the next view
-			//   that isn't part of any cluster, and repeat
-			//
-			// note that if one tab sees a cell as "dead", the connection is also deemed compatible. this is to ensure
-			// there are no long lag spikes while one tab leaves from another tab (for example, when the spectator tab
-			// teleports away).
 
 			const now = performance.now();
 			/** @type {{ [x: number | symbol]: number }} indexed by viewInt or symbol view */
@@ -2452,9 +2356,7 @@
 				wasFlawlessSynchronized = true;
 			} else { // settings.synchronization === 'latest'
 				let i = 0;
-				for (const view of world.views.keys()) {
-					indices[i++] = indices[view] = 0;
-				}
+				for (const view of world.views.keys()) indices[i++] = indices[view] = 0;
 
 				wasFlawlessSynchronized = false;
 			}
@@ -2577,10 +2479,7 @@
 			let score = 0;
 			for (const id of (world.views.get(view)?.owned ?? [])) {
 				const cell = world.cells.get(id);
-				if (!cell) continue;
-
-				/** @type {CellFrame | undefined} */
-				const frame = world.synchronized ? cell.merged : cell.views.get(view)?.frames[0];
+				const frame = world.synchronized ? cell?.merged : cell?.views.get(view)?.frames[0];
 				if (!frame || frame.deadAt !== undefined) continue;
 				score += frame.nr * frame.nr / 100; // use exact score as given by the server, no interpolation
 			}
@@ -2608,16 +2507,12 @@
 				ny = killerXyr.y;
 			}
 
-			let x, y, r, a;
-			if (pellet && frame.deadAt === undefined) {
-				x = nx;
-				y = ny;
-				r = frame.nr;
-				a = 1;
-			} else {
+			let x = nx, y = ny, r = frame.r, a = 1;
+			if (!pellet || frame.deadAt !== undefined) {
 				let alpha = (now - interp.updated) / settings.drawDelay;
 				alpha = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
 
+				// TODO: why are we not using aux.exponentialEase?
 				x = interp.ox + (nx - interp.ox) * alpha;
 				y = interp.oy + (ny - interp.oy) * alpha;
 				r = interp.or + (frame.nr - interp.or) * alpha;
@@ -2657,18 +2552,7 @@
 			}
 		};
 
-
-
-		// #2 : define stats
-		world.stats = {
-			foodEaten: 0,
-			highestPosition: 200,
-			highestScore: 0,
-			/** @type {number | undefined} */
-			spawnedAt: undefined,
-		};
-
-
+		world.stats = { foodEaten: 0, highestPosition: 200, highestScore: 0, spawnedAt: undefined };
 
 		return world;
 	})();
