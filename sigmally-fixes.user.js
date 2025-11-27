@@ -26,7 +26,7 @@
 */ // a light eslint configuration that doesn't compromise code quality
 'use strict';
 
-(async () => {
+(() => {
 	const sfVersion = '2.8.0-BETA';
 	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
@@ -94,8 +94,8 @@
 			let sumA = 0, numA = 0;
 			for (let x = 0; x < 7; ++x) {
 				for (let y = 0; y < 7; ++y) {
-					const d = Math.hypot((3 - x) / 6, (3 - y) / 6);
-					if (d > 1) continue; // do not consider pixels outside a circle, as they may be blank
+					const d2 = (3 - x) * (3 - x) + (3 - y) * (3 - y);
+					if (d2 > 3 * 3) continue; // do not consider pixels outside a circle, as they may be blank
 					const pixel = y * 7 + x;
 					r.push(data.data[pixel * 4]);
 					g.push(data.data[pixel * 4 + 1]);
@@ -113,7 +113,7 @@
 				r[Math.ceil(r.length / 2)] / 255, g[Math.ceil(g.length / 2)] / 255,
 				b[Math.ceil(b.length / 2)] / 255, sumA / numA / 255];
 
-			const max = Math.max(Math.max(color[0], color[1]), color[2]);
+			const max = Math.max(color[0], color[1], color[2]);
 			if (max === 0) {
 				color[0] = color[1] = color[2] = 1;
 			} else {
