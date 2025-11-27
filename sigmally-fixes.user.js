@@ -5,8 +5,6 @@
 // @author       8y8x
 // @match        https://*.sigmally.com/*
 // @license      MIT
-// @grant        none
-// @namespace    https://8y8x.dev/sigmally-fixes
 // @icon         https://raw.githubusercontent.com/8y8x/sigmally-fixes/refs/heads/main/icon.png
 // @compatible   chrome
 // @compatible   opera
@@ -38,25 +36,13 @@
 
 		/** @type {Map<string, string>} */
 		aux.clans = new Map();
-		function fetchClans() {
+		const fetchClans = () => {
 			fetch('https://sigmally.com/api/clans').then(r => r.json()).then(r => {
-				if (r.status !== 'success') {
-					setTimeout(() => fetchClans(), 10_000);
-					return;
-				}
-
-				aux.clans.clear();
-				r.data.forEach(clan => {
-					if (typeof clan._id !== 'string' || typeof clan.name !== 'string') return;
-					aux.clans.set(clan._id, clan.name);
-				});
-
+				if (r.status !== 'success') return setTimeout(fetchClans, 10_000);
+				for (const clan of r.data) aux.clans.set(clan._id || '', clan.name || '');
 				// does not need to be updated often, but just enough so people who leave their tab open don't miss out
 				setTimeout(() => fetchClans(), 600_000);
-			}).catch(err => {
-				console.warn('Error while fetching clans:', err);
-				setTimeout(() => fetchClans(), 10_000);
-			});
+			}).catch(() => setTimeout(fetchClans, 10_000));
 		}
 		fetchClans();
 
@@ -68,9 +54,8 @@
 		 */
 		aux.require = (x, err) => {
 			if (!x) {
-				err = '[Sigmally Fixes]: ' + err;
-				prompt(err, err); // use prompt, so people can paste the error message into google translate
-				throw err;
+				prompt('[Sigmally Fixes]: ' + err, err); // use prompt, so people can paste the error message into google translate
+				throw '[Sigmally Fixes]: ' + err;
 			}
 
 			return /** @type {any} */ (x);
@@ -109,20 +94,17 @@
 			g.sort();
 			b.sort();
 			/** @type {[number, number, number, number]} */
-			const color = [
-				r[Math.ceil(r.length / 2)] / 255, g[Math.ceil(g.length / 2)] / 255,
-				b[Math.ceil(b.length / 2)] / 255, sumA / numA / 255];
+			const color = [r[Math.ceil(r.length / 2)], g[Math.ceil(g.length / 2)], b[Math.ceil(b.length / 2)], 1];
+			color[3] = (sumA / numA / 255) ** 4; // transparent skins should use the player color
 
 			const max = Math.max(color[0], color[1], color[2]);
 			if (max === 0) {
 				color[0] = color[1] = color[2] = 1;
 			} else {
-				color[0] *= 1 / max;
-				color[1] *= 1 / max;
-				color[2] *= 1 / max;
+				color[0] /= max;
+				color[1] /= max;
+				color[2] /= max;
 			}
-
-			color[3] **= 4; // transparent skins should use the player color
 
 			return color;
 		};
@@ -293,22 +275,8 @@
 		if (aux.settings?.gamemode) {
 			/** @type {HTMLSelectElement | null} */
 			const gamemode = document.querySelector('select#gamemode');
-			if (gamemode)
-				gamemode.value = aux.settings.gamemode;
+			if (gamemode) gamemode.value = aux.settings.gamemode;
 		}
-
-		let caught = false;
-		const tabScan = new BroadcastChannel('sigfix-tabscan');
-		tabScan.addEventListener('message', () => {
-			if (caught || world.score(world.selected) <= 50) return;
-			caught = true;
-			const str = 'hi! sigmally fixes v2.5.0 is now truly one-tab, so you don\'t need multiple tabs anymore. ' +
-				'set a keybind under the "One-tab multibox key" setting and enjoy!';
-			prompt(str, str);
-		});
-		setInterval(() => {
-			if (world.score(world.selected) > 50 && !caught) tabScan.postMessage(undefined);
-		}, 5000);
 
 		aux.textEncoder = new TextEncoder();
 		aux.textDecoder = new TextDecoder();
@@ -341,76 +309,29 @@
 		/** @type {object | undefined} */
 		aux.userData = undefined;
 		aux.oldFetch = /** @type {typeof fetch} */ (fetch.bind(window));
-		let lastUserData = -Infinity;
-		// this is the best method i've found to get the userData object, since game.js uses strict mode
 		Object.defineProperty(window, 'fetch', {
-			value: new Proxy(fetch, {
-				apply: (target, thisArg, args) => {
-					let url = args[0];
-					const data = args[1];
-					if (typeof url === 'string') {
-						if (url.includes('/server/recaptcha/v3'))
-							return new Promise(() => {}); // block game.js from attempting to go through captcha flow
+			value: function(url, data, ...args) {
+				const urlString = String(url);
+				console.log(url);
+				// block game.js from attempting to go through captcha flow
+				if (urlString.includes('/server/recaptcha/v3')) return new Promise(() => {});
+				// game.js doesn't think we're connected to a server, we default to eu0 because that's the
+				// default everywhere else
+				if (urlString.includes('/userdata/')) url = urlString.replace('///', '//eu0.sigmally.com/server/');
+				// sigmod must be properly initialized (client can't be null), otherwise it will error
+				// and game.js will never get the account data
+				if (urlString.includes('/server/auth')) sigmod.patch();
 
-						// game.js doesn't think we're connected to a server, we default to eu0 because that's the
-						// default everywhere else
-						if (url.includes('/userdata/')) {
-							// when holding down the respawn key, you can easily make 30+ requests a second,
-							// bombing you into ratelimit hell
-							const now = performance.now();
-							if (now - lastUserData < 500) return new Promise(() => {});
-							url = url.replace('///', '//eu0.sigmally.com/server/');
-							lastUserData = now;
-						}
-
-						if (url.includes('/server/auth')) {
-							// sigmod must be properly initialized (client can't be null), otherwise it will error
-							// and game.js will never get the account data
-							sigmod.patch();
-						}
-
-						// patch the current token in the url and body of the request
-						if (aux.userData?.token) {
-							// 128 hex characters surrounded by non-hex characters (lookahead and lookbehind)
-							const tokenTest = /(?<![0-9a-fA-F])[0-9a-fA-F]{128}(?![0-9a-fA-F])/g;
-							url = url.replaceAll(tokenTest, aux.userData.token);
-							if (typeof data?.body === 'string')
-								data.body = data.body.replaceAll(tokenTest, aux.userData.token);
-						}
-
-						args[0] = url;
-						args[1] = data;
-					}
-
-					return target.apply(thisArg, args).then(res => new Proxy(res, {
-						get: (target, prop, _receiver) => {
-							if (prop !== 'json') {
-								const val = target[prop];
-								if (typeof val === 'function')
-									return val.bind(target);
-								else
-									return val;
-							}
-
-							return () => target.json().then(obj => {
-								if (obj?.body?.user) {
-									aux.userData = obj.body.user;
-									// NaN if invalid / undefined
-									let updated = Number(new Date(aux.userData.updateTime));
-									if (Number.isNaN(updated))
-										updated = Date.now();
-								}
-
-								return obj;
-							});
-						},
-					}));
-				},
-			}),
+				return aux.oldFetch(url, data, ...args).then(res => Object.defineProperty(res, 'json', {
+					value: () => Response.prototype.json.call(res).then(obj => {
+						if (obj?.body?.user) aux.userData = obj.body.user;
+						return obj;
+					}),
+				}));
+			},
 		});
 
-		// get the latest game.js version whenever possible
-		// some players are stuck on an older game.js version which does not allow signing in
+		// get the latest game.js version whenever possible (in the past, players could not log in on an older game.js)
 		fetch('https://one.sigmally.com/assets/js/game.js', { cache: 'reload' });
 		// clicking "continue" immediately makes a request for user data, so we can get it even if sigfixes runs late
 		/** @type {HTMLButtonElement | null} */ (document.querySelector('#continue_button'))?.click();
