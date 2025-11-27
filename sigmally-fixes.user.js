@@ -420,11 +420,6 @@
 			if (!real) return;
 			sigmod.exists = true;
 
-			/**
-			 * @param {'cellColor' | 'foodColor' | 'mapColor' | 'outlineColor' | 'nameColor1' | 'nameColor2'} prop
-			 * @param {any} initial
-			 * @param {any[]} lookups
-			 */
 			const applyColor = (prop, initial, lookups) => {
 				for (const lookup of lookups) {
 					if (lookup && lookup !== initial) {
@@ -437,17 +432,12 @@
 			applyColor('cellColor', null, [real.game?.cellColor]);
 			applyColor('foodColor', null, [real.game?.foodColor]);
 			applyColor('mapColor', null, [real.game?.map?.color, real.mapColor]);
+			// note: singular nameColor takes priority
+			const name = real.game?.name;
+			applyColor('nameColor1', '#ffffff', [name?.color, name?.gradient?.enabled && name.gradient.left]);
+			applyColor('nameColor2', '#ffffff', [name?.color, name?.gradient?.enabled && name.gradient.right]);
 			// sigmod treats the map border as cell borders for some reason
 			applyColor('outlineColor', '#0000ff', [real.game?.borderColor]);
-			// note: singular nameColor takes priority
-			applyColor('nameColor1', '#ffffff', [
-				real.game?.name?.color,
-				real.game?.name?.gradient?.enabled && real.game.name.gradient.left,
-			]);
-			applyColor('nameColor2', '#ffffff', [
-				real.game?.name?.color,
-				real.game?.name?.gradient?.enabled && real.game.name.gradient.right,
-			]);
 			sigmod.settings.removeOutlines = real.game?.removeOutlines;
 			sigmod.settings.virusImage = real.game?.virusImage;
 			sigmod.settings.rapidFeedKey = real.macros?.keys?.rapidFeed;
@@ -483,7 +473,6 @@
 			// it's possible that cursed will change something at any time so i'm being safe here
 			const minimapContainer = /** @type {HTMLElement | null} */ (document.querySelector('.minimapContainer'));
 			if (minimapContainer) minimapContainer.style.position = 'fixed';
-
 			const modChat = /** @type {HTMLElement | null} */ (document.querySelector('.modChat'));
 			if (modChat) modChat.style.position = 'fixed';
 
@@ -549,34 +538,14 @@
 				new WebSocket('wss://255.255.255.255/sigmally.com?sigfix');
 				Function.prototype.bind = old;
 				// handler is expected to be a "SigWsHandler", but it might be something totally different
-				if (handler && 'sendPacket' in handler && 'handleMessage' in handler) {
-					// first, set up the handshake (opcode not-really-a-shuffle)
-					// handshake is reset to false on close (which may or may not happen immediately)
-					Object.defineProperty(handler, 'handshake', { get: () => true, set: () => {} });
-					handler.R = handler.C = new Uint8Array(256); // R and C are linked
-					for (let i = 0; i < 256; ++i) handler.C[i] = i;
+				if (!(handler && 'sendPacket' in handler) && !('handleMessage' in handler)) return;
+				// first, set up the handshake (opcode not-really-a-shuffle)
+				// handshake is reset to false on close (which may or may not happen immediately)
+				Object.defineProperty(handler, 'handshake', { get: () => true, set: () => {} });
+				handler.R = handler.C = new Uint8Array(256); // R and C are linked
+				for (let i = 0; i < 256; ++i) handler.C[i] = i;
 
-					// don't directly access the handler anywhere else
-					/** @param {DataView} dat */
-					sigmod.handleMessage = dat => handler.handleMessage({ data: dat.buffer });
-
-					// override sendPacket to properly handle what sigmod expects
-					/** @param {object} buf */
-					handler.sendPacket = buf => {
-						if ('build' in buf) buf = buf.build(); // convert sigmod/sigmally Writer class to a buffer
-						if ('buffer' in buf) buf = buf.buffer;
-						const dat = new DataView(/** @type {ArrayBuffer} */ (buf));
-						switch (dat.getUint8(0)) {
-							// case 0x00, sendPlay, isn't really used outside of secret tournaments
-							case 0x10: { // used for linesplits and such
-								net.move(world.selected, dat.getInt32(1, true), dat.getInt32(5, true));
-								break;
-							}
-							// case 0x63, sendChat, already goes directly to sigfix.net.chat
-							// case 0xdc, sendFakeCaptcha, is not used outside of secret tournaments
-						}
-					};
-				}
+				sigmod.handleMessage = dat => handler.handleMessage({ data: dat.buffer });
 			}
 		};
 		patchInterval = setInterval(sigmod.patch, 500);
