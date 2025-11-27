@@ -619,7 +619,6 @@
 			theme: /** @type {[number, number, number, number]} */ ([252 / 255, 114 / 255, 0, 0]),
 			tracer: false,
 			unsplittableColor: /** @type {[number, number, number, number]} */ ([1, 1, 1, 1]),
-			yx: false, // hehe
 		};
 
 		const settingsExt = {};
@@ -710,11 +709,9 @@
 		if (vanillaModal) vanillaModal.style.width = '440px'; // make modal wider to fit everything properly
 
 		const vanillaMenu = document.querySelector('#cm_modal__settings .ctrl-modal__content');
-		vanillaMenu?.appendChild(fromHTML(`
-			<div class="menu__item">
-				<div style="width: 100%; height: 1px; background: #bfbfbf;"></div>
-			</div>
-		`));
+		vanillaMenu?.appendChild(fromHTML(`<div class="menu__item">
+			<div style="width: 100%; height: 1px; background: #bfbfbf;"></div>
+		</div>`));
 
 		/**
 		 * @template T
@@ -741,30 +738,23 @@
 		 * @param {string} help
 		*/
 		const setting = (title, components, show, help) => {
-			const vanilla = fromHTML(`
-				<div style="height: 25px; position: relative;">
-					<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">
-						<a id="sf-help" style="color: #0009; cursor: help; user-select: none;">(?)</a> ${title}
-					</div>
-					<div id="sf-components" style="height: 25px; margin-left: 5px; position: absolute; right: 0;
-						bottom: 0;"></div>
-					<div id="sf-helpbox" style="display: none; position: absolute; top: calc(100% + 5px); left: 20px;
-						width: calc(100% - 30px); height: fit-content; padding: 10px; color: #000; background: #fff;
-						border: 1px solid #999; border-radius: 4px; z-index: 2;">
-						${help}
-					</div>
+			const vanilla = fromHTML(`<div style="height: 25px; position: relative;">
+				<div style="height: 25px; line-height: 25px; position: absolute; top: 0; left: 0;">
+					<a id="sf-help" style="color: #0009; cursor: help; user-select: none;">(?)</a> ${title}
 				</div>
-			`);
-			const sigmod = fromHTML(`
-				<div class="modRowItems justify-sb" style="padding: 5px 10px; position: relative;">
-					<span><a id="sfsm-help" style="color: #fff9; cursor: help; user-select: none;">(?)</a> ${title}\
-						</span>
-					<span class="justify-sb" id="sfsm-components"></span>
-					<div id="sfsm-helpbox" style="display: none; position: absolute; top: calc(100% + 5px); left: 30px;
-						width: calc(100% - 40px); height: fit-content; padding: 10px; color: #fffe; background: #000;
-						border: 1px solid #6871f1; border-radius: 4px; z-index: 2;">${help}</div>
-				</div>
-			`);
+				<div id="sf-components" style="height: 25px; margin-left: 5px; position: absolute; right: 0;
+					bottom: 0;"></div>
+				<div id="sf-helpbox" style="display: none; position: absolute; top: calc(100% + 5px); left: 20px;
+					width: calc(100% - 30px); height: fit-content; padding: 10px; color: #000; background: #fff;
+					border: 1px solid #999; border-radius: 4px; z-index: 2;">${help}</div>
+			</div>`);
+			const sigmod = fromHTML(`<div class="modRowItems justify-sb" style="padding: 5px 10px; position: relative;">
+				<span><a id="sfsm-help" style="color: #fff9; cursor: help; user-select: none;">(?)</a> ${title}</span>
+				<span class="justify-sb" id="sfsm-components"></span>
+				<div id="sfsm-helpbox" style="display: none; position: absolute; top: calc(100% + 5px); left: 30px;
+					width: calc(100% - 40px); height: fit-content; padding: 10px; color: #fffe; background: #000;
+					border: 1px solid #6871f1; border-radius: 4px; z-index: 2;">${help}</div>
+			</div>`);
 
 			const vanillaComponents = require(vanilla.querySelector('#sf-components'));
 			const sigmodComponents = require(sigmod.querySelector('#sfsm-components'));
@@ -799,16 +789,11 @@
 		 * @param {number} decimals
 		 */
 		const slider = (property, initial, min, max, step, decimals) => {
-			/**
-			 * @param {HTMLInputElement} slider
-			 * @param {HTMLInputElement} display
-			 */
 			const listen = (slider, display) => {
 				const change = () => slider.value = display.value = settings[property].toFixed(decimals);
 				onSyncs.push(change);
 				change();
 
-				/** @param {HTMLInputElement} input */
 				const onInput = input => {
 					const value = Number(input.value);
 					if (Number.isNaN(value)) return;
@@ -822,30 +807,26 @@
 			};
 
 			const datalist = `<datalist id="sf-${property}-markers"> <option value="${initial}"></option> </datalist>`;
-			const vanilla = fromHTML(`
-				<div>
-					<input id="sf-${property}" style="display: block; float: left; height: 25px; line-height: 25px;
-						margin-left: 5px;" min="${min}" max="${max}" step="${step}" value="${initial}"
-						list="sf-${property}-markers" type="range" />
-					${initial !== undefined ? datalist : ''}
-					<input id="sf-${property}-display" style="display: block; float: left; height: 25px;
-						line-height: 25px; width: 50px; text-align: center; margin-left: 5px;" />
-				</div>
-			`);
-			const sigmod = fromHTML(`
-				<span class="justify-sb">
-					<input id="sfsm-${property}" style="width: 200px;" type="range" min="${min}" max="${max}"
-						step="${step}" value="${initial}" list="sf-${property}-markers" />
-					${initial !== undefined ? datalist : ''}
-					<input id="sfsm-${property}-display" class="text-center form-control" style="border: none;
-						width: 50px; margin: 0 15px;" />
-				</span>
-			`);
+			const vanilla = fromHTML(`<div>
+				<input id="sf-${property}" style="display: block; float: left; height: 25px; line-height: 25px;
+					margin-left: 5px;" min="${min}" max="${max}" step="${step}" value="${initial}"
+					list="sf-${property}-markers" type="range" />
+				${initial !== undefined ? datalist : ''}
+				<input id="sf-${property}-display" style="display: block; float: left; height: 25px;
+					line-height: 25px; width: 50px; text-align: center; margin-left: 5px;" />
+			</div>`);
+			const sigmod = fromHTML(`<span class="justify-sb">
+				<input id="sfsm-${property}" style="width: 200px;" type="range" min="${min}" max="${max}"
+					step="${step}" value="${initial}" list="sf-${property}-markers" />
+				${initial !== undefined ? datalist : ''}
+				<input id="sfsm-${property}-display" class="text-center form-control" style="border: none;
+					width: 50px; margin: 0 15px;" />
+			</span>`);
 
 			listen(require(vanilla.querySelector(`#sf-${property}`)),
 				require(vanilla.querySelector(`#sf-${property}-display`)));
-			listen(aux.require(sigmod.querySelector(`#sfsm-${property}`), 'no selector match'),
-				aux.require(sigmod.querySelector(`#sfsm-${property}-display`), 'no selector match'));
+			listen(require(sigmod.querySelector(`#sfsm-${property}`)),
+				require(sigmod.querySelector(`#sfsm-${property}-display`)));
 			return { sigmod, vanilla };
 		};
 
@@ -863,14 +844,12 @@
 			};
 
 			const vanilla = fromHTML(`<input id="sf-${property}" type="checkbox" />`);
-			const sigmod = fromHTML(`
-				<div style="margin-right: 25px;">
-					<div class="modCheckbox" style="display: inline-block;">
-						<input id="sfsm-${property}" type="checkbox" />
-						<label class="cbx" for="sfsm-${property}"></label>
-					</div>
+			const sigmod = fromHTML(`<div style="margin-right: 25px;">
+				<div class="modCheckbox" style="display: inline-block;">
+					<input id="sfsm-${property}" type="checkbox" />
+					<label class="cbx" for="sfsm-${property}"></label>
 				</div>
-			`);
+			</div>`);
 			listen(/** @type {HTMLInputElement} */ (vanilla));
 			listen(require(sigmod.querySelector(`#sfsm-${property}`)));
 			return { sigmod, vanilla };
@@ -882,10 +861,6 @@
 		 * @param {string} key
 		 */
 		const image = (property, parent = settings, key = property) => {
-			/**
-			 * @param {HTMLInputElement} input
-			 * @param {boolean} isSigmod
-			 */
 			const listen = (input, isSigmod) => {
 				onSyncs.push(() => input.value = parent[property]);
 				input.value = parent[property];
@@ -908,10 +883,8 @@
 					e.preventDefault();
 
 					const file = e.dataTransfer?.files[0];
-					if (!file) return;
-
 					const { database } = settingsExt;
-					if (!database) return;
+					if (!file || !database) return;
 
 					input.value = '(importing)';
 
@@ -941,10 +914,6 @@
 
 		/** @param {PropertyOfType<typeof settings, [number, number, number, number]>} property */
 		const color = (property, toggle = false) => {
-			/**
-			 * @param {HTMLInputElement} input
-			 * @param {HTMLInputElement} alpha
-			 */
 			const listen = (input, alpha) => {
 				const update = () => {
 					input.value = aux.rgba2hex6(...settings[property]);
@@ -964,23 +933,19 @@
 				alpha.addEventListener('input', changed);
 			};
 
-			const vanilla = fromHTML(`
-				<div>
-					<input id="sf-${property}-alpha" type="${toggle ? 'checkbox' : 'range'}" min="0" max="1" \
-						step="0.01" ${toggle ? '' : 'style="width: 100px;"'} />
-					<input id="sf-${property}" type="color" />
-				</div>
-			`);
-			const sigmod = fromHTML(`
-				<div style="margin-right: 25px;">
-					${toggle ? `<div class="modCheckbox" style="display: inline-block;">
-						<input id="sfsm-${property}-alpha" type="checkbox" />
-						<label class="cbx" for="sfsm-${property}-alpha"></label>
-					</div>` : `<input id="sfsm-${property}-alpha" type="range" min="0" max="1" step="0.01" \
-						style="width: 100px" />`}
-					<input id="sfsm-${property}" type="color" />
-				</div>
-			`);
+			const vanilla = fromHTML(`<div>
+				<input id="sf-${property}-alpha" type="${toggle ? 'checkbox' : 'range'}" min="0" max="1" \
+					step="0.01" ${toggle ? '' : 'style="width: 100px;"'} />
+				<input id="sf-${property}" type="color" />
+			</div>`);
+			const sigmod = fromHTML(`<div style="margin-right: 25px;">
+				${toggle ? `<div class="modCheckbox" style="display: inline-block;">
+					<input id="sfsm-${property}-alpha" type="checkbox" />
+					<label class="cbx" for="sfsm-${property}-alpha"></label>
+				</div>` : `<input id="sfsm-${property}-alpha" type="range" min="0" max="1" step="0.01" \
+					style="width: 100px" />`}
+				<input id="sfsm-${property}" type="color" />
+			</div>`);
 			listen(require(vanilla.querySelector(`#sf-${property}`)),
 				require(vanilla.querySelector(`#sf-${property}-alpha`)));
 			listen(require(sigmod.querySelector(`#sfsm-${property}`)),
@@ -993,7 +958,6 @@
 		 * @param {[string, string][]} options
 		 */
 		const dropdown = (property, options) => {
-			/** @param {HTMLSelectElement} input */
 			const listen = input => {
 				onSyncs.push(() => input.value = settings[property]);
 				input.value = settings[property];
@@ -1004,16 +968,12 @@
 				});
 			};
 
-			const vanilla = fromHTML(`
-				<select id="sf-${property}">
-					${options.map(([value, name]) => `<option value="${value}">${name}</option>`).join('\n')}
-				</select>
-			`);
-			const sigmod = fromHTML(`
-				<select class="form-control" id="sfsm-${property}" style="width: 250px;">
-					${options.map(([value, name]) => `<option value="${value}">${name}</option>`).join('\n')}
-				</select>
-			`);
+			const vanilla = fromHTML(`\<select id="sf-${property}">
+				${options.map(([value, name]) => `<option value="${value}">${name}</option>`).join('\n')}
+			</select>`);
+			const sigmod = fromHTML(`<select class="form-control" id="sfsm-${property}" style="width: 250px;">
+				${options.map(([value, name]) => `<option value="${value}">${name}</option>`).join('\n')}
+			</select>`);
 			listen(/** @type {HTMLSelectElement} */ (vanilla));
 			listen(/** @type {HTMLSelectElement} */ (sigmod));
 			return { sigmod, vanilla };
@@ -1258,10 +1218,6 @@
 			'When this setting is enabled, a 50ms delay will be added to the second split only when in 5+ cells, ' +
 			'typically fixing the problem.');
 
-		setting(`<span style="padding: 2px 5px; border-radius: 10px; background: #76f; color: #fff;
-			font-weight: bold; font-size: 0.95rem; user-select: none;">yx's secret setting</span>`,
-			[checkbox('yx')], () => settings.yx, 'yx\'s top secret settings');
-
 		// #3 : create options for sigmod
 		let sigmodInjection;
 		sigmodInjection = setInterval(() => {
@@ -1270,7 +1226,6 @@
 			if (!nav || !content) return;
 
 			clearInterval(sigmodInjection);
-
 			content.appendChild(sigmodContainer);
 
 			const navButton = fromHTML('<button class="mod_nav_btn">🔥 Sig Fixes</button>');
@@ -1321,26 +1276,23 @@
 
 			// check if this version is problematic, don't do anything if this version is too new to be in versions.json
 			// take care to ensure users can't be logged
-			fetch('https://raw.githubusercontent.com/8y8x/sigmally-fixes/main/versions.json')
-				.then(res => res.json())
+			fetch('https://raw.githubusercontent.com/8y8x/sigmally-fixes/main/versions.json').then(res => res.json())
 				.then(res => {
-					if (sfVersion in res && !res[sfVersion].ok && res[sfVersion].alert) {
-						const color = res[sfVersion].color || '#f00';
-						const box = document.createElement('div');
-						box.style.cssText = `background: ${color}3; border: 1px solid ${color}; width: 100%; \
-							height: fit-content; font-size: 1em; padding: 5px; margin: 5px 0; border-radius: 3px; \
-							color: ${color}`;
-						box.innerHTML = String(res[sfVersion].alert)
-							.replace(/\<|\>/g, '') // never allow html tag injection
-							.replace(/\{link\}/g, '<a href="https://greasyfork.org/scripts/483587">[click here]</a>')
-							.replace(/\{autolink\}/g, '<a href="\
-								https://update.greasyfork.org/scripts/483587/Sigmally%20Fixes%20V2.user.js">\
-								[click here]</a>');
+					if (!sfVersion in res || res[sfVersion].ok || !res[sfVersion].alert) return;
+					const color = res[sfVersion].color || '#f00';
+					const box = document.createElement('div');
+					box.style.cssText = `background: ${color}3; border: 1px solid ${color}; width: 100%;
+						height: fit-content; font-size: 1em; padding: 5px; margin: 5px 0; border-radius: 3px;
+						color: ${color}`;
+					box.innerHTML = String(res[sfVersion].alert)
+						.replace(/\<|\>/g, '') // never allow html tag injection
+						.replace(/\{link\}/g, '<a href="https://greasyfork.org/scripts/483587">[click here]</a>')
+						.replace(/\{autolink\}/g, '<a href="\
+							https://update.greasyfork.org/scripts/483587/Sigmally%20Fixes%20V2.user.js">\
+							[click here]</a>');
 
-						watermark.insertAdjacentElement('afterend', box);
-					}
-				})
-				.catch(err => console.warn('Failed to check Sigmally Fixes version:', err));
+					watermark.insertAdjacentElement('afterend', box);
+				});
 		})();
 
 		ui.game = (() => {
@@ -1348,9 +1300,9 @@
 
 			/** @type {HTMLCanvasElement | null} */
 			const oldCanvas = document.querySelector('canvas#canvas');
-			if (!oldCanvas) {
-				throw 'exiting script - no canvas found';
-			}
+			if (!oldCanvas) throw 'exiting script - no canvas found';
+			// leave the old canvas so the old client can actually run
+			oldCanvas.style.display = 'none';
 
 			const newCanvas = document.createElement('canvas');
 			newCanvas.id = 'sf-canvas';
@@ -1359,9 +1311,7 @@
 			game.canvas = newCanvas;
 			(document.querySelector('body div') ?? document.body).appendChild(newCanvas);
 
-			// leave the old canvas so the old client can actually run
-			oldCanvas.style.display = 'none';
-
+			// TODO: are these necessary anymore?
 			// forward macro inputs from the canvas to the old one - this is for sigmod mouse button controls
 			newCanvas.addEventListener('mousedown', e => oldCanvas.dispatchEvent(new MouseEvent('mousedown', e)));
 			newCanvas.addEventListener('mouseup', e => oldCanvas.dispatchEvent(new MouseEvent('mouseup', e)));
@@ -1376,13 +1326,10 @@
 				'- Maybe your browser is just acting weird and it might fix itself after a restart; \r\n' +
 				'- Maybe your GPU drivers are exceptionally old.',
 			);
-
 			game.gl = gl;
 
 			// indicate that we will restore the context
-			newCanvas.addEventListener('webglcontextlost', e => {
-				e.preventDefault(); // signal that we want to restore the context
-			});
+			newCanvas.addEventListener('webglcontextlost', e => e.preventDefault()); 
 			newCanvas.addEventListener('webglcontextrestored', () => {
 				glconf.init();
 				// cleanup old caches (after render), as we can't do this within glconf.init()
@@ -1391,13 +1338,12 @@
 				render.resetTextureCache();
 			});
 
-			function resize() {
+			const resize = () => {
 				// devicePixelRatio does not have very high precision; it could be 0.800000011920929 for example
 				newCanvas.width = Math.ceil(innerWidth * (devicePixelRatio - 0.0001));
 				newCanvas.height = Math.ceil(innerHeight * (devicePixelRatio - 0.0001));
 				game.gl.viewport(0, 0, newCanvas.width, newCanvas.height);
 			}
-
 			addEventListener('resize', resize);
 			resize();
 
@@ -1438,17 +1384,14 @@
 				misc.style.opacity = settings.showStats ? '0.5' : '0';
 
 				const scoreVal = world.score(world.selected);
-				const multiplier = (typeof aux.userData?.boost === 'number' && aux.userData.boost > Date.now()) ? 2 : 1;
 				if (scoreVal > world.stats.highestScore) world.stats.highestScore = scoreVal;
-				let scoreHtml;
-				if (scoreVal <= 0) scoreHtml = '';
-				else if (settings.separateBoost) {
-					scoreHtml = `Score: ${Math.floor(scoreVal)}`;
-					if (multiplier > 1) scoreHtml += ` <span style="color: #fc6;">(X${multiplier})</span>`;
-				} else {
-					scoreHtml = 'Score: ' + Math.floor(scoreVal * multiplier);
-				}
-				score.innerHTML = scoreHtml;
+				if (scoreVal <= 0) score.innerHTML = '';
+				else if (typeof aux.userData?.boost === 'number' && Date.now() < aux.userData.boost) {
+					if (settings.separateBoost)
+						score.innerHTML = `Score: ${Math.floor(scoreVal)} <span style="color: #fc6;">(X2)</span>`;
+					else
+						score.innerHTML = `Score: ${Math.floor(scoreVal * 2)}`;
+				} else score.innerHTML = `Score: ${Math.floor(scoreVal)}`;
 
 				const con = net.connections.get(view);
 				let measuresText = `${Math.floor(render.fps)} FPS`;
@@ -1516,13 +1459,13 @@
 
 			const linesContainer = document.createElement('div');
 			linesContainer.style.cssText = `font-family: Ubuntu; font-size: 20px; line-height: 1.2; width: 100%;
-				height: fit-content; text-align: ${settings.yx ? 'right' : 'center'}; white-space: pre; overflow: hidden;`;
+				height: fit-content; text-align: center; white-space: pre; overflow: hidden;`;
 			container.appendChild(linesContainer);
 
 			/** @type {HTMLDivElement[]} */
 			const lines = [];
 			/** @param {{ me: boolean, name: string, sub: boolean, place: number | undefined }[]} lb */
-			function update(lb) {
+			const update = lb => {
 				const fontFamily = `"${sigmod.settings.font || 'Ubuntu'}", Ubuntu`;
 				if (linesContainer.style.fontFamily !== fontFamily)
 					linesContainer.style.fontFamily = title.style.fontFamily = fontFamily;
@@ -1562,57 +1505,33 @@
 			});
 		})();
 
-		/** @type {HTMLElement} */
-		const mainMenu = aux.require(
-			document.querySelector('#__line1')?.parentElement,
-			'Can\'t find the main menu UI. Try reloading the page?',
-		);
+		const mainMenu = aux.require(document.querySelector('#__line1')?.parentElement,
+			'Can\'t find the main menu UI. Try reloading the page?');
+		const statsContainer = aux.require(document.querySelector('#__line2'),
+			'Can\'t find the death screen UI. Try reloading the page?');
+		const continueButton = aux.require(document.querySelector('#continue_button'),
+			'Can\'t find the continue button (on death). Try reloading the page?');
 
-		/** @type {HTMLElement} */
-		const statsContainer = aux.require(
-			document.querySelector('#__line2'),
-			'Can\'t find the death screen UI. Try reloading the page?',
-		);
-
-		/** @type {HTMLElement} */
-		const continueButton = aux.require(
-			document.querySelector('#continue_button'),
-			'Can\'t find the continue button (on death). Try reloading the page?',
-		);
-
-		/** @type {HTMLElement | null} */
 		const menuLinks = document.querySelector('#menu-links');
-		/** @type {HTMLElement | null} */
 		const overlay = document.querySelector('#overlays');
-
 		// sigmod uses this to detect if the menu is closed or not, otherwise this is unnecessary
-		/** @type {HTMLElement | null} */
 		const menuWrapper = document.querySelector('#menu-wrapper');
 
 		let escOverlayVisible = true;
+		ui.escOverlayVisible = () => escOverlayVisible;
 		/**
 		 * @param {boolean} [show]
 		 */
 		ui.toggleEscOverlay = show => {
 			escOverlayVisible = show ?? !escOverlayVisible;
-			if (escOverlayVisible) {
-				mainMenu.style.display = '';
-				if (overlay) overlay.style.display = '';
-				if (menuLinks) menuLinks.style.display = '';
-				if (menuWrapper) menuWrapper.style.display = '';
+			mainMenu.style.display = escOverlayVisible ? '' : 'none';
+			if (overlay) overlay.style.display = escOverlayVisible ? '' : 'none';
+			if (menuLinks) menuLinks.style.display = escOverlayVisible ? '' : 'none';
+			if (menuWrapper) menuWrapper.style.display = escOverlayVisible ? '' : 'none';
 
-				ui.deathScreen.hide();
-			} else {
-				mainMenu.style.display = 'none';
-				if (overlay) overlay.style.display = 'none';
-				if (menuLinks) menuLinks.style.display = 'none';
-				if (menuWrapper) menuWrapper.style.display = 'none';
-			}
-
+			if (escOverlayVisible) ui.deathScreen.hide();
 			ui.captcha.reposition();
 		};
-
-		ui.escOverlayVisible = () => escOverlayVisible;
 
 		ui.deathScreen = (() => {
 			const deathScreen = {};
@@ -1623,35 +1542,31 @@
 				visible = false;
 			});
 
-			/** @type {HTMLElement | null} */
-			const bonus = document.querySelector('#menu__bonus');
-
 			deathScreen.check = () => {
 				if (world.stats.spawnedAt !== undefined && !world.alive()) deathScreen.show();
 			};
 
+			const bonus = document.querySelector('#menu__bonus');
 			deathScreen.show = () => {
 				const boost = typeof aux.userData?.boost === 'number' && aux.userData.boost > Date.now();
 				if (bonus) {
 					if (boost) {
 						bonus.style.display = '';
-						bonus.textContent = `Bonus score: ${Math.round(world.stats.highestScore)}`;
+						bonus.textContent = `Bonus score: ${Math.floor(world.stats.highestScore)}`;
 					} else {
 						bonus.style.display = 'none';
 					}
 				}
 
 				const foodEatenElement = document.querySelector('#food_eaten');
-				if (foodEatenElement)
-					foodEatenElement.textContent = world.stats.foodEaten.toString();
+				if (foodEatenElement) foodEatenElement.textContent = String(world.stats.foodEaten);
 
 				const highestMassElement = document.querySelector('#highest_mass');
 				if (highestMassElement)
-					highestMassElement.textContent = (Math.round(world.stats.highestScore) * (boost ? 2 : 1)).toString();
+					highestMassElement.textContent = String(Math.floor(world.stats.highestScore) * (boost ? 2 : 1));
 
 				const highestPositionElement = document.querySelector('#top_leaderboard_position');
-				if (highestPositionElement)
-					highestPositionElement.textContent = world.stats.highestPosition.toString();
+				if (highestPositionElement) highestPositionElement.textContent = String(world.stats.highestPosition);
 
 				const timeAliveElement = document.querySelector('#time_alive');
 				if (timeAliveElement) {
@@ -1660,8 +1575,8 @@
 					const mins = Math.floor(time / 60 % 60);
 					const seconds = Math.floor(time % 60);
 
-					timeAliveElement.textContent = `${hours ? hours + ' h' : ''} ${mins ? mins + ' m' : ''} `
-						+ `${seconds ? seconds + ' s' : ''}`;
+					timeAliveElement.textContent = `${hours ? hours + 'h' : ''} ${mins ? mins + 'm' : ''} `
+						+ `${seconds ? seconds + 's' : ''}`;
 				}
 
 				statsContainer.classList.remove('line--hidden');
@@ -1669,7 +1584,6 @@
 				ui.toggleEscOverlay(false);
 				if (overlay) overlay.style.display = '';
 				world.stats = { foodEaten: 0, highestPosition: 200, highestScore: 0, spawnedAt: undefined };
-
 				ui.captcha.reposition();
 			};
 
@@ -1694,8 +1608,7 @@
 
 			const ctx = aux.require(
 				canvas.getContext('2d', { willReadFrequently: false }),
-				'Unable to get 2D context for the minimap. This is probably your browser being dumb, maybe reload ' +
-				'the page?',
+				'Unable to get 2D context for the minimap. This is probably your browser being dumb, maybe refresh?',
 			);
 
 			return { canvas, ctx };
@@ -1704,10 +1617,7 @@
 		ui.chat = (() => {
 			const chat = {};
 
-			const block = aux.require(
-				document.querySelector('#chat_block'),
-				'Can\'t find the chat UI. Try reloading the page?',
-			);
+			const block = aux.require(document.querySelector('#chat_block'), 'Can\'t find the chat UI, maybe refresh?');
 
 			/**
 			 * @param {ParentNode} root
@@ -1715,16 +1625,12 @@
 			 */
 			function clone(root, selector) {
 				/** @type {HTMLElement} */
-				const old = aux.require(
-					root.querySelector(selector),
-					`Can't find this chat element: ${selector}. Try reloading the page?`,
-				);
+				const old = aux.require(root.querySelector(selector), `Can't find this chat element: ${selector}.`);
 
 				const el = /** @type {HTMLElement} */ (old.cloneNode(true));
 				el.id = '';
 				old.style.display = 'none';
 				old.insertAdjacentElement('afterend', el);
-
 				return el;
 			}
 
@@ -1740,9 +1646,7 @@
 			));
 
 			// allow zooming in/out on trackpad without moving the UI
-			input.style.position = 'fixed';
-			toggle.style.position = 'fixed';
-			scrollbar.style.position = 'fixed';
+			input.style.position = toggle.style.position = scrollbar.style.position = 'fixed';
 
 			const list = document.createElement('div');
 			list.style.cssText = 'width: 400px; height: 182px; position: fixed; bottom: 54px; left: 46px; \
@@ -1756,14 +1660,8 @@
 				input.style.display = toggled ? '' : 'none';
 				scrollbar.style.display = toggled ? 'block' : 'none';
 				list.style.display = toggled ? '' : 'none';
-
-				if (toggled) {
-					toggle.style.borderTopRightRadius = toggle.style.borderBottomRightRadius = '';
-					toggle.style.opacity = '';
-				} else {
-					toggle.style.borderTopRightRadius = toggle.style.borderBottomRightRadius = '10px';
-					toggle.style.opacity = '0.25';
-				}
+				toggle.style.borderTopRightRadius = toggle.style.borderBottomRightRadius = toggled ? '' : '10px';
+				toggle.style.opacity = toggled ? '' : '0.25';
 			});
 
 			scrollbar.style.display = 'block';
@@ -1772,13 +1670,12 @@
 			let lastY;
 			thumb.style.height = '182px';
 
-			function updateThumb() {
+			const updateThumb = () => {
 				thumb.style.bottom = (1 - list.scrollTop / (list.scrollHeight - 182)) * (182 - thumbHeight) + 'px';
-			}
+			};
 
-			function scroll() {
-				if (scrollTop >= list.scrollHeight - 182 - 40) {
-					// close to bottom, snap downwards
+			const scroll = () => {
+				if (scrollTop >= list.scrollHeight - 182 - 40) { // close to bottom, snap downwards
 					list.scrollTop = scrollTop = list.scrollHeight - 182;
 				}
 
@@ -1795,15 +1692,10 @@
 				lastY = e.clientY;
 
 				if (!scrolling) return;
-				e.preventDefault();
+				e.preventDefault(); // TODO why?
 
-				if (lastY === undefined) {
-					lastY = e.clientY;
-					return;
-				}
-
-				list.scrollTop = scrollTop = Math.min(Math.max(
-					scrollTop + deltaY * list.scrollHeight / 182, 0), list.scrollHeight - 182);
+				list.scrollTop = scrollTop =
+					Math.min(Math.max(scrollTop + deltaY * list.scrollHeight / 182, 0), list.scrollHeight - 182);
 				updateThumb();
 			});
 
@@ -1830,7 +1722,6 @@
 
 				while (list.children.length > 100) list.firstChild?.remove();
 				list.appendChild(container);
-
 				scroll();
 			};
 
@@ -1841,7 +1732,6 @@
 				const barrier = document.createElement('div');
 				barrier.style.cssText = 'width: calc(100% - 20px); height: 1px; background: #8888; margin: 10px;';
 				list.appendChild(barrier);
-
 				scroll();
 			};
 
@@ -1853,7 +1743,7 @@
 				toggle.style.backgroundColor = settings.theme[3] ? aux.rgba2hex6(...settings.theme) : '#e37955';
 				thumb.style.backgroundColor = settings.theme[3] ? aux.rgba2hex6(...settings.theme) : '#fc7200';
 			};
-
+			chat.matchTheme();
 			setInterval(() => chat.matchTheme(), 500);
 
 			return chat;
@@ -1873,25 +1763,21 @@
 			const modeBtns = /** @type {HTMLElement | null} */ (document.querySelector('.mode-btns'));
 			/** @type {HTMLButtonElement} */
 			const play = aux.require(document.querySelector('button#play-btn'),
-			'Can\'t find the play button. Try reloading the page?');
+				'Can\'t find the play button. Try reloading the page?');
 			/** @type {HTMLButtonElement} */
 			const spectate = aux.require(document.querySelector('button#spectate-btn'),
 				'Can\'t find the spectate button. Try reloading the page?');
 
-			/** @type {((grecaptcha: any) => void) | undefined} */
 			let grecaptchaResolve;
-			/** @type {Promise<any>} */
 			const grecaptcha = new Promise(r => grecaptchaResolve = r);
-			/** @type {((turnstile: any) => void) | undefined} */
 			let turnstileResolve;
-			/** @type {Promise<any>} */
 			const turnstile = new Promise(r => turnstileResolve = r);
 			let CAPTCHA2, CAPTCHA3, TURNSTILE;
 
+			const empty = { execute: () => {}, ready: () => {}, render: () => {}, reset: () => {} };
 			let readyCheck;
 			readyCheck = setInterval(() => {
-				// it's possible that recaptcha or turnstile may be removed in the future, so we be redundant to stay
-				// safe
+				// it's possible that recaptcha or turnstile may be removed in the future, so stay safe
 				if (grecaptchaResolve) {
 					let grecaptchaReal;
 					({ grecaptcha: grecaptchaReal, CAPTCHA2, CAPTCHA3 } = /** @type {any} */ (window));
@@ -1902,12 +1788,7 @@
 						grecaptchaReal.ready(() => {
 							// prevent game.js from using grecaptcha and messing things up
 							let { grecaptcha: grecaptchaNew } = /** @type {any} */ (window);
-							/** @type {any} */ (window).grecaptcha = {
-								execute: () => {},
-								ready: () => {},
-								render: () => {},
-								reset: () => {},
-							};
+							/** @type {any} */ (window).grecaptcha = empty;
 							resolve(grecaptchaNew);
 						});
 					}
@@ -1920,20 +1801,13 @@
 						const resolve = turnstileResolve;
 						turnstileResolve = undefined;
 
-						// turnstile.ready not needed
-						// prevent game.js from using turnstile and messing things up
-						/** @type {any} */ (window).turnstile = {
-							execute: () => {},
-							ready: () => {},
-							render: () => {},
-							reset: () => {},
-						};
+						// turnstile.ready not needed; prevent game.js from using turnstile and messing things up
+						/** @type {any} */ (window).turnstile = empty;
 						resolve(turnstileReal);
 					}
 				}
 
-				if (!grecaptchaResolve && !turnstileResolve)
-					clearInterval(readyCheck);
+				if (!grecaptchaResolve && !turnstileResolve) clearInterval(readyCheck);
 			}, 50);
 
 			/**
@@ -1980,7 +1854,6 @@
 				const mount = document.createElement('div');
 				document.body.appendChild(mount);
 				const reposition = () => {
-					let replacesModeButtons = false;
 					if (view === world.viewId.spectate) {
 						mount.style.cssText = 'position: fixed; bottom: 10px; left: 50vw; transform: translateX(-50%); \
 							z-index: 1000;';
@@ -1991,13 +1864,12 @@
 						mount.style.cssText = `position: fixed; top: ${place ? place.top + 'px' : '50vh'};
 							left: ${place ? (place.left + place.width / 2) + 'px' : '50vw'};
 							transform: translate(-50%, ${place ? '0%' : '-50%'}); z-index: 1000;`;
-						replacesModeButtons = type !== 'v3'; // v3 is invisible, so it shouldn't hide the play buttons
 					} else {
 						mount.style.cssText = `position: fixed; top: 50vh; left: 50vw; transform: translate(-50%, -50%);
 							z-index: 1000;`;
 					}
 
-					return replacesModeButtons;
+					return type !== 'v3'; // v3 is invisible, so it shouldn't hide the play buttons
 				};
 
 				/** @type {CaptchaInstance} */
@@ -2005,16 +1877,16 @@
 				captchas.set(view, inst);
 				captcha.reposition();
 
-				if (type === 'v2') {
-					grecaptcha.then(g => {
-						inst.handle = g.render(mount, {
+				if (type === 'v2' || type === 'turnstile') {
+					(type === 'v2' ? grecaptcha : turnstile).then(m => {
+						inst.handle = m.render(mount, {
 							callback: token => {
 								inst.cb?.(token);
 								inst.cb = undefined;
 							},
-							'error-callback': () => setTimeout(() => g.reset(inst.handle), 1000),
-							'expired-callback': () => setTimeout(() => g.reset(inst.handle), 1000),
-							sitekey: CAPTCHA2,
+							'error-callback': () => setTimeout(() => m.reset(inst.handle), 1000),
+							'expired-callback': () => setTimeout(() => m.reset(inst.handle), 1000),
+							sitekey: type === 'v2' ? CAPTCHA2 : TURNSTILE,
 							theme: sigmod.exists ? 'dark' : 'light',
 						});
 					});
@@ -2023,19 +1895,6 @@
 						g.execute(CAPTCHA3).then(token => {
 							inst.cb?.(token);
 							inst.cb = undefined;
-						});
-					});
-				} else if (type === 'turnstile') {
-					turnstile.then(t => {
-						inst.handle = t.render(mount, {
-							callback: token => {
-								inst.cb?.(token);
-								inst.cb = undefined;
-							},
-							'error-callback': () => setTimeout(() => t.reset(inst.handle), 1000),
-							'expired-callback': () => setTimeout(() => t.reset(inst.handle), 1000),
-							sitekey: TURNSTILE,
-							theme: sigmod.exists ? 'dark' : 'light',
 						});
 					});
 				}
@@ -2047,7 +1906,6 @@
 
 				play.style.display = spectate.style.display = replacingModeButtons ? 'none' : '';
 			};
-
 			addEventListener('resize', () => captcha.reposition());
 
 			return captcha;
@@ -2069,7 +1927,6 @@
 				}
 
 				overlay.style.color = aux.settings.darkTheme ? '#fffc' : '#000c';
-
 				if (inputs.lock.type === 'horizontal') {
 					// left-right arrow svg
 					overlay.innerHTML = `
@@ -2106,8 +1963,7 @@
 			/* make sure nothing gets cut off on the center menu panel */
 			#menu-wrapper > .menu-center { height: fit-content !important; }
 			/* hide the outline that sigmod puts on the minimap (i don't like it) */
-			.minimap { border: none !important; box-shadow: none !important; }
-		`;
+			.minimap { border: none !important; box-shadow: none !important; }`;
 		document.head.appendChild(style);
 
 		return ui;
