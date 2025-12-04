@@ -4,6 +4,7 @@
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
+// @grant        none
 // @license      MIT
 // @icon         https://raw.githubusercontent.com/8y8x/sigmally-fixes/refs/heads/main/icon.png
 // @compatible   chrome
@@ -382,8 +383,6 @@
 		setInterval(() => onkeydown = onkeyup = null, 200);
 	})();
 
-
-
 	//////////////////////////////////
 	// Apply Complex SigMod Patches //
 	//////////////////////////////////
@@ -552,8 +551,6 @@
 
 		return sigmod;
 	})();
-
-
 
 	/////////////////////////
 	// Create Options Menu //
@@ -1250,8 +1247,6 @@
 
 		return settings;
 	})();
-
-
 
 	/////////////////////
 	// Prepare Game UI //
@@ -1968,8 +1963,6 @@
 		return ui;
 	})();
 
-
-
 	///////////////////////////
 	// Setup World Variables //
 	///////////////////////////
@@ -2555,8 +2548,6 @@
 
 		return world;
 	})();
-
-
 
 	//////////////////////////
 	// Setup All Networking //
@@ -3314,8 +3305,6 @@
 		return net;
 	})();
 
-
-
 	//////////////////////////
 	// Setup Input Handlers //
 	//////////////////////////
@@ -3830,8 +3819,6 @@
 
 		return input;
 	})();
-
-
 
 	//////////////////////////
 	// Configure WebGL Data //
@@ -4371,8 +4358,6 @@
 		glconf.init();
 		return glconf;
 	})();
-
-
 
 	///////////////////////////////
 	// Define Rendering Routines //
