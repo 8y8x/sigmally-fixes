@@ -1277,7 +1277,7 @@
 			// take care to ensure users can't be logged
 			fetch('https://raw.githubusercontent.com/8y8x/sigmally-fixes/main/versions.json').then(res => res.json())
 				.then(res => {
-					if (!sfVersion in res || res[sfVersion].ok || !res[sfVersion].alert) return;
+					if (!(sfVersion in res) || res[sfVersion].ok || !res[sfVersion].alert) return;
 					const color = res[sfVersion].color || '#f00';
 					const box = document.createElement('div');
 					box.style.cssText = `background: ${color}3; border: 1px solid ${color}; width: 100%;
@@ -5596,5 +5596,5 @@
 
 
 	// @ts-expect-error for debugging purposes and other scripts. dm me on discord @ 8y8x to guarantee stability
-	window.sigfix = { destructor, aux, sigmod, ui, settings, world, net, input, glconf, render };
+	window.sigfix = { aux, sigmod, ui, settings, world, net, input, glconf, render };
 })();
