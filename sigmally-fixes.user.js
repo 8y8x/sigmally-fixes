@@ -2567,13 +2567,13 @@
 
 		// #1 : define state
 		/** @type {Map<symbol, {
-		 * 		handshake: { shuffle: Uint8Array, unshuffle: Uint8Array } | undefined,
-		 * 		latency: number | undefined,
-		 * 		pinged: number | undefined,
-		 * 		playBlock: { state: 'leaving' | 'joining', started: number } | undefined,
-		 * 		rejections: number,
-		 * 		retries: number,
-		 * 		ws: WebSocket | undefined,
+		 * 	handshake: { shuffle: Uint8Array, unshuffle: Uint8Array } | undefined,
+		 * 	latency: number | undefined,
+		 * 	pinged: number | undefined,
+		 * 	playBlock: { state: 'leaving' | 'joining', started: number } | undefined,
+		 * 	rejections: number,
+		 * 	retries: number,
+		 * 	ws: WebSocket | undefined,
 		 * }>} */
 		net.connections = new Map();
 
@@ -2616,16 +2616,12 @@
 					'- If using a local server, make sure to use localhost and not any other local IP.');
 				return; // ts-check is dumb
 			}
-
-			{
-				const con = net.connections.get(view);
-				if (con) con.ws = ws;
-			}
+			if (net.connections.get(view)) net.connections.get(view).ws = ws;
 
 			ws.binaryType = 'arraybuffer';
 			ws.addEventListener('close', e => {
 				console.error('WebSocket closed:', e);
-				establishedCallback?.();
+				establishedCallback?.(); // TODO what does establishedCallback even do?
 				establishedCallback = undefined;
 
 				const connection = net.connections.get(view);
@@ -2707,7 +2703,6 @@
 						shuffle[i] = shuffled;
 						unshuffle[shuffled] = i;
 					}
-
 					connection.handshake = { shuffle, unshuffle };
 
 					if (world.alive()) net.play(world.selected, input.playData(input.name(view), false));
@@ -2744,9 +2739,7 @@
 
 							let pellet = true;
 							let killed = world.pellets.get(killedId) ?? (pellet = false, world.cells.get(killedId));
-							if (!killed) continue;
-
-							const record = killed.views.get(view);
+							const record = killed?.views.get(view);
 							if (!record) continue;
 
 							const frame = record.frames[0];
@@ -2781,8 +2774,6 @@
 							const y = dat.getInt16(o + 2, true);
 							const r = dat.getUint16(o + 4, true);
 							const flags = dat.getUint8(o + 6);
-							// (void 1 byte, "isUpdate")
-							// (void 1 byte, "isPlayer")
 							const sub = !!dat.getUint8(o + 9);
 							o += 10;
 
@@ -2900,10 +2891,8 @@
 
 							const record
 								= (world.pellets.get(deletedId) ?? world.cells.get(deletedId))?.views.get(view);
-							if (!record) continue;
-
-							const frame = record.frames[0];
-							if (frame.deadAt !== undefined) continue;
+							const frame = record?.frames[0];
+							if (frame?.deadAt !== undefined) continue;
 							record.frames[0] = {
 								nx: frame.nx, ny: frame.ny, nr: frame.nr,
 								born: frame.born, deadAt: now, deadTo: -1,
@@ -2988,9 +2977,7 @@
 						let firstThis = true;
 						for (const [otherView, otherVision] of world.views) {
 							for (const id of otherVision.owned) {
-								const record = world.cells.get(id)?.views.get(otherView);
-								if (!record) continue;
-								const frame = record.frames[0];
+								const frame = world.cells.get(id)?.views.get(otherView)?.frames[0];
 								if (frame.deadAt !== undefined) continue;
 
 								first = false;
@@ -3166,9 +3153,7 @@
 			const dat = new DataView(new ArrayBuffer(dataBuf.byteLength + 2));
 
 			dat.setUint8(0, connection.handshake.shuffle[opcode]);
-			for (let i = 0; i < dataBuf.byteLength; ++i) {
-				dat.setUint8(1 + i, dataBuf[i]);
-			}
+			for (let i = 0; i < dataBuf.byteLength; ++i) dat.setUint8(1 + i, dataBuf[i]);
 			connection.ws.send(dat);
 		};
 
@@ -3218,10 +3203,8 @@
 			const dat = new DataView(new ArrayBuffer(msgBuf.byteLength + 3));
 
 			dat.setUint8(0, connection.handshake.shuffle[0x63]);
-			// skip flags
-			for (let i = 0; i < msgBuf.byteLength; ++i) {
-				dat.setUint8(2 + i, msgBuf[i]);
-			}
+			// flags = 0
+			for (let i = 0; i < msgBuf.byteLength; ++i) dat.setUint8(2 + i, msgBuf[i]);
 			connection.ws.send(dat);
 		};
 
@@ -3246,9 +3229,8 @@
 		 */
 		net.respawn = (view, data) => {
 			const connection = net.connections.get(view);
-			if (!connection?.handshake || connection.ws?.readyState !== WebSocket.OPEN) return;
-
 			const now = performance.now();
+			if (!connection?.handshake || connection.ws?.readyState !== WebSocket.OPEN) return;
 			if (connection.playBlock !== undefined && now - connection.playBlock.started < 750) return;
 
 			const score = world.score(view);
