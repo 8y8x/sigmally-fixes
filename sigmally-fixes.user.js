@@ -312,7 +312,6 @@
 		Object.defineProperty(window, 'fetch', {
 			value: function(url, data, ...args) {
 				const urlString = String(url);
-				console.log(url);
 				// block game.js from attempting to go through captcha flow
 				if (urlString.includes('/server/recaptcha/v3')) return new Promise(() => {});
 				// game.js doesn't think we're connected to a server, we default to eu0 because that's the
@@ -5597,7 +5596,5 @@
 
 
 	// @ts-expect-error for debugging purposes and other scripts. dm me on discord @ 8y8x to guarantee stability
-	window.sigfix = {
-		destructor, aux, sigmod, ui, settings, world, net, input, glconf, render,
-	};
+	window.sigfix = { destructor, aux, sigmod, ui, settings, world, net, input, glconf, render };
 })();
