@@ -3753,26 +3753,13 @@
 			if (handleKeybind(e)) return;
 		});
 
-		addEventListener('mousedown', e => {
-			if (unfocused()) return;
-			handleKeybind(e);
-		});
-		addEventListener('mouseup', e => {
-			if (unfocused()) return;
-			handleKeybind(e);
-		});
-
-		// prompt before closing window
-		addEventListener('beforeunload', e => e.preventDefault());
-
-		// prevent right clicking on the game
-		ui.game.canvas.addEventListener('contextmenu', e => e.preventDefault());
-
+		addEventListener('mousedown', e => void (!unfocused() && handleKeybind(e)));
+		addEventListener('mouseup', e => void (!unfocused() && handleKeybind(e)));
+		addEventListener('beforeunload', e => e.preventDefault()); // prompt before closing window
+		ui.game.canvas.addEventListener('contextmenu', e => e.preventDefault()); // prevent right clicking on the game
 		// prevent dragging when some things are selected - i have a habit of unconsciously clicking all the time,
 		// making me regularly drag text, disabling my mouse inputs for a bit
 		addEventListener('dragstart', e => e.preventDefault());
-
-
 
 		// #2 : play and spectate buttons, and captcha
 		/**
@@ -3804,9 +3791,7 @@
 			const target = settings.nbox ? settings.nboxCount : settings.multibox ? 2 : 1;
 			for (let i = input.nick.length; i < target; ++i) {
 				const el = /** @type {HTMLInputElement} */ (input.nick[0].cloneNode(true));
-				el.maxLength = 50;
-				el.placeholder = `Nickname #${i + 1}`;
-				el.value = settings.multiNames[i - 1] || '';
+				Object.assign(el, { maxLength: 50, placeholder: `Nickname #${i + 1}`, value: settings.multiNames[i - 1] || '' });
 
 				el.addEventListener('change', () => {
 					settings.multiNames[i - 1] = el.value;
@@ -3818,10 +3803,7 @@
 				input.nick[input.nick.length - 1].parentElement?.insertAdjacentElement('afterend', row);
 				input.nick.push(el);
 			}
-
-			for (let i = input.nick.length; i > target; --i) {
-				input.nick.pop()?.parentElement?.remove();
-			}
+			for (let i = input.nick.length; i > target; --i) input.nick.pop()?.parentElement?.remove();
 		};
 		nickList();
 		setInterval(nickList, 500);
@@ -3833,18 +3815,14 @@
 		const spectate = aux.require(document.querySelector('button#spectate-btn'),
 			'Can\'t find the spectate button. Try reloading the page?');
 
-		play.addEventListener('click', () => {
+		const submitPlay = (spectate) => {
 			const con = net.connections.get(world.selected);
 			if (!con?.handshake) return;
 			ui.toggleEscOverlay(false);
-			net.play(world.selected, input.playData(input.name(world.selected), false));
-		});
-		spectate.addEventListener('click', () => {
-			const con = net.connections.get(world.selected);
-			if (!con?.handshake) return;
-			ui.toggleEscOverlay(false);
-			net.play(world.selected, input.playData(input.name(world.selected), true));
-		});
+			net.play(world.selected, input.playData(input.name(world.selected), spectate));
+		};
+		play.addEventListener('click', () => submitPlay(false));
+		spectate.addEventListener('click', () => submitPlay(true));
 
 		play.disabled = spectate.disabled = true;
 		setInterval(() => {
@@ -3875,12 +3853,7 @@
 		/** @type {Map<string, number>} */
 		const uboBindings = new Map();
 
-		/**
-		 * @param {string} name
-		 * @param {number} type
-		 * @param {string} source
-		 */
-		function shader(name, type, source) {
+		const shader = (name, type, source) => {
 			const s = /** @type {WebGLShader} */ (gl.createShader(type));
 			gl.shaderSource(s, source);
 			gl.compileShader(s);
@@ -3895,14 +3868,7 @@
 			return s;
 		}
 
-		/**
-		 * @param {string} name
-		 * @param {string} vSource
-		 * @param {string} fSource
-		 * @param {string[]} ubos
-		 * @param {string[]} textures
-		 */
-		function program(name, vSource, fSource, ubos, textures) {
+		const program = (name, vSource, fSource, ubos, textures) => {
 			const vShader = shader(`${name}.vShader`, gl.VERTEX_SHADER, vSource.trim());
 			const fShader = shader(`${name}.fShader`, gl.FRAGMENT_SHADER, fSource.trim());
 			const p = /** @type {WebGLProgram} */ (gl.createProgram());
@@ -3921,8 +3887,7 @@
 			for (const tag of ubos) {
 				const index = gl.getUniformBlockIndex(p, tag); // returns 4294967295 if invalid... just don't make typos
 				let binding = uboBindings.get(tag);
-				if (binding === undefined)
-					uboBindings.set(tag, binding = uboBindings.size);
+				if (binding === undefined) uboBindings.set(tag, binding = uboBindings.size);
 				gl.uniformBlockBinding(p, index, binding);
 
 				const size = gl.getActiveUniformBlockParameter(p, index, gl.UNIFORM_BLOCK_DATA_SIZE);
@@ -3991,8 +3956,6 @@
 				float u_tracer_thickness; // @ 0x10, i = 4
 			};`,
 		};
-
-
 
 		glconf.init = () => {
 			gl.enable(gl.BLEND);
@@ -4075,8 +4038,6 @@
 					out_color = out_color * (1.0 - alpha) + border_color * alpha;
 				}
 			`, ['Border', 'Camera'], ['u_texture']);
-
-
 
 			programs.cell = program('cell', `
 				${parts.boilerplate}
@@ -4188,8 +4149,6 @@
 				}
 			`, ['Camera', 'Cell', 'CellSettings'], ['u_skin']);
 
-
-
 			// also used to draw glow
 			programs.circle = program('circle', `
 				${parts.boilerplate}
@@ -4233,8 +4192,6 @@
 					out_color.a *= clamp(f_blur * (1.0 - d), 0.0, 1.0);
 				}
 			`, ['Camera', 'Circle'], []);
-
-
 
 			programs.text = program('text', `
 				${parts.boilerplate}
@@ -4388,33 +4345,28 @@
 			};
 
 			// main vao
-			{
-				const vao = /** @type {WebGLVertexArrayObject} */ (gl.createVertexArray());
-				gl.bindVertexArray(vao);
-				squareVAA();
-				glconf.vao.main = { vao };
-			}
+			let vao = /** @type {WebGLVertexArrayObject} */ (gl.createVertexArray());
+			gl.bindVertexArray(vao);
+			squareVAA();
+			glconf.vao.main = { vao };
+
 			// cell glow vao
-			{
-				const vao = /** @type {WebGLVertexArrayObject} */ (gl.createVertexArray());
-				gl.bindVertexArray(vao);
-				squareVAA();
-				glconf.vao.cell = { vao, circle: circleVAA(), alpha: alphaVAA() };
-			}
+			vao = /** @type {WebGLVertexArrayObject} */ (gl.createVertexArray());
+			gl.bindVertexArray(vao);
+			squareVAA();
+			glconf.vao.cell = { vao, circle: circleVAA(), alpha: alphaVAA() };
+			
 			// pellet + pellet glow vao
-			{
-				const vao = /** @type {WebGLVertexArrayObject} */ (gl.createVertexArray());
-				gl.bindVertexArray(vao);
-				squareVAA();
-				glconf.vao.pellet = { vao, circle: circleVAA(), alpha: alphaVAA() };
-			}
+			vao = /** @type {WebGLVertexArrayObject} */ (gl.createVertexArray());
+			gl.bindVertexArray(vao);
+			squareVAA();
+			glconf.vao.pellet = { vao, circle: circleVAA(), alpha: alphaVAA() };
+
 			// tracer vao
-			{
-				const vao = /** @type {WebGLVertexArrayObject} */ (gl.createVertexArray());
-				gl.bindVertexArray(vao);
-				squareVAA();
-				glconf.vao.tracer = { vao, line: lineVAA() };
-			}
+			vao = /** @type {WebGLVertexArrayObject} */ (gl.createVertexArray());
+			gl.bindVertexArray(vao);
+			squareVAA();
+			glconf.vao.tracer = { vao, line: lineVAA() };
 		};
 
 		glconf.init();
