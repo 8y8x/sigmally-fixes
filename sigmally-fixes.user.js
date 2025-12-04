@@ -4530,10 +4530,8 @@
 
 			// sigmod forces a *really* ugly shadow on ctx.fillText so we have to lock the property beforehand
 			const realProps = Object.getOwnPropertyDescriptors(Object.getPrototypeOf(ctx));
-			const realShadowBlurSet
-				= aux.require(realProps.shadowBlur.set, 'did CanvasRenderingContext2D spec change?').bind(ctx);
-			const realShadowColorSet
-				= aux.require(realProps.shadowColor.set, 'did CanvasRenderingContext2D spec change?').bind(ctx);
+			const realShadowBlurSet = realProps.shadowBlur.set.bind(ctx);
+			const realShadowColorSet = realProps.shadowColor.set.bind(ctx);
 			Object.defineProperties(ctx, {
 				shadowBlur: {
 					get: () => 0,
@@ -4561,20 +4559,17 @@
 				const texture = gl.createTexture();
 				if (!texture) return texture;
 
-				const baseTextSize = 96;
+				const baseTextSize = 96; // TODO: Too high quality?
 				const textSize = baseTextSize * (mass ? 0.5 * settings.massScaleFactor : settings.nameScaleFactor);
 				const lineWidth = Math.ceil(textSize / 10) * settings.textOutlinesFactor;
 
-				let font = '';
-				if (mass ? settings.massBold : settings.nameBold)
-					font = 'bold';
-				font += ` ${textSize}px "${sigmod.settings.font || 'Ubuntu'}", Ubuntu`;
-
+				let font = `${textSize}px "${sigmod.settings.font || 'Ubuntu'}", Ubuntu`;
+				if (mass ? settings.massBold : settings.nameBold) font = 'bold ' + font;
 				ctx.font = font;
 				// if rendering an empty string (somehow) then width can be 0 with no outlines
 				canvas.width = (ctx.measureText(text).width + lineWidth * 4) || 1;
 				canvas.height = textSize * 3;
-				ctx.clearRect(0, 0, canvas.width, canvas.height);
+				ctx.clearRect(0, 0, canvas.width, canvas.height); // TODO: necessary?
 
 				// setting canvas.width resets the canvas state
 				ctx.font = font;
@@ -4660,24 +4655,18 @@
 				let entry = cache.get(text);
 				if (!entry) {
 					const shortened = aux.trim(text);
-					/** @type {CacheEntry<T>} */
-					entry = {
+					cache.set(text, entry = {
 						text: texture(shortened, false, false),
 						aspectRatio: canvas.width / canvas.height, // mind the execution order
 						silhouette: silhouette ? texture(shortened, true, false) : undefined,
 						accessed: performance.now(),
-					};
-					cache.set(text, entry);
+					});
 				} else {
 					entry.accessed = performance.now();
 				}
 
-				if (silhouette && entry.silhouette === undefined) {
-					setTimeout(() => {
-						entry.silhouette = texture(aux.trim(text), true, false);
-					});
-				}
-
+				if (silhouette && entry.silhouette === undefined)
+					setTimeout(() => entry.silhouette = texture(aux.trim(text), true, false));
 				return entry;
 			};
 
@@ -4697,18 +4686,9 @@
 		render.textFromCache = textFromCache;
 
 		// #3 : define other render functions
-		/**
-		 * @param {CellFrame} frame
-		 * @param {number} now
-		 */
 		render.alpha = (frame, now) => {
-			// TODO: lots of opportunity here to make the game look nice (like delta)
-			// note that 0 drawDelay is supported here
 			let alpha = (now - frame.born) / settings.drawDelay;
-			if (frame.deadAt !== undefined) {
-				alpha = Math.min(alpha, 1 - (now - frame.deadAt) / settings.drawDelay);
-			}
-
+			if (frame.deadAt !== undefined) alpha = Math.min(alpha, 1 - (now - frame.deadAt) / settings.drawDelay);
 			return Math.min(Math.max(alpha, 0), 1);
 		};
 
@@ -4716,7 +4696,6 @@
 		 * @param {Cell} cell
 		 */
 		render.skin = cell => {
-			/** @type {CellDescription} */
 			const desc = world.synchronized ? cell.views.values().next().value : cell.views.get(world.selected);
 			if (!desc) return undefined;
 
@@ -4747,10 +4726,7 @@
 			}
 
 			// allow turning off sigmally skins while still using custom skins
-			if (!texture && aux.settings.showSkins && desc.skin) {
-				texture = textureFromCache(desc.skin);
-			}
-
+			if (!texture && aux.settings.showSkins && desc.skin) texture = textureFromCache(desc.skin);
 			return texture;
 		};
 
@@ -4916,7 +4892,6 @@
 
 
 		// #5 : define the render function
-		const start = performance.now();
 		render.fps = 0;
 		render.lastFrame = performance.now();
 		const renderGame = () => {
@@ -4925,10 +4900,7 @@
 			render.fps += (1 / dt - render.fps) / 10;
 			render.lastFrame = now;
 
-			if (gl.isContextLost()) {
-				requestAnimationFrame(renderGame);
-				return;
-			}
+			if (gl.isContextLost()) return requestAnimationFrame(renderGame);
 
 			// get settings
 			const defaultVirusSrc = '/assets/images/viruses/2.png';
@@ -4965,13 +4937,9 @@
 			})();
 
 			(function background() {
-				if (sigmod.settings.mapColor) {
-					gl.clearColor(...sigmod.settings.mapColor);
-				} else if (aux.settings.darkTheme) {
-					gl.clearColor(0x11 / 255, 0x11 / 255, 0x11 / 255, 1); // #111
-				} else {
-					gl.clearColor(0xf2 / 255, 0xfb / 255, 0xff / 255, 1); // #f2fbff
-				}
+				if (sigmod.settings.mapColor) gl.clearColor(...sigmod.settings.mapColor);
+				else if (aux.settings.darkTheme) gl.clearColor(0x11 / 255, 0x11 / 255, 0x11 / 255, 1); // #111
+				else gl.clearColor(0xf2 / 255, 0xfb / 255, 0xff / 255, 1); // #f2fbff
 				gl.clear(gl.COLOR_BUFFER_BIT);
 
 				gl.useProgram(glconf.programs.bg);
@@ -4979,10 +4947,8 @@
 
 				let texture;
 				if (settings.background) {
-					if (settings.background.startsWith('🖼️'))
-						texture = textureFromDatabase('background');
-					else
-						texture = textureFromCache(settings.background);
+					if (settings.background.startsWith('🖼️')) texture = textureFromDatabase('background');
+					else texture = textureFromCache(settings.background);
 				} else if (aux.settings.showGrid) {
 					texture = textureFromCache(aux.settings.darkTheme ? darkGridSrc : lightGridSrc);
 				}
@@ -4995,23 +4961,15 @@
 					: [0, 0, 0, 0] /* transparent */;
 				borderLrtb = vision.border || { l: 0, r: 0, t: 0, b: 0 };
 
-				// u_border_color
-				borderUboFloats[0] = borderColor[0]; borderUboFloats[1] = borderColor[1];
-				borderUboFloats[2] = borderColor[2]; borderUboFloats[3] = borderColor[3];
-				// u_border_xyzw_lrtb
-				borderUboFloats[4] = borderLrtb.l;
-				borderUboFloats[5] = borderLrtb.r;
-				borderUboFloats[6] = borderLrtb.t;
-				borderUboFloats[7] = borderLrtb.b;
-
+				borderUboFloats.set(borderColor, 0); // u_border_color
+				borderUboFloats.set([borderLrtb.l, borderLrtb.r, borderLrtb.t, borderLrtb.b], 4); // u_border_xyzw_lrtb
 				// flags
 				borderUboInts[8] = (texture ? 0x01 : 0) | (aux.settings.darkTheme ? 0x02 : 0) | (repeating ? 0x04 : 0)
 					| (settings.rainbowBorder ? 0x08 : 0);
 
-				// u_background_width and u_background_height
-				borderUboFloats[9] = texture?.width ?? 1;
-				borderUboFloats[10] = texture?.height ?? 1;
-				borderUboFloats[11] = (now - start) / 1000 * 0.2 % (Math.PI * 2);
+				borderUboFloats[9] = texture?.width ?? 1; // u_background_width
+				borderUboFloats[10] = texture?.height ?? 1; // u_background_height
+				borderUboFloats[11] = now / 1000 * 0.2 % (Math.PI * 2); // u_border_time
 
 				gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Border);
 				gl.bufferSubData(gl.UNIFORM_BUFFER, 0, borderUboFloats);
@@ -5096,10 +5054,7 @@
 						} else {
 							cellUboInts[9] = 0;
 							// #ff000080 if the virus texture doesn't load
-							cellUboFloats[4] = 1;
-							cellUboFloats[5] = 0;
-							cellUboFloats[6] = 0;
-							cellUboFloats[7] = 0.5;
+							cellUboFloats.set([1, 0, 0, 0.5], 4);
 						}
 
 						gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Cell);
@@ -5143,7 +5098,6 @@
 						if (ownerView === world.selected) {
 							const myIndex = ownedArray.indexOf(cell.id);
 							if (!canSplit[myIndex]) cellUboInts[9] |= 0x10;
-
 							if (vision.camera.merged) cellUboInts[9] |= 0x04;
 						} else if (ownerVision) {
 							if (ownerVision.camera.merged) cellUboInts[9] |= 0x08;
