@@ -12,7 +12,6 @@
 // @compatible   edge
 // ==/UserScript==
 
-// @ts-check
 /* eslint
 	camelcase: 'error',
 	comma-dangle: ['error', 'always-multiline'],
@@ -608,8 +607,8 @@
 			showStats: true,
 			spectator: false,
 			spectatorLatency: false,
-			/** @type {'' | 'latest' | 'flawless'} */
-			synchronization: 'flawless',
+			/** @type {'' | 'latest' | 'latest-smart'} */
+			synchronization: 'latest',
 			textOutlinesFactor: 1,
 			// default is the default chat color
 			theme: /** @type {[number, number, number, number]} */ ([252 / 255, 114 / 255, 0, 0]),
@@ -647,8 +646,11 @@
 			if (autoZoom === 'auto') settings.autoZoom = true;
 			else if (autoZoom === 'never') settings.autoZoom = false;
 
-			// accidentally set the default to 'none' which sucks
+			// 2.7.1: accidentally set the default to 'none' which sucks
 			if (synchronization === 'none') settings.synchronization = 'flawless';
+
+			// 2.8.0: flawless => latest-smart
+			if (settings.synchronization === 'flawless') settings.synchronization = 'latest-smart';
 		}
 
 		/** @type {(() => void)[]} */
@@ -1966,28 +1968,34 @@
 	///////////////////////////
 	// Setup World Variables //
 	///////////////////////////
+	const CELL_TOPINDEX_MASK = 0xf; // 16 slots
+	const CELL_BORN = 3 * 16;
+	const CELL_DEADAT = 3 * 16 + 1;
+	const CELL_DEADTO = 3 * 16 + 2;
+	const CELL_TOPINDEX = 3 * 16 + 3;
+	const CELL_RECORD_SIZE = 3 * 16 + 4;
+	const PELLET_BORN = 0;
+	const PELLET_DEADAT = 1;
+	const PELLET_DEADTO = 2;
+	const PELLET_RECORD_SIZE = 3;
+	const TAB_PRIMARY = Symbol();
+	const TAB_SECONDARY = Symbol();
+	const TAB_SPECTATE = Symbol();
 	/**
 	 * @typedef {{
-	 * 	nx: number, ny: number, nr: number,
-	 * 	born: number, deadAt: number | undefined, deadTo: number,
-	 * }} CellFrameWritable
-	 * @typedef {Readonly<CellFrameWritable>} CellFrame
-	 * @typedef {{
-	 * 	ox: number, oy: number, or: number,
-	 * 	jr: number, a: number, updated: number,
-	 * }} CellInterpolation
-	 * @typedef {{
-	 *  name: string, skin: string, sub: boolean, clan: string,
-	 * 	rgb: [number, number, number],
-	 * 	jagged: boolean, eject: boolean,
-	 * }} CellDescription
-	 * @typedef {CellInterpolation & CellDescription & { frames: CellFrame[] }} CellRecord
+	 * 	id: number,
+	 * 	vx: number, vy: number, vr: number, vjr: number, vupdated: number, vweight: number,
+	 * 	tx: number, ty: number, tr: number,
+	 * 	born: number, deadAt: number, deadTo: number,
+	 * 	name: string, skin: string, clan: string,
+	 * 	red: number, green: number, blue: number, jagged: boolean, sub: boolean,
+	 * }} Cell
 	 * @typedef {{
 	 * 	id: number,
-	 * 	merged: (CellFrameWritable & CellInterpolation) | undefined,
-	 * 	model: CellFrame | undefined,
-	 * 	views: Map<symbol, CellRecord>,
-	 * }} Cell
+	 * 	tx: number, ty: number, tr: number,
+	 * 	born: number, deadAt: number, deadTo: number,
+	 * 	red: number, green: number, blue: number,
+	 * }} Pellet
 	 * @typedef {{
 	 * 	border: { l: number, r: number, t: number, b: number } | undefined,
 	 * 	camera: {
@@ -2002,6 +2010,7 @@
 	 * 	spawned: number,
 	 * 	stats: object | undefined,
 	 * 	used: number,
+	 * 	view: Symbol,
 	 * }} Vision
 	 */
 	const world = (() => {
@@ -2009,21 +2018,19 @@
 
 		/** @type {Map<number, Cell>} */
 		world.cells = new Map();
-		/** @type {Map<number, Cell>} */
+		/** @type {Map<number, Pellet>} */
 		world.pellets = new Map();
-		world.multis = [Symbol(), Symbol(), Symbol(), Symbol(), Symbol(), Symbol(), Symbol(), Symbol()];
-		world.viewId = { primary: world.multis[0], secondary: world.multis[1], spectate: Symbol() };
+		world.multis = [TAB_PRIMARY, TAB_SECONDARY, Symbol(), Symbol(), Symbol(), Symbol(), Symbol(), Symbol()];
+		world.viewId = { primary: TAB_PRIMARY, secondary: TAB_SECONDARY, spectate: TAB_SPECTATE };
 		world.selected = world.viewId.primary;
 		/** @type {Map<symbol, Vision>} */
 		world.views = new Map();
 
 		world.alive = () => {
-			for (const [view, vision] of world.views) {
+			for (const vision of world.views.values()) {
 				for (const id of vision.owned) {
 					const cell = world.cells.get(id);
-					// if a cell does not exist yet, we treat it as alive
-					if (!cell) return true;
-					if (cell.views.get(view)?.frames[0].deadAt === undefined) return true;
+					if (!cell || !cell[vision.view][CELL_DEADAT]) return true; // cells that don't exist yet are "alive"
 				}
 			}
 			return false;
@@ -2031,41 +2038,32 @@
 
 		/**
 		 * @typedef {{ mass: number, scale: number, sumX: number, sumY: number, weight: number }} SingleCamera
-		 * @param {symbol} view
-		 * @param {Vision | undefined} vision
+		 * @param {Vision} vision
 		 * @param {number} weightExponent
 		 * @param {number} now
 		 * @returns {SingleCamera}
 		 */
-		world.singleCamera = (view, vision, weightExponent, now) => {
-			vision ??= world.views.get(view);
-			if (!vision) return { mass: 0, scale: 1, sumX: 0, sumY: 0, weight: 0 };
-
+		world.singleCamera = (vision, weightExponent, now) => {
 			let mass = 0, r = 0, sumX = 0, sumY = 0, weight = 0;
-			for (const id of (vision.owned ?? [])) {
+			for (const id of vision.owned) {
 				const cell = world.cells.get(id);
-				/** @type {CellFrame | undefined} */
-				const frame = world.synchronized ? cell?.merged : cell?.views.get(view)?.frames[0];
-				/** @type {CellInterpolation | undefined} */
-				const interp = world.synchronized ? cell?.merged : cell?.views.get(view);
-				if (!frame || !interp) continue;
 				// don't include cells owned before respawning
-				if (frame.born < vision.spawned) continue;
+				if (!cell || cell.born < vision.spawned) continue;
 
 				if (settings.cameraMovement === 'instant') {
-					const xyr = world.xyr(frame, interp, undefined, undefined, false, now);
-					r += xyr.r * xyr.a;
-					mass += (xyr.r * xyr.r / 100) * xyr.a;
-					const cellWeight = xyr.a * (xyr.r ** weightExponent);
+					const xyr = world.xyr(cell, undefined, now); // TODO why killer=undefined?
+					r += xyr.r * xyr.weight;
+					mass += (xyr.r * xyr.r / 100) * xyr.weight;
+					const cellWeight = xyr.weight * (xyr.r ** weightExponent);
 					sumX += xyr.x * cellWeight;
 					sumY += xyr.y * cellWeight;
 					weight += cellWeight;
 				} else { // settings.cameraMovement === 'default'
-					if (frame.deadAt !== undefined) continue;
-					const xyr = world.xyr(frame, interp, undefined, undefined, false, now);
-					r += frame.nr;
-					mass += frame.nr * frame.nr / 100;
-					const cellWeight = frame.nr ** weightExponent;
+					if (cell.deadAt) continue;
+					const xyr = world.xyr(cell, undefined, now);
+					r += cell.tr;
+					mass += cell.tr * cell.tr / 100;
+					const cellWeight = cell.tr ** weightExponent;
 					sumX += xyr.x * cellWeight;
 					sumY += xyr.y * cellWeight;
 					weight += cellWeight;
@@ -2087,7 +2085,7 @@
 			/** @type {Map<symbol, Set<symbol>>} */
 			const sets = new Map();
 			for (const [view, vision] of world.views) {
-				cameras.set(view, world.singleCamera(view, vision, weightExponent, now));
+				cameras.set(view, world.singleCamera(vision, weightExponent, now));
 				sets.set(view, new Set([view]));
 			}
 
@@ -2200,270 +2198,10 @@
 				spawned: -Infinity,
 				stats: undefined,
 				used: -Infinity,
+				view,
 			};
 			world.views.set(view, vision);
 			return vision;
-		};
-
-		let wasFlawlessSynchronized = false;
-		/** @type {number | undefined} */
-		let disagreementAt, disagreementStart;
-		world.synchronized = false;
-		world.merge = () => {
-			if (wasFlawlessSynchronized && settings.synchronization !== 'flawless') {
-				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-					for (const cell of world[key].values()) {
-						for (const record of cell.views.values()) record.frames.length = 1;
-					}
-				}
-			}
-
-			if (!settings.synchronization || world.views.size <= 1) {
-				disagreementStart = disagreementAt = undefined;
-				world.synchronized = false;
-				wasFlawlessSynchronized = false;
-				return;
-			}
-
-			const now = performance.now();
-			/** @type {{ [x: number | symbol]: number }} indexed by viewInt or symbol view */
-			const indices = {};
-
-			if (settings.synchronization === 'flawless') {
-				// #1 : set up bipartite graphs between every pair of views
-				/** @type {Map<symbol, number>} */
-				const viewToInt = new Map();
-				/** @type {Map<number, symbol>} */
-				const intToView = new Map();
-				for (const view of world.views.keys()) {
-					intToView.set(viewToInt.size, view);
-					viewToInt.set(view, viewToInt.size);
-				}
-				const viewDim = viewToInt.size;
-
-				// each pair of views (view1, view2, where view1Int < view2Int) has a 12x12 graph, where
-				// graph[i * viewDim + j] describes the existence of an undirected connection between index i on view1
-				// and index j on view2.
-				const COMPATIBLE = 1 << 0;
-				const INCOMPATIBLE = 1 << 1;
-				const graphDim = 12; // same as maximum history size
-				/** @type {Map<number, Uint8Array>} */
-				const graphs = new Map();
-				for (let i = 0; i < viewToInt.size; ++i) {
-					for (let j = i + 1; j < viewToInt.size; ++j) {
-						graphs.set(i * viewDim + j, new Uint8Array(graphDim * graphDim));
-					}
-				}
-
-				// #2 : establish relationships in every graph
-				// pellets never change, so it would be useless to try and compare them
-				for (const cell of world.cells.values()) {
-					for (const view1 of cell.views.keys()) {
-						const record1 = /** @type {CellRecord} */ (cell.views.get(view1));
-						for (const view2 of cell.views.keys()) {
-							if (view1 === view2) continue;
-							const record2 = /** @type {CellRecord} */ (cell.views.get(view2));
-
-							const view1Int = /** @type {number} */ (viewToInt.get(view1));
-							const view2Int = /** @type {number} */ (viewToInt.get(view2));
-							if (view1Int > view2Int) continue; // only access graphs where view1 < view2
-							const graph = /** @type {Uint8Array} */ (graphs.get(view1Int * viewDim + view2Int));
-
-							for (let i = 0; i < record1.frames.length; ++i) {
-								const frame1 = record1.frames[i];
-								for (let j = 0; j < record2.frames.length; ++j) {
-									const frame2 = record2.frames[j];
-
-									if (frame1.deadAt !== undefined || frame2.deadAt !== undefined || (frame1.nx === frame2.nx && frame1.ny === frame2.ny && frame1.nr === frame2.nr)) {
-										graph[i * graphDim + j] |= COMPATIBLE;
-									} else {
-										graph[i * graphDim + j] |= INCOMPATIBLE;
-									}
-								}
-							}
-						}
-					}
-				}
-
-				// #3 : find the lowest indices across all views that are compatible with each other
-				/**
-				 * @param {{ viewInt: number, i: number }[]} previous
-				 * @param {number} viewInt
-				 * @param {number} i
-				 * @returns {boolean}
-				 */
-				const explore = (previous, viewInt, i) => {
-					// try and find the next view that is compatible
-					for (let next = viewInt + 1; next < viewDim; ++next) {
-						if (indices[next] !== undefined) continue;
-
-						const graph = /** @type {Uint8Array} */ (graphs.get(viewInt * viewDim + next));
-						let incompatible = false;
-						for (let j = 0; j < graphDim; ++j) {
-							const con = graph[i * graphDim + j];
-							if (con & INCOMPATIBLE) {
-								incompatible = true;
-							} else if (con & COMPATIBLE) {
-								// we found a connection
-								// TODO: checking for backwards compatibility seems to break things
-								previous.push({ viewInt, i });
-								const ok = explore(previous, next, j);
-								previous.pop();
-								if (ok) {
-									indices[next] = indices[/** @type {symbol} */ (intToView.get(next))] = j;
-									return true;
-								}
-
-								incompatible = false;
-							} else; // don't do anything if the connection is undefined
-						}
-
-						// if an incompatible connection was found with no other good choices, then there is a conflict
-						// and don't allow it
-						if (incompatible) return false;
-					}
-
-					return true;
-				};
-
-				startCluster: for (let viewInt = 0; viewInt < viewDim; ++viewInt) {
-					if (indices[viewInt] !== undefined) continue; // don't re-process a cluster
-
-					// try and start a cluster with some index
-					for (let i = 0; i < graphDim; ++i) {
-						if (explore([], viewInt, i)) {
-							indices[viewInt] = indices[/** @type {symbol} */ (intToView.get(viewInt))] = i;
-							continue startCluster;
-						}
-					}
-
-					// if everything is incompatible, then there is a disagreement somewhere
-					// (shouldn't really happen unless a huge lag spike hits)
-					disagreementStart ??= now;
-					disagreementAt = now;
-					if (now - disagreementStart > 1000) world.synchronized = false;
-					return;
-				}
-
-				wasFlawlessSynchronized = true;
-			} else { // settings.synchronization === 'latest'
-				let i = 0;
-				for (const view of world.views.keys()) indices[i++] = indices[view] = 0;
-
-				wasFlawlessSynchronized = false;
-			}
-
-			// #4 : find a model frame for all cells and pellets
-			for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-				for (const cell of world[key].values()) {
-					/** @type {[symbol, CellRecord] | undefined} */
-					let modelPair;
-					modelViewLoop: for (const pair of cell.views) {
-						if (!modelPair) {
-							modelPair = pair;
-							continue;
-						}
-
-						const [modelView, model] = modelPair;
-						const [view, record] = pair;
-
-						const modelFrame = model.frames[indices[modelView]];
-						const frame = record.frames[indices[view]];
-
-						const modelDisappeared = !modelFrame || (modelFrame.deadAt !== undefined && modelFrame.deadTo === -1);
-						const thisDisappeared = !frame || (frame.deadAt !== undefined && frame.deadTo === -1);
-
-						if (modelDisappeared && thisDisappeared) {
-							// both have currently disappeared; prefer the one that "disappeared" later
-							if (settings.synchronization === 'flawless') {
-								for (let off = 1; off < 12; ++off) {
-									const modelFrameOffset = model.frames[indices[modelView] + off];
-									const frameOffset = record.frames[indices[view] + off];
-
-									const modelOffsetAlive = modelFrameOffset && modelFrameOffset.deadAt === undefined;
-									const frameOffsetAlive = frameOffset && frameOffset.deadAt === undefined;
-									if (modelOffsetAlive && frameOffsetAlive) {
-										// both disappeared at the same time, doesn't matter
-										continue modelViewLoop;
-									} else if (modelOffsetAlive && !frameOffsetAlive) {
-										// model disappeared last, so prefer it
-										continue modelViewLoop;
-									} else if (!modelOffsetAlive && frameOffsetAlive) {
-										// current disappeared last, so prefer it
-										modelPair = pair;
-										continue modelViewLoop;
-									} else; // we haven't found when either one disappeared
-								}
-							} else {
-								// if (!modelFrame && !frame) leave the model as is
-								// else if (modelFrame && !frame) leave the model as is
-								if (!modelFrame && frame) modelPair = pair;
-								else if (modelFrame && frame && /** @type {number} */ (frame.deadAt) > /** @type {number} */ (modelFrame.deadAt)) modelPair = pair;
-							}
-						} else if (modelDisappeared && !thisDisappeared) {
-							// current is the only one visible, so prefer it
-							modelPair = pair;
-						} else if (!modelDisappeared && thisDisappeared) {
-							// model is the only one visible, so prefer it (don't change anything)
-						} else; // both are visible and synchronized, so it doesn't matter
-					}
-
-					// in very rare circumstances, this ends up being undefined, for some reason
-					if (modelPair) cell.model = modelPair[1].frames[indices[modelPair[0]]] ?? cell.model;
-				}
-			}
-
-			// #5 : create or update the merged frame for all cells and pellets
-			for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-				for (const cell of world[key].values()) {
-					const { model, merged } = cell;
-					if (!model) { // could happen
-						cell.merged = undefined;
-						continue;
-					}
-
-					if (!merged || (merged.deadAt !== undefined && model.deadAt === undefined)) {
-						cell.merged = {
-							nx: model.nx, ny: model.ny, nr: model.nr,
-							born: now, deadAt: model.deadAt !== undefined ? now : undefined, deadTo: model.deadTo,
-							ox: model.nx, oy: model.ny, or: model.nr,
-							jr: model.nr, a: 0, updated: now,
-						};
-					} else {
-						if (merged.deadAt === undefined && (model.deadAt !== undefined || model.nx !== merged.nx || model.ny !== merged.ny || model.nr !== merged.nr)) {
-							const xyr = world.xyr(merged, merged, undefined, undefined, key === 'pellets', now);
-
-							merged.ox = xyr.x;
-							merged.oy = xyr.y;
-							merged.or = xyr.r;
-							merged.jr = xyr.jr;
-							merged.a = xyr.a;
-							merged.updated = now;
-						}
-
-						merged.nx = model.nx;
-						merged.ny = model.ny;
-						merged.nr = model.nr;
-						merged.deadAt = model.deadAt !== undefined ? (merged.deadAt ?? now) : undefined;
-						merged.deadTo = model.deadTo;
-					}
-				}
-			}
-
-			// #6 : clean up history for all cells, because we don't want to ever go back in time
-			for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-				for (const cell of world[key].values()) {
-					for (const [view, record] of cell.views) {
-						// leave the current frame, because .frames must have at least one element
-						if (record.frames.length > indices[view] + 1) record.frames.length = indices[view] + 1;
-					}
-				}
-			}
-
-			disagreementStart = undefined;
-			// if there ever a disagreement that caused synchronization to be disabled, wait a bit after things
-			// resolve to make sure they stay resolved
-			if (disagreementAt === undefined || now - disagreementAt > 1000) world.synchronized = true;
 		};
 
 		/** @param {symbol} view */
@@ -2471,54 +2209,40 @@
 			let score = 0;
 			for (const id of (world.views.get(view)?.owned ?? [])) {
 				const cell = world.cells.get(id);
-				const frame = world.synchronized ? cell?.merged : cell?.views.get(view)?.frames[0];
-				if (!frame || frame.deadAt !== undefined) continue;
-				score += frame.nr * frame.nr / 100; // use exact score as given by the server, no interpolation
+				if (!cell) continue;
+				const record = cell[view];
+				if (record[CELL_DEADAT]) continue;
+				const tr = record[3 * record[CELL_TOPINDEX] + 2];
+				score += tr * tr / 100; // use exact score as given by the server, no interpolation
 			}
 
 			return score;
 		};
 
-		/**
-		 * @param {CellFrame} frame
-		 * @param {CellInterpolation} interp
-		 * @param {CellFrame | undefined} killerFrame
-		 * @param {CellInterpolation | undefined} killerInterp
-		 * @param {boolean} pellet
-		 * @param {number} now
-		 * @returns {{ x: number, y: number, r: number, jr: number, a: number }}
-		 */
-		world.xyr = (frame, interp, killerFrame, killerInterp, pellet, now) => {
-			let nx = frame.nx;
-			let ny = frame.ny;
-			if (killerFrame && killerInterp) {
-				// animate towards the killer's interpolated position (not the target position) for extra smoothness
+		world.xyr = (cell, killer, now) => {
+			let { tx, ty } = cell;
+			if (killer) {
+				// animate towards the killer's interpolated position (not their target position) for extra smoothness
 				// we also assume the killer has not died (if it has, then weird stuff is OK to occur)
-				const killerXyr = world.xyr(killerFrame, killerInterp, undefined, undefined, false, now);
-				nx = killerXyr.x;
-				ny = killerXyr.y;
+				const killerXyr = world.xyr(killer, undefined, now);
+				({ x: tx, y: ty } = killerXyr.x);
 			}
 
-			let x = nx, y = ny, r = frame.r, a = 1;
-			if (!pellet || frame.deadAt !== undefined) {
-				let alpha = (now - interp.updated) / settings.drawDelay;
-				alpha = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
+			let alpha = (now - cell.vupdated) / settings.drawDelay;
+			alpha = alpha > 1 ? 1 : alpha;
 
-				// TODO: why are we not using aux.exponentialEase?
-				x = interp.ox + (nx - interp.ox) * alpha;
-				y = interp.oy + (ny - interp.oy) * alpha;
-				r = interp.or + (frame.nr - interp.or) * alpha;
+			// TODO: why are we not using aux.exponentialEase?
+			const x = cell.vx + (tx - cell.vx) * alpha;
+			const y = cell.vy + (ty - cell.vy) * alpha;
+			const r = cell.vr + (cell.tr - cell.vr) * alpha;
+			const targetWeight = cell.deadAt ? 0 : 1;
+			const weight = cell.vweight + (targetWeight - cell.vweight) * alpha;
 
-				const targetA = frame.deadAt !== undefined ? 0 : 1;
-				a = interp.a + (targetA - interp.a) * alpha;
-			}
-
-			const dt = (now - interp.updated) / 1000;
+			const dt = (now - cell.vupdated) / 1000;
 
 			return {
-				x, y, r,
-				jr: aux.exponentialEase(interp.jr, r, settings.slowerJellyPhysics ? 10 : 5, dt),
-				a,
+				x, y, r, weight,
+				jr: aux.exponentialEase(cell.vjr, r, settings.slowerJellyPhysics ? 10 : 5, dt),
 			};
 		};
 
@@ -2529,18 +2253,12 @@
 			if (now - lastClean < 200) return;
 			lastClean = now;
 
-			for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-				for (const [id, cell] of world[key]) {
-					for (const [view, record] of cell.views) {
-						const firstFrame = record.frames[0];
-						const lastFrame = record.frames[record.frames.length - 1];
-						if (firstFrame.deadAt !== lastFrame.deadAt) continue;
-						if (lastFrame.deadAt !== undefined && now - lastFrame.deadAt >= settings.drawDelay + 200)
-							cell.views.delete(view);
-					}
-
-					if (cell.views.size === 0) world[key].delete(id);
-				}
+			const destroyBefore = now - settings.drawDelay + 200;
+			for (const cell of world.cells) {
+				if (cell.deadAt && cell.deadAt <= destroyBefore) world.cells.delete(cell.id);
+			}
+			for (const pellet of world.pellets) {
+				if (pellet.deadAt && pellet.deadAt <= destroyBefore) world.pellets.delete(pellet.id);
 			}
 		};
 
@@ -2640,8 +2358,7 @@
 				}
 
 				connection.ws = undefined;
-				world.merge();
-				render.upload(true);
+				// render.upload(true);
 
 				const thisUrl = net.url();
 				const url = new URL(thisUrl); // use the current url, not realUrl
@@ -2706,19 +2423,6 @@
 				let o = 1;
 				switch (dat.getUint8(0)) {
 					case 0x10: { // world update
-						// carry forward record frames
-						if (settings.synchronization === 'flawless') {
-							for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-								for (const cell of world[key].values()) {
-									const record = cell.views.get(view);
-									if (!record) continue;
-
-									record.frames.unshift(record.frames[0]);
-									if (record.frames.length > 12) record.frames.length = 12;
-								}
-							}
-						}
-
 						// (a) : eat
 						const killCount = dat.getUint16(o, true);
 						o += 2;
@@ -2729,33 +2433,30 @@
 
 							let pellet = true;
 							let killed = world.pellets.get(killedId) ?? (pellet = false, world.cells.get(killedId));
-							const record = killed?.views.get(view);
-							if (!record) continue;
+							if (!killed) continue;
 
-							const frame = record.frames[0];
-							// update interpolation using old targets
-							const xyr = world.xyr(record.frames[0], record, undefined, undefined, pellet, now);
-							record.ox = xyr.x;
-							record.oy = xyr.y;
-							record.or = xyr.r;
-							record.jr = xyr.jr;
-							record.a = xyr.a;
-							record.updated = now;
+							const record = killed[view];
+							if (pellet) {
+								// update deadness
+								record[PELLET_DEADAT] = now;
+								record[PELLET_DEADTO] = killerId;
 
-							// update new targets (and dead-ness)
-							record.frames[0] = {
-								nx: frame.nx, ny: frame.ny, nr: frame.nr,
-								born: frame.born, deadAt: now, deadTo: killerId,
-							};
+								if (vision.owned.has(killerId)) {
+									++world.stats.foodEaten;
+									net.food(view); // dumbass quest code go brrr
+								}
+							} else {
+								// update interpolation targets
+								// TODO
 
-							if (pellet && vision.owned.has(killerId)) {
-								++world.stats.foodEaten;
-								net.food(view); // dumbass quest code go brrr
+								// update deadness
+								record[CELL_DEADAT] = now;
+								record[CELL_DEADTO] = killerId;
 							}
 						}
 
 						// (b) : add, upd
-						do {
+						while (true) {
 							const id = dat.getUint32(o, true);
 							o += 4;
 							if (id === 0) break;
@@ -2769,10 +2470,11 @@
 
 							let clan; [clan, o] = aux.readZTString(dat, o);
 
-							/** @type {[number, number, number] | undefined} */
-							let rgb;
+							let red = 0.5, green = 0.5, blue = 0.5;
 							if (flags & 0x02) { // update color
-								rgb = [dat.getUint8(o++) / 255, dat.getUint8(o++) / 255, dat.getUint8(o++) / 255];
+								red = dat.getUint8(o++) / 255;
+								green = dat.getUint8(o++) / 255;
+								blue = dat.getUint8(o++) / 255;
 							}
 
 							/** @type {string | undefined} */
@@ -2787,90 +2489,100 @@
 							if (flags & 0x08) { // update name
 								[name, o] = aux.readZTString(dat, o);
 								name = aux.parseName(name);
-								if (name) render.textFromCache(name, sub); // make sure the texture is ready on render
+								if (name) render.textFromCache(name, sub); // make sure the texture is ready on render TODO performance hit???
 							}
 
 							const jagged = !!(flags & 0x11); // spiked or agitated
-							const eject = !!(flags & 0x20);
-							const pellet = r <= 40 && !eject; // tourney servers have bigger pellets (r=40)
-							const cell = (pellet ? world.pellets : world.cells).get(id);
-							const record = cell?.views.get(view);
-							if (record) {
-								const frame = record.frames[0];
-								if (frame.deadAt === undefined) {
-									// update interpolation using old targets
-									const xyr = world.xyr(record.frames[0], record, undefined, undefined, pellet, now);
-									record.ox = xyr.x;
-									record.oy = xyr.y;
-									record.or = xyr.r;
-									record.jr = xyr.jr;
-									record.a = xyr.a;
+							const isEject = !!(flags & 0x20);
+							const isPellet = r <= 40 && !isEject; // tourney servers have bigger pellets (r=40)
+
+							if (isPellet) {
+								let pellet = world.pellets.get(id);
+								if (pellet) {
+									// update
+									if (flags & 0x02) {
+										pellet.red = red;
+										pellet.green = green;
+										pellet.blue = blue;
+									}
+									const record = pellet[view];
+									// reset born, deadAt, deadTo if necessary
+									if (!record[PELLET_BORN]) record[PELLET_BORN] = now;
+									record[PELLET_DEADAT] = record[PELLET_DEADTO] = 0;
+									if (pellet.deadAt) {
+										pellet.born = now;
+										pellet.deadAt = pellet.deadTo = 0;
+									}
 								} else {
-									// cell just reappeared, discard all old data
-									record.ox = x;
-									record.oy = y;
-									record.or = r;
-									record.jr = r;
-									record.a = 0;
-								}
-
-								record.updated = now;
-
-								// update target frame
-								record.frames[0] = {
-									nx: x, ny: y, nr: r,
-									born: frame.born, deadAt: undefined, deadTo: -1
-								};
-
-								// update desc
-								if (name !== undefined) record.name = name;
-								if (skin !== undefined) record.skin = skin;
-								if (rgb !== undefined) record.rgb = rgb;
-								record.clan = clan;
-								record.jagged = jagged;
-								record.eject = eject;
-							} else {
-								/** @type {CellRecord} */
-								const record = {
-									ox: x, oy: y, or: r,
-									jr: r, a: 0, updated: now,
-									frames: [{
-										nx: x, ny: y, nr: r,
-										born: now, deadAt: undefined, deadTo: -1,
-									}],
-									name: name ?? '', skin: skin ?? '', sub, clan,
-									rgb: rgb ?? [0.5, 0.5, 0.5],
-									jagged, eject,
-								};
-								if (cell) {
-									cell.views.set(view, record);
-								} else {
-									(pellet ? world.pellets : world.cells).set(id, {
+									// new
+									world.pellets.set(id, pellet = {
 										id,
-										merged: undefined,
-										model: undefined,
-										views: new Map([[ view, record ]]),
+										tx: x, ty: y, tr: r,
+										born: now, deadAt: 0, deadTo: 0,
+										red, green, blue,
+										[TAB_PRIMARY]: new Float32Array(PELLET_RECORD_SIZE),
+										[TAB_SECONDARY]: new Float32Array(PELLET_RECORD_SIZE),
+										[TAB_SPECTATE]: new Float32Array(PELLET_RECORD_SIZE),
 									});
+									pellet[view][PELLET_BORN] = now;
 								}
-
-								if (settings.synchronization === 'latest' && !pellet && !eject && rgb) {
-									// 'latest' requires us to predict which cells we will own
-									// a name + color check should be enough
-									/** @type {CellDescription | undefined} */
-									let base;
-									for (const id of vision.owned) {
-										const desc = world.cells.get(id)?.views.get(view);
-										if (!desc || desc.frames[0].deadAt !== undefined) continue;
-										base = desc;
-										break;
+							} else {
+								let cell = world.cells.get(id);
+								if (cell) {
+									// update
+									if (flags & 0x02) {
+										cell.red = red;
+										cell.green = green;
+										cell.blue = blue;
 									}
+									if (flags & 0x04) cell.name = name || 'An unnamed cell';
+									if (flags & 0x08) cell.skin = skin ?? '';
+									cell.clan = clan;
+									cell.jagged = jagged;
+									cell.sub = sub;
 
-									if (base && name === base.name && rgb[0] === base.rgb[0] && rgb[1] === base.rgb[1] && rgb[2] === base.rgb[2]) {
-										vision.owned.add(id);
+									// TODO reset cell born, deadAt, deadTo according to merging
+									// TODO update vx, vy, vr
+									const record = cell[view];
+									if (record[CELL_DEADAT]) {
+										record[CELL_BORN] = now;
+										record[CELL_DEADAT] = record[CELL_DEADTO] = 0;
 									}
+									record[3 * record[CELL_TOPINDEX]] = x;
+									record[3 * record[CELL_TOPINDEX] + 1] = y;
+									record[3 * record[CELL_TOPINDEX] + 2] = r;
+									record[CELL_TOPINDEX] = (record[CELL_TOPINDEX] + 1) & CELL_TOPINDEX_MASK;
+
+									if (settings.synchronization === 'latest') {
+										cell.tx = x;
+										cell.ty = y;
+										cell.tr = r;
+									}
+								} else {
+									// new
+									world.cells.set(id, cell = {
+										id,
+										vx: x, vy: y, vr: r, vjr: r, vupdated: now, vweight: 0,
+										tx: x, ty: y, tr: r,
+										born: now, deadAt: 0, deadTo: 0,
+										name: name || 'An unnamed cell', skin: skin ?? '', clan,
+										red, green, blue, jagged, sub,
+										[TAB_PRIMARY]: new Float32Array(CELL_RECORD_SIZE),
+										[TAB_SECONDARY]: new Float32Array(CELL_RECORD_SIZE),
+										[TAB_SPECTATE]: new Float32Array(CELL_RECORD_SIZE),
+									});
+
+									const record = cell[view];
+									record[CELL_BORN] = now;
+									record[0] = x;
+									record[1] = y;
+									record[2] = r;
+									record[CELL_TOPINDEX] = (record[CELL_TOPINDEX] + 1) & CELL_TOPINDEX_MASK;
+
+									// TODO: must predict which cells we will own, if merging
 								}
 							}
-						} while (true);
+						}
 
 						// (c) : del
 						const deleteCount = dat.getUint16(o, true);
@@ -2879,22 +2591,24 @@
 							const deletedId = dat.getUint32(o, true);
 							o += 4;
 
-							const record
-								= (world.pellets.get(deletedId) ?? world.cells.get(deletedId))?.views.get(view);
-							const frame = record?.frames[0];
-							if (frame?.deadAt !== undefined) continue;
-							record.frames[0] = {
-								nx: frame.nx, ny: frame.ny, nr: frame.nr,
-								born: frame.born, deadAt: now, deadTo: -1,
-							};
-							// no interpolation stuff is updated because the target positions won't be changed,
-							// unlike on eat where nx and ny are set to the killer's
+							let isPellet = true;
+							const deleted = world.pellets.get(deletedId) ?? (isPellet = false, world.cells.get(deletedId));
+							if (!deleted) continue;
+							const record = deleted[view];
+							if (isPellet) {
+								if (record[PELLET_DEADAT]) continue;
+								record[PELLET_DEADAT] = now;
+								// TODO: update merged deadAt/deadTo
+							} else {
+								if (record[CELL_DEADAT]) continue;
+								record[CELL_DEADAT] = now;
+								// TODO: update merged deadAt/deadTo
+							}
 						}
 
 						// (d) : finalize, upload data
-						world.merge();
 						world.clean();
-						render.upload(true);
+						// render.upload(true);
 
 						// (e) : clear own cells that don't exist anymore (NOT on world.clean!)
 						for (const id of vision.owned) {
@@ -2903,9 +2617,8 @@
 								vision.owned.delete(id);
 								continue;
 							}
-							const record = cell?.views.get(view);
-
-							if (record && record.frames[0].deadAt === undefined && connection.playBlock?.state === 'joining') {
+							const record = cell[view];
+							if (record[CELL_BORN] && !record[CELL_DEADAT] && connection.playBlock?.state === 'joining') {
 								connection.playBlock = undefined;
 							}
 						}
@@ -2930,26 +2643,19 @@
 
 						// DO NOT just clear the maps! when respawning, OgarII will not resend cell data if we spawn
 						// nearby.
-						for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-							for (const cell of world[key].values()) {
-								const record = cell.views.get(view);
-								if (!record) continue;
 
-								const frame = record.frames[0];
-								if (settings.synchronization === 'flawless') {
-									record.frames.unshift({
-										nx: frame.nx, ny: frame.ny, nr: frame.nr,
-										born: frame.born, deadAt: frame.deadAt ?? now, deadTo: frame.deadTo || -1,
-									});
-								} else {
-									const frameWritable = /** @type {CellFrameWritable} */ (frame);
-									frameWritable.deadAt ??= now;
-									frameWritable.deadTo ||= -1;
-								}
-							}
+						for (const cell of world.cells.values()) {
+							const record = cell[view];
+							if (!record[CELL_DEADAT]) record[CELL_DEADAT] = now;
+							// TODO: update merged deadAt/deadTo (same as Deletes above)
 						}
-						world.merge();
-						render.upload(true);
+
+						for (const pellet of world.pellets.values()) {
+							const record = pellet[view];
+							if (!record[PELLET_DEADAT]) record[PELLET_DEADAT] = now;
+							// TODO: update merged deadAt/deadTo (same as Deletes above)
+						}
+						// render.upload(true);
 						// passthrough
 					}
 					case 0x14: { // delete my cells
@@ -2967,8 +2673,10 @@
 						let firstThis = true;
 						for (const [otherView, otherVision] of world.views) {
 							for (const id of otherVision.owned) {
-								const frame = world.cells.get(id)?.views.get(otherView)?.frames[0];
-								if (frame.deadAt !== undefined) continue;
+								const cell = world.cells.get(id);
+								if (!cell) continue;
+								const record = cell[otherView];
+								if (record[CELL_DEADAT]) continue;
 
 								first = false;
 								if (otherVision === vision) {
@@ -3288,11 +2996,16 @@
 				world.views.delete(world.viewId.spectate);
 				input.views.delete(world.viewId.spectate);
 
-				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-					for (const [id, resolution] of world[key]) {
-						resolution.views.delete(world.viewId.spectate);
-						if (resolution.views.size === 0) world[key].delete(id);
-					}
+				for (const cell of world.cells.values()) {
+					const record = cell[view];
+					if (!record[CELL_DEADAT]) record[CELL_DEADAT] = now;
+					// TODO: update merged deadAt/deadTo (same as Deletes above)
+				}
+
+				for (const pellet of world.pellets.values()) {
+					const record = pellet[view];
+					if (!record[PELLET_DEADAT]) record[PELLET_DEADAT] = now;
+					// TODO: update merged deadAt/deadTo (same as Deletes above)
 				}
 			}
 		}, 200);
@@ -3428,7 +3141,8 @@
 
 				case 'fixed':
 					// rotate around the tab's camera center (otherwise, spinning around on a tab feels unnatural)
-					const worldCenter = world.singleCamera(view, undefined, settings.camera !== 'default' ? 2 : 0, now);
+					const vision = world.views.get(view);
+					const worldCenter = world.singleCamera(vision, settings.camera !== 'default' ? 2 : 0, now);
 					const x = worldMouse[0] - worldCenter.sumX / worldCenter.weight;
 					const y = worldMouse[1] - worldCenter.sumY / worldCenter.weight;
 					// create two points along the 2^31 integer boundary (OgarII uses ~~x and ~~y to truncate positions
@@ -3683,7 +3397,7 @@
 					setTimeout(() => input.split(view, 4));
 				}
 			}
-			const camera = world.singleCamera(view, vision, 0, Infinity); // use latest data (.nx, .ny), uninterpolated
+			const camera = world.singleCamera(vision, 0, Infinity); // use latest data (.nx, .ny), uninterpolated
 
 			if (e.isTrusted && e.key.toLowerCase() === sigmod.settings.horizontalLineKey?.toLowerCase()) {
 				if (inputs.lock?.type === 'horizontal') {
@@ -4961,6 +4675,53 @@
 				gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 			})();
 
+			(function TODO_new_cells() {
+				// don't render anything if the current tab is not connected
+				const con = net.connections.get(world.selected);
+				if (!con?.handshake) return;
+
+				// set up circle program UBO
+				circleUboFloats[0] = 1; // u_circle_alpha
+				circleUboFloats[1] = 0; // u_circle_scale
+				gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
+				gl.bufferSubData(gl.UNIFORM_BUFFER, 0, circleUboFloats);
+
+				gl.useProgram(glconf.programs.circle);
+				gl.bindVertexArray(glconf.vao.pellet.vao);
+				const main = new Float32Array((world.pellets.size + world.cells.size) * 7);
+				const alpha = new Float32Array(world.pellets.size + world.cells.size);
+				let o = 0, oa = 0;
+				for (const pellet of world.pellets.values()) {
+					main[o++] = pellet.tx;
+					main[o++] = pellet.ty;
+					main[o++] = pellet.tr;
+					main[o++] = pellet.red;
+					main[o++] = pellet.green;
+					main[o++] = pellet.blue;
+					main[o++] = 1;
+					alpha[oa++] = 1;
+				}
+				for (const cell of world.cells.values()) {
+					main[o++] = cell.tx;
+					main[o++] = cell.ty;
+					main[o++] = cell.tr;
+					main[o++] = cell.red;
+					main[o++] = cell.green;
+					main[o++] = cell.blue;
+					main[o++] = 1;
+					alpha[oa++] = 1;
+				}
+				/* vao = (gl.createVertexArray());
+				gl.bindVertexArray(vao);
+				squareVAA();
+				glconf.vao.pellet = { vao, circle: circleVAA(), alpha: alphaVAA() }; */
+				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao.pellet.circle);
+				gl.bufferData(gl.ARRAY_BUFFER, main, gl.STATIC_DRAW);
+				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao.pellet.alpha);
+				gl.bufferData(gl.ARRAY_BUFFER, alpha, gl.STATIC_DRAW);
+				gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, alpha.length);
+			})();
+
 			(function cells() {
 				// don't render anything if the current tab is not connected
 				const con = net.connections.get(world.selected);
@@ -5290,7 +5051,7 @@
 
 					// draw glow *after* all cells (so the glow goes above the text)
 					if (settings.cellGlow) {
-						render.upload(false);
+						// render.upload(false);
 						let i = 0;
 						for (const cell of world.cells.values()) {
 							const frame = world.synchronized ? cell.merged : cell.views.get(world.selected)?.frames[0];
@@ -5349,7 +5110,7 @@
 					if (resizing) tracerFloats = new Float32Array(capacity);
 
 					const camera
-						= world.singleCamera(world.selected, vision, settings.camera !== 'default' ? 2 : 0, now);
+						= world.singleCamera(vision, settings.camera !== 'default' ? 2 : 0, now);
 
 					let i = 0;
 					for (const id of vision.owned) {
@@ -5392,7 +5153,7 @@
 					gl.bindBuffer(gl.ARRAY_BUFFER, null);
 					gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, i);
 				}
-			})();
+			}); // TODO no execute
 
 			ui.stats.update(world.selected);
 
@@ -5569,7 +5330,7 @@
 					ctx.globalAlpha = 0;
 					ctx.fillText(`X: ${ownX}, Y: ${ownY}`, 0, -1000);
 				}
-			})();
+			}); // TODO no execute
 
 			requestAnimationFrame(renderGame);
 		}
