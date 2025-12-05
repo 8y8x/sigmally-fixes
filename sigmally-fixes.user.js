@@ -1089,15 +1089,9 @@
 			'The key to press for switching multibox tabs. "Tab" is recommended, but you can also use "Ctrl+Tab" and ' +
 			'most other keybinds.');
 		setting(`Vision merging ${newTag}`,
-			[dropdown('synchronization', [['flawless', 'Flawless (recommended)'], ['latest', 'Latest'], ['', 'None']])],
+			[dropdown('synchronization', [['latest-smart', 'latest-smart'], ['latest', 'latest'], ['', '']])],
 			() => !!settings.multibox || settings.nbox || settings.spectator,
-			'How multiple connections synchronize the cells they can see. <br>' +
-			'- "Flawless" ensures all connections are synchronized to be on the same ping. If one connection gets a ' +
-			'lag spike, all connections will get that lag spike too. <br>' +
-			'- "Latest" uses the most recent data across all connections. Lag spikes will be much less noticeable, ' +
-			'however cells that are farther away might warp around and appear buggy. <br>' +
-			'- "None" only shows what your current tab can see. <br>' +
-			'"Flawless" is recommended for all users, however if you find it laggy you should try "Latest".');
+			'TODO');
 		setting('One-tab mode', [checkbox('mergeCamera')], () => !!settings.multibox || settings.nbox,
 			'When enabled, your camera will focus on both multibox tabs at once. Disable this if you prefer two-tab-' +
 			'style multiboxing. <br>' +
@@ -2225,7 +2219,7 @@
 				// animate towards the killer's interpolated position (not their target position) for extra smoothness
 				// we also assume the killer has not died (if it has, then weird stuff is OK to occur)
 				const killerXyr = world.xyr(killer, undefined, now);
-				({ x: tx, y: ty } = killerXyr.x);
+				({ x: tx, y: ty } = killerXyr);
 			}
 
 			let alpha = (now - cell.vupdated) / settings.drawDelay;
@@ -2253,12 +2247,15 @@
 			if (now - lastClean < 200) return;
 			lastClean = now;
 
-			const destroyBefore = now - settings.drawDelay + 200;
-			for (const cell of world.cells) {
-				if (cell.deadAt && cell.deadAt <= destroyBefore) world.cells.delete(cell.id);
+			const destroyAt = now - (settings.drawDelay + 200);
+			for (const cell of world.cells.values()) {
+				// now - cell.deadAt >= settings.drawDelay + 200
+				// now - (settings.drawDelay + 200) - cell.deadAt >= 0
+				// now - (settings.drawDelay + 200) >= cell.deadAt
+				if (cell.deadAt && cell.deadAt <= destroyAt) world.cells.delete(cell.id);
 			}
-			for (const pellet of world.pellets) {
-				if (pellet.deadAt && pellet.deadAt <= destroyBefore) world.pellets.delete(pellet.id);
+			for (const pellet of world.pellets.values()) {
+				if (pellet.deadAt && pellet.deadAt <= destroyAt) world.pellets.delete(pellet.id);
 			}
 		};
 
@@ -2431,15 +2428,19 @@
 							const killedId = dat.getUint32(o + 4, true);
 							o += 8;
 
-							let pellet = true;
-							let killed = world.pellets.get(killedId) ?? (pellet = false, world.cells.get(killedId));
+							let isPellet = true;
+							let killed = world.pellets.get(killedId) ?? (isPellet = false, world.cells.get(killedId));
 							if (!killed) continue;
 
 							const record = killed[view];
-							if (pellet) {
+							if (isPellet) {
 								// update deadness
 								record[PELLET_DEADAT] = now;
 								record[PELLET_DEADTO] = killerId;
+								if (settings.synchronization === 'latest') {
+									killed.deadAt = now;
+									killed.deadTo = killerId;
+								}
 
 								if (vision.owned.has(killerId)) {
 									++world.stats.foodEaten;
@@ -2452,6 +2453,10 @@
 								// update deadness
 								record[CELL_DEADAT] = now;
 								record[CELL_DEADTO] = killerId;
+								if (settings.synchronization === 'latest') {
+									killed.deadAt = now;
+									killed.deadTo = killerId;
+								}
 							}
 						}
 
@@ -2507,9 +2512,9 @@
 									}
 									const record = pellet[view];
 									// reset born, deadAt, deadTo if necessary
-									if (!record[PELLET_BORN]) record[PELLET_BORN] = now;
-									record[PELLET_DEADAT] = record[PELLET_DEADTO] = 0;
-									if (pellet.deadAt) {
+									if (!record[PELLET_BORN]) record[PELLET_BORN] = now; // mark local pellet as alive
+									record[PELLET_DEADAT] = record[PELLET_DEADTO] = 0; //
+									if (pellet.deadAt) { // mark merged pellet as alive again
 										pellet.born = now;
 										pellet.deadAt = pellet.deadTo = 0;
 									}
@@ -2554,6 +2559,13 @@
 									record[CELL_TOPINDEX] = (record[CELL_TOPINDEX] + 1) & CELL_TOPINDEX_MASK;
 
 									if (settings.synchronization === 'latest') {
+										const { x: ix, y: iy, r: ir, jr, weight } = world.xyr(cell, undefined, now);
+										cell.vx = ix;
+										cell.vy = iy;
+										cell.vr = ir;
+										cell.vjr = jr;
+										cell.vweight = weight;
+										cell.vupdated = now;
 										cell.tx = x;
 										cell.ty = y;
 										cell.tr = r;
@@ -4702,9 +4714,11 @@
 					alpha[oa++] = 1;
 				}
 				for (const cell of world.cells.values()) {
-					main[o++] = cell.tx;
-					main[o++] = cell.ty;
-					main[o++] = cell.tr;
+					const killer = cell.deadTo ? world.cells.get(cell.deadTo) : undefined;
+					const xyr = world.xyr(cell, killer, now);
+					main[o++] = xyr.x;
+					main[o++] = xyr.y;
+					main[o++] = xyr.r;
 					main[o++] = cell.red;
 					main[o++] = cell.green;
 					main[o++] = cell.blue;
