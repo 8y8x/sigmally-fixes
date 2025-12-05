@@ -597,6 +597,7 @@
 			outlineMultiColor: /** @type {[number, number, number, number]} */ ([1, 0, 2/3, 1]),
 			outlineMultiInactiveColor: /** @type {[number, number, number, number]} */ ([1, 1, 1, 1]),
 			pelletGlow: false,
+			perftab: false,
 			rainbowBorder: false,
 			scrollFactor: 1,
 			selfSkin: '',
@@ -1088,7 +1089,7 @@
 		setting('Multibox keybind', [keybind('multibox')], () => true,
 			'The key to press for switching multibox tabs. "Tab" is recommended, but you can also use "Ctrl+Tab" and ' +
 			'most other keybinds.');
-		setting(`Vision merging ${newTag}`,
+		setting(`Vision merging`,
 			[dropdown('synchronization', [['latest-smart', 'latest-smart'], ['latest', 'latest'], ['', '']])],
 			() => !!settings.multibox || settings.nbox || settings.spectator,
 			'TODO');
@@ -1204,11 +1205,13 @@
 		setting('Move after linesplit', [checkbox('moveAfterLinesplit')], () => true,
 			'When doing a horizontal or vertical linesplit, your position is frozen. With this setting enabled, you ' +
 			'will begin moving forwards in that axis once you split, letting you go farther than normal.');
-		setting(`Delay pushsplits ${newTag}`, [checkbox('delayDouble')], () => true,
+		setting(`Delay pushsplits`, [checkbox('delayDouble')], () => true,
 			'When in 5+ cells, doing a doublesplit may cause your cells to go like { O∘∘ } and not { ∘∘∘∘ } - which ' +
 			'is useful, but when using the doublesplit keybind, those small back pieces may go in front. ' +
 			'When this setting is enabled, a 50ms delay will be added to the second split only when in 5+ cells, ' +
 			'typically fixing the problem.');
+		setting(`Performance tab ${newTag}`, [checkbox('perftab')], () => true,
+			'TODO');
 
 		// #3 : create options for sigmod
 		let sigmodInjection;
@@ -1948,6 +1951,111 @@
 			return linesplit;
 		})();
 
+		ui.perftab = (() => {
+			const perftab = {};
+
+			const overlay = document.createElement('div');
+			overlay.style.cssText = 'position: fixed; top: 10px; left: 50vw; width: 0; height: 95px; \
+				user-select: none; z-index: 2; background: #0006; transform: translateX(-50%); \
+				display: none; grid-template-rows: 1fr;';
+			document.body.appendChild(overlay);
+
+			const tabs = new Map();
+			const pollTab = (view, enabled) => {
+				const oldTab = tabs.get(view);
+				if (oldTab && !enabled) {
+					oldTab.container.remove();
+					tabs.delete(view);
+				}
+
+				if (!oldTab && enabled) {
+					const thisIndex = tabs.size + 1;
+					overlay.style.width = `${(tabs.size + 1) * 100}px`;
+					overlay.style.gridTemplateColumns = `repeat(${tabs.size + 1}, 1fr)`;
+
+					const container = document.createElement('div');
+					container.style.cssText = `grid-column: ${thisIndex}; width: 100px; position: relative;`;
+					overlay.appendChild(container);
+
+					const multiIndex = world.multis.indexOf(view);
+					const title = document.createElement('div');
+					title.style.cssText = 'height: 30px; text-align: center; position: absolute; top: 0; left: 0; width: 100px; color: #fff; font: bold 18px Ubuntu; line-height: 30px;';
+					if (multiIndex !== -1) title.textContent = `#${multiIndex + 1}`;
+					else if (view === world.viewId.spectate) title.textContent = 'Spectator';
+					else title.textContent = '?'; // :)
+					container.appendChild(title);
+
+					const caption = document.createElement('div');
+					caption.style.cssText = 'height: 15px; text-align: center; position: absolute; top: 30px; left: 0; width: 100px; color: #fffc; font: bold 12px Ubuntu; line-height: 15px;';
+					container.appendChild(caption);
+
+					const canvas = document.createElement('canvas');
+					canvas.style.cssText = 'height: 40px; position: absolute; top: 45px; left: 10px; width: 80px; border: 2px solid #fff9;';
+					container.appendChild(canvas);
+					tabs.set(view, {
+						container,
+						title,
+						caption,
+						canvas,
+						ctx: canvas.getContext('2d'),
+						points: [],
+						pointsIndex: 0,
+						updated: performance.now(),
+					});
+				}
+			};
+			setInterval(() => {
+				if (!settings.perftab) {
+					overlay.style.display = 'none';
+					return;
+				}
+
+				overlay.style.display = 'grid';
+				// TODO: order this nicely, multi => spectator => others
+				const numTabs = settings.nbox ? settings.nboxCount : settings.multibox ? 2 : 1;
+				for (let i = 0; i < world.multis.length; ++i) pollTab(world.multis[i], i < numTabs);
+				pollTab(world.viewId.spectate, settings.spectator);
+			}, 500);
+
+			perftab.tick = view => {
+				const tab = tabs.get(view);
+				if (!tab) return;
+
+				const now = performance.now();
+				tab.points[tab.pointsIndex++ % 25] = [now - tab.updated, now];
+				tab.updated = now;
+				if (tab.pointsIndex % 25 === 0) {
+					// update caption
+					let maxDifference = 0;
+					for (let i = 0; i < 25; ++i) {
+						const diff = tab.points[i][0] - 40;
+						if (maxDifference < diff) maxDifference = diff;
+					}
+					tab.caption.textContent = `±${Math.round(maxDifference)}ms`;
+				}
+
+				const { canvas, ctx } = tab;
+				canvas.width = Math.ceil(80 * (devicePixelRatio - 0.0001)); // clears the canvas
+				canvas.height = Math.ceil(40 * (devicePixelRatio - 0.0001));
+
+				ctx.strokeStyle = '#fff';
+				ctx.lineWidth = 2 * devicePixelRatio;
+				ctx.lineCap = 'round';
+				for (let i = 0; i < 25; ++i) {
+					if (!tab.points[i]) continue;
+					const [delta, time] = tab.points[i];
+					ctx.globalAlpha = 1 - (now - time) / 1000;
+					const x = (i + 1) / (25 + 1) * canvas.width;
+					ctx.beginPath();
+					ctx.moveTo(x, canvas.height/2);
+					ctx.lineTo(x, (1 - delta / 80) * canvas.height);
+					ctx.stroke();
+				}
+			};
+
+			return perftab;
+		})();
+
 		const style = document.createElement('style');
 		style.innerHTML = `
 			/* make sure nothing gets cut off on the center menu panel */
@@ -2198,6 +2306,51 @@
 			return vision;
 		};
 
+		world.killCell = (view, cell, killerId, now) => {
+			const record = cell[view];
+			if (!record[CELL_BORN] || record[CELL_DEADAT]) return;
+			record[CELL_DEADAT] = now;
+			record[CELL_DEADTO] = killerId;
+
+			if (killerId) {
+				// immediately override death status
+				cell.deadAt = now;
+				cell.deadTo = killerId;
+			} else {
+				// only mark dead if all views see it dead
+				const primaryDead = !cell[TAB_PRIMARY][CELL_BORN] || cell[TAB_PRIMARY][CELL_DEADAT];
+				const secondaryDead = !cell[TAB_SECONDARY][CELL_BORN] || cell[TAB_SECONDARY][CELL_DEADAT];
+				const spectateDead = !cell[TAB_SPECTATE][CELL_BORN] || cell[TAB_SPECTATE][CELL_DEADAT];
+				if (primaryDead && secondaryDead && spectateDead) {
+					cell.deadAt = now;
+					cell.deadTo = 0;
+				}
+			}
+		};
+
+		world.killPellet = (view, pellet, killerId, now) => {
+			// this is exactly the same as world.killCell, but using PELLET_* keys instead
+			const record = pellet[view];
+			if (!record[PELLET_BORN] || record[PELLET_DEADAT]) return;
+			record[PELLET_DEADAT] = now;
+			record[PELLET_DEADTO] = killerId;
+
+			if (killerId) {
+				// immediately override death status
+				pellet.deadAt = now;
+				pellet.deadTo = killerId;
+			} else {
+				// only mark dead if all views see it dead
+				const primaryDead = !pellet[TAB_PRIMARY][PELLET_BORN] || pellet[TAB_PRIMARY][PELLET_DEADAT];
+				const secondaryDead = !pellet[TAB_SECONDARY][PELLET_BORN] || pellet[TAB_SECONDARY][PELLET_DEADAT];
+				const spectateDead = !pellet[TAB_SPECTATE][PELLET_BORN] || pellet[TAB_SPECTATE][PELLET_DEADAT];
+				if (primaryDead && secondaryDead && spectateDead) {
+					pellet.deadAt = now;
+					pellet.deadTo = 0;
+				}
+			}
+		};
+
 		/** @param {symbol} view */
 		world.score = view => {
 			let score = 0;
@@ -2347,12 +2500,9 @@
 				vision.spawned = -Infinity;
 				vision.stats = undefined;
 
-				for (const key of /** @type {const} */ (['cells', 'pellets'])) {
-					for (const [id, resolution] of world[key]) {
-						resolution.views.delete(view);
-						if (resolution.views.size === 0) world[key].delete(id);
-					}
-				}
+				const now = performance.now();
+				for (const cell of world.cells) world.killCell(view, cell, 0, now);
+				for (const pellet of world.pellets) world.killPellet(view, pellet, 0, now);
 
 				connection.ws = undefined;
 				// render.upload(true);
@@ -2420,6 +2570,8 @@
 				let o = 1;
 				switch (dat.getUint8(0)) {
 					case 0x10: { // world update
+						ui.perftab.tick(view); // do this first
+
 						// (a) : eat
 						const killCount = dat.getUint16(o, true);
 						o += 2;
@@ -2434,29 +2586,14 @@
 
 							const record = killed[view];
 							if (isPellet) {
-								// update deadness
-								record[PELLET_DEADAT] = now;
-								record[PELLET_DEADTO] = killerId;
-								if (settings.synchronization === 'latest') {
-									killed.deadAt = now;
-									killed.deadTo = killerId;
-								}
-
+								world.killPellet(view, killed, killerId, now);
 								if (vision.owned.has(killerId)) {
 									++world.stats.foodEaten;
 									net.food(view); // dumbass quest code go brrr
 								}
 							} else {
-								// update interpolation targets
-								// TODO
-
-								// update deadness
-								record[CELL_DEADAT] = now;
-								record[CELL_DEADTO] = killerId;
-								if (settings.synchronization === 'latest') {
-									killed.deadAt = now;
-									killed.deadTo = killerId;
-								}
+								// TODO: update interpolation targets
+								world.killCell(view, killed, killerId, now);
 							}
 						}
 
@@ -2546,13 +2683,16 @@
 									cell.jagged = jagged;
 									cell.sub = sub;
 
-									// TODO reset cell born, deadAt, deadTo according to merging
-									// TODO update vx, vy, vr
 									const record = cell[view];
-									if (record[CELL_DEADAT]) {
-										record[CELL_BORN] = now;
-										record[CELL_DEADAT] = record[CELL_DEADTO] = 0;
+									if (!record[CELL_BORN]) record[CELL_BORN] = now;
+									record[CELL_DEADAT] = record[CELL_DEADTO] = 0;
+									if (cell.deadAt) {
+										cell.born = now;
+										cell.deadAt = cell.deadTo = 0;
+										cell.vx = x; cell.vy = y; cell.vr = cell.vjr = r; cell.vweight = 0;
 									}
+
+									// TODO update vx, vy, vr
 									record[3 * record[CELL_TOPINDEX]] = x;
 									record[3 * record[CELL_TOPINDEX] + 1] = y;
 									record[3 * record[CELL_TOPINDEX] + 2] = r;
@@ -2607,15 +2747,8 @@
 							const deleted = world.pellets.get(deletedId) ?? (isPellet = false, world.cells.get(deletedId));
 							if (!deleted) continue;
 							const record = deleted[view];
-							if (isPellet) {
-								if (record[PELLET_DEADAT]) continue;
-								record[PELLET_DEADAT] = now;
-								// TODO: update merged deadAt/deadTo
-							} else {
-								if (record[CELL_DEADAT]) continue;
-								record[CELL_DEADAT] = now;
-								// TODO: update merged deadAt/deadTo
-							}
+							if (isPellet) world.killPellet(view, deleted, 0, now);
+							else world.killCell(view, deleted, 0, now);
 						}
 
 						// (d) : finalize, upload data
@@ -2656,17 +2789,8 @@
 						// DO NOT just clear the maps! when respawning, OgarII will not resend cell data if we spawn
 						// nearby.
 
-						for (const cell of world.cells.values()) {
-							const record = cell[view];
-							if (!record[CELL_DEADAT]) record[CELL_DEADAT] = now;
-							// TODO: update merged deadAt/deadTo (same as Deletes above)
-						}
-
-						for (const pellet of world.pellets.values()) {
-							const record = pellet[view];
-							if (!record[PELLET_DEADAT]) record[PELLET_DEADAT] = now;
-							// TODO: update merged deadAt/deadTo (same as Deletes above)
-						}
+						for (const cell of world.cells.values()) world.killCell(view, cell, 0, now);
+						for (const pellet of world.pellets.values()) world.killPellet(view, pellet, 0, now);
 						// render.upload(true);
 						// passthrough
 					}
@@ -2984,13 +3108,13 @@
 				ui.linesplit.update();
 			}
 
+			const now = performance.now();
 			if (settings.spectator) {
 				const vision = world.create(world.viewId.spectate);
 				net.create(world.viewId.spectate);
 				net.play(world.viewId.spectate, { name: '', skin: '', clan: aux.userData?.clan, state: 2 });
 
 				// only press Q to toggle once in a while, in case ping is above 200
-				const now = performance.now();
 				if (now - lastChangedSpectate > 1000) {
 					if (vision.camera.tscale > 0.39) { // when roaming, the spectate scale is set to ~0.4
 						net.qdown(world.viewId.spectate);
@@ -3008,17 +3132,8 @@
 				world.views.delete(world.viewId.spectate);
 				input.views.delete(world.viewId.spectate);
 
-				for (const cell of world.cells.values()) {
-					const record = cell[view];
-					if (!record[CELL_DEADAT]) record[CELL_DEADAT] = now;
-					// TODO: update merged deadAt/deadTo (same as Deletes above)
-				}
-
-				for (const pellet of world.pellets.values()) {
-					const record = pellet[view];
-					if (!record[PELLET_DEADAT]) record[PELLET_DEADAT] = now;
-					// TODO: update merged deadAt/deadTo (same as Deletes above)
-				}
+				for (const cell of world.cells.values()) world.killCell(world.viewId.spectate, cell, 0, now);
+				for (const pellet of world.pellets.values()) world.killPellet(world.viewId.spectate, pellet, 0, now);
 			}
 		}, 200);
 
@@ -4713,9 +4828,14 @@
 					main[o++] = 1;
 					alpha[oa++] = 1;
 				}
+				const cellsSorted = [];
 				for (const cell of world.cells.values()) {
 					const killer = cell.deadTo ? world.cells.get(cell.deadTo) : undefined;
 					const xyr = world.xyr(cell, killer, now);
+					cellsSorted.push([cell, xyr, settings.jellyPhysics ? xyr.jr : xyr.r]);
+				}
+				cellsSorted.sort((a, b) => a[2] - b[2]);
+				for (const [cell, xyr] of cellsSorted) {
 					main[o++] = xyr.x;
 					main[o++] = xyr.y;
 					main[o++] = xyr.r;
