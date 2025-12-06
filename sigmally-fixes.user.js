@@ -2153,8 +2153,8 @@
 				if (!cell || cell.born < vision.spawned) continue;
 
 				if (settings.cameraMovement === 'instant') {
-					const xyr = world.xyr(cell, undefined, now); // TODO why killer=undefined?
-					r += xyr.r * xyr.weight;
+					const xyr = world.xyr(cell, undefined, now);
+					r += xyr.r * xyr.weight; // note xyr.weight is correct regardless of `killer` param in world.xyr()
 					mass += (xyr.r * xyr.r / 100) * xyr.weight;
 					const cellWeight = xyr.weight * (xyr.r ** weightExponent);
 					sumX += xyr.x * cellWeight;
@@ -2584,15 +2584,18 @@
 							let killed = world.pellets.get(killedId) ?? (isPellet = false, world.cells.get(killedId));
 							if (!killed) continue;
 
-							const record = killed[view];
 							if (isPellet) {
+								killed.vupdated = now; // restart pellet movement
 								world.killPellet(view, killed, killerId, now);
 								if (vision.owned.has(killerId)) {
 									++world.stats.foodEaten;
 									net.food(view); // dumbass quest code go brrr
 								}
 							} else {
-								// TODO: update interpolation targets
+								const xyr = world.xyr(killed, undefined, now);
+								killed.vx = xyr.x; killed.vy = xyr.y; killed.vr = xyr.r; killed.vjr = xyr.jr;
+								killed.vweight = xyr.weight;
+								killed.vupdated = now;
 								world.killCell(view, killed, killerId, now);
 							}
 						}
@@ -2660,6 +2663,7 @@
 									world.pellets.set(id, pellet = {
 										id,
 										tx: x, ty: y, tr: r,
+										vx: x, vy: y, vr: r, vweight: 0, vupdated: now,
 										born: now, deadAt: 0, deadTo: 0,
 										red, green, blue,
 										[TAB_PRIMARY]: new Float32Array(PELLET_RECORD_SIZE),
@@ -2692,24 +2696,21 @@
 										cell.vx = x; cell.vy = y; cell.vr = cell.vjr = r; cell.vweight = 0;
 									}
 
-									// TODO update vx, vy, vr
 									record[3 * record[CELL_TOPINDEX]] = x;
 									record[3 * record[CELL_TOPINDEX] + 1] = y;
 									record[3 * record[CELL_TOPINDEX] + 2] = r;
 									record[CELL_TOPINDEX] = (record[CELL_TOPINDEX] + 1) & CELL_TOPINDEX_MASK;
 
-									if (settings.synchronization === 'latest') {
-										const { x: ix, y: iy, r: ir, jr, weight } = world.xyr(cell, undefined, now);
-										cell.vx = ix;
-										cell.vy = iy;
-										cell.vr = ir;
-										cell.vjr = jr;
-										cell.vweight = weight;
-										cell.vupdated = now;
-										cell.tx = x;
-										cell.ty = y;
-										cell.tr = r;
-									}
+									const { x: ix, y: iy, r: ir, jr, weight } = world.xyr(cell, undefined, now);
+									cell.vx = ix;
+									cell.vy = iy;
+									cell.vr = ir;
+									cell.vjr = jr;
+									cell.vweight = weight;
+									cell.vupdated = now;
+									cell.tx = x;
+									cell.ty = y;
+									cell.tr = r;
 								} else {
 									// new
 									world.cells.set(id, cell = {
@@ -4819,9 +4820,17 @@
 				const alpha = new Float32Array(world.pellets.size + world.cells.size);
 				let o = 0, oa = 0;
 				for (const pellet of world.pellets.values()) {
-					main[o++] = pellet.tx;
-					main[o++] = pellet.ty;
-					main[o++] = pellet.tr;
+					if (pellet.deadTo) {
+						const killer = world.cells.get(pellet.deadTo);
+						const xyr = world.xyr(pellet, killer, now);
+						main[o++] = xyr.x;
+						main[o++] = xyr.y;
+						main[o++] = xyr.r;
+					} else {
+						main[o++] = pellet.tx;
+						main[o++] = pellet.ty;
+						main[o++] = pellet.tr;
+					}
 					main[o++] = pellet.red;
 					main[o++] = pellet.green;
 					main[o++] = pellet.blue;
