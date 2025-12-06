@@ -2506,8 +2506,8 @@
 				vision.stats = undefined;
 
 				const now = performance.now();
-				for (const cell of world.cells) world.killCell(view, cell, 0, now);
-				for (const pellet of world.pellets) world.killPellet(view, pellet, 0, now);
+				for (const cell of world.cells.values()) world.killCell(view, cell, 0, now);
+				for (const pellet of world.pellets.values()) world.killPellet(view, pellet, 0, now);
 
 				connection.ws = undefined;
 				// render.upload(true);
