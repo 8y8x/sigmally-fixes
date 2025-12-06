@@ -1966,6 +1966,11 @@
 				if (oldTab && !enabled) {
 					oldTab.container.remove();
 					tabs.delete(view);
+
+					overlay.style.width = `${tabs.size * 100}px`;
+					overlay.style.gridTemplateColumns = `repeat(${tabs.size}, 1fr)`;
+					let i = 0;
+					for (const otherTab of tabs.values()) otherTab.container.style.gridColumn = String(++i);
 				}
 
 				if (!oldTab && enabled) {
@@ -2044,7 +2049,7 @@
 				for (let i = 0; i < 25; ++i) {
 					if (!tab.points[i]) continue;
 					const [delta, time] = tab.points[i];
-					ctx.globalAlpha = 1 - (now - time) / 1000;
+					ctx.globalAlpha = (1 - (now - time) / 1000) * (delta < 40 ? 0.6 : 1);
 					const x = (i + 1) / (25 + 1) * canvas.width;
 					ctx.beginPath();
 					ctx.moveTo(x, canvas.height/2);
