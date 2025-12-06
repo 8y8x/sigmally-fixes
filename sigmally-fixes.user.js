@@ -2508,9 +2508,9 @@
 				const now = performance.now();
 				for (const cell of world.cells.values()) world.killCell(view, cell, 0, now);
 				for (const pellet of world.pellets.values()) world.killPellet(view, pellet, 0, now);
+				render.uploadPellets = true;
 
 				connection.ws = undefined;
-				// render.upload(true);
 
 				const thisUrl = net.url();
 				const url = new URL(thisUrl); // use the current url, not realUrl
@@ -2759,7 +2759,7 @@
 
 						// (d) : finalize, upload data
 						world.clean();
-						// render.upload(true);
+						render.uploadPellets = true;
 
 						// (e) : clear own cells that don't exist anymore (NOT on world.clean!)
 						for (const id of vision.owned) {
@@ -2797,7 +2797,7 @@
 
 						for (const cell of world.cells.values()) world.killCell(view, cell, 0, now);
 						for (const pellet of world.pellets.values()) world.killPellet(view, pellet, 0, now);
-						// render.upload(true);
+						render.uploadPellets = true;
 						// passthrough
 					}
 					case 0x14: { // delete my cells
@@ -3756,33 +3756,16 @@
 				float u_camera_scale; // @ 0x04
 				vec2 u_camera_pos; // @ 0x08
 			};`,
-			cellUbo: `layout(std140) uniform Cell { // size = 0x28
-				float u_cell_radius; // @ 0x00, i = 0
-				float u_cell_radius_skin; // @ 0x04, i = 1
-				vec2 u_cell_pos; // @ 0x08, i = 2
-				vec4 u_cell_color; // @ 0x10, i = 4
-				float u_cell_alpha; // @ 0x20, i = 8
-				int u_cell_flags; // @ 0x24, i = 9
+			circleUbo: `layout(std140) uniform Circle { // size = 0x08
+				float u_circle_alpha; // @ 0x00
+				float u_circle_scale; // @ 0x04
 			};`,
-			cellSettingsUbo: `layout(std140) uniform CellSettings { // size = 0x40
+			playerUbo: `layout(std140) uniform Player { // size = 0x40
 				vec4 u_cell_active_outline; // @ 0x00
 				vec4 u_cell_inactive_outline; // @ 0x10
 				vec4 u_cell_unsplittable_outline; // @ 0x20
 				vec4 u_cell_subtle_outline_override; // @ 0x30
 				float u_cell_active_outline_thickness; // @ 0x40
-			};`,
-			circleUbo: `layout(std140) uniform Circle { // size = 0x08
-				float u_circle_alpha; // @ 0x00
-				float u_circle_scale; // @ 0x04
-			};`,
-			textUbo: `layout(std140) uniform Text { // size = 0x38
-				vec4 u_text_color1; // @ 0x00, i = 0
-				vec4 u_text_color2; // @ 0x10, i = 4
-				float u_text_alpha; // @ 0x20, i = 8
-				float u_text_aspect_ratio; // @ 0x24, i = 9
-				float u_text_scale; // @ 0x28, i = 10
-				int u_text_silhouette_enabled; // @ 0x2c, i = 11
-				vec2 u_text_offset; // @ 0x30, i = 12
 			};`,
 			tracerUbo: `layout(std140) uniform Tracer { // size = 0x10
 				vec4 u_tracer_color; // @ 0x00, i = 0
@@ -3869,118 +3852,9 @@
 					}
 
 					out_color = out_color * (1.0 - alpha) + border_color * alpha;
+					out_color = vec4(0, 0, 0.25, 1); // TODO
 				}
 			`, ['Border', 'Camera'], ['u_texture']);
-
-			programs.cell = program('cell', `
-				${parts.boilerplate}
-				layout(location = 0) in vec2 a_vertex;
-				${parts.cameraUbo}
-				${parts.cellUbo}
-				${parts.cellSettingsUbo}
-				flat out vec4 f_active_outline;
-				flat out float f_active_radius;
-				flat out float f_blur;
-				flat out int f_color_under_skin;
-				flat out int f_show_skin;
-				flat out vec4 f_subtle_outline;
-				flat out float f_subtle_radius;
-				flat out vec4 f_unsplittable_outline;
-				flat out float f_unsplittable_radius;
-				out vec2 v_vertex;
-				out vec2 v_uv;
-
-				void main() {
-					f_blur = 0.5 * u_cell_radius * (540.0 * u_camera_scale);
-					f_color_under_skin = u_cell_flags & 0x20;
-					f_show_skin = u_cell_flags & 0x01;
-
-					// subtle outlines (at least 1px wide)
-					float subtle_thickness = max(max(u_cell_radius * 0.02, 2.0 / (540.0 * u_camera_scale)), 10.0);
-					f_subtle_radius = 1.0 - (subtle_thickness / u_cell_radius);
-					if ((u_cell_flags & 0x02) != 0) {
-						f_subtle_outline = u_cell_color * 0.9; // darker outline by default
-						f_subtle_outline.rgb += (u_cell_subtle_outline_override.rgb - f_subtle_outline.rgb)
-							* u_cell_subtle_outline_override.a;
-					} else {
-						f_subtle_outline = vec4(0, 0, 0, 0);
-					}
-
-					// unsplittable cell outline, 2x the subtle thickness
-					// (except at small sizes, it shouldn't look overly thick)
-					float unsplittable_thickness = max(max(u_cell_radius * 0.04, 4.0 / (540.0 * u_camera_scale)), 10.0);
-					f_unsplittable_radius = 1.0 - (unsplittable_thickness / u_cell_radius);
-					if ((u_cell_flags & 0x10) != 0) {
-						f_unsplittable_outline = u_cell_unsplittable_outline;
-					} else {
-						f_unsplittable_outline = vec4(0, 0, 0, 0);
-					}
-
-					// active multibox outlines (thick, a % of the visible cell radius)
-					// or at minimum, 3x the subtle thickness
-					float active_thickness = max(max(u_cell_radius * 0.06, 6.0 / (540.0 * u_camera_scale)), 10.0);
-					f_active_radius = 1.0 - max(active_thickness / u_cell_radius, u_cell_active_outline_thickness);
-					if ((u_cell_flags & 0x0c) != 0) {
-						f_active_outline = (u_cell_flags & 0x04) != 0 ? u_cell_active_outline : u_cell_inactive_outline;
-					} else {
-						f_active_outline = vec4(0, 0, 0, 0);
-					}
-
-					v_vertex = a_vertex;
-					v_uv = a_vertex * min(u_cell_radius / u_cell_radius_skin, 1.0) * 0.5 + 0.5;
-
-					vec2 clip_pos = -u_camera_pos + u_cell_pos + v_vertex * u_cell_radius;
-					clip_pos *= u_camera_scale * vec2(1.0 / u_camera_ratio, -1.0);
-					gl_Position = vec4(clip_pos, 0, 1);
-				}
-			`, `
-				${parts.boilerplate}
-				flat in vec4 f_active_outline;
-				flat in float f_active_radius;
-				flat in float f_blur;
-				flat in int f_color_under_skin;
-				flat in int f_show_skin;
-				flat in vec4 f_subtle_outline;
-				flat in float f_subtle_radius;
-				flat in vec4 f_unsplittable_outline;
-				flat in float f_unsplittable_radius;
-				in vec2 v_vertex;
-				in vec2 v_uv;
-				${parts.cameraUbo}
-				${parts.cellUbo}
-				${parts.cellSettingsUbo}
-				uniform sampler2D u_skin;
-				out vec4 out_color;
-
-				void main() {
-					float d = length(v_vertex.xy);
-					if (f_show_skin == 0 || f_color_under_skin != 0) {
-						out_color = u_cell_color;
-					}
-
-					// skin
-					if (f_show_skin != 0) {
-						vec4 tex = texture(u_skin, v_uv);
-						out_color = out_color * (1.0 - tex.a) + tex;
-					}
-
-					// subtle outline
-					float a = clamp(f_blur * (d - f_subtle_radius), 0.0, 1.0) * f_subtle_outline.a;
-					out_color.rgb += (f_subtle_outline.rgb - out_color.rgb) * a;
-
-					// active multibox outline
-					a = clamp(f_blur * (d - f_active_radius), 0.0, 1.0) * f_active_outline.a;
-					out_color.rgb += (f_active_outline.rgb - out_color.rgb) * a;
-
-					// unsplittable cell outline
-					a = clamp(f_blur * (d - f_unsplittable_radius), 0.0, 1.0) * f_unsplittable_outline.a;
-					out_color.rgb += (f_unsplittable_outline.rgb - out_color.rgb) * a;
-
-					// final circle mask
-					a = clamp(-f_blur * (d - 1.0), 0.0, 1.0);
-					out_color.a *= a * u_cell_alpha;
-				}
-			`, ['Camera', 'Cell', 'CellSettings'], ['u_skin']);
 
 			// also used to draw glow
 			programs.circle = program('circle', `
@@ -4026,68 +3900,46 @@
 				}
 			`, ['Camera', 'Circle'], []);
 
-			programs.text = program('text', `
+			programs.player = program('player', `
 				${parts.boilerplate}
 				layout(location = 0) in vec2 a_vertex;
+				layout(location = 1) in vec2 a_pos;
+				layout(location = 2) in vec2 a_size;
+				layout(location = 3) in vec2 a_texture_pos;
+				layout(location = 4) in vec2 a_texture_size;
+				layout(location = 5) in vec4 a_color;
+				layout(location = 6) in float a_flags;
 				${parts.cameraUbo}
-				${parts.cellUbo}
-				${parts.textUbo}
+				${parts.playerUbo}
 				out vec4 v_color;
+				flat out float v_flags;
+				out vec2 v_pos;
 				out vec2 v_uv;
-				out vec2 v_vertex;
 
 				void main() {
-					v_uv = a_vertex * 0.5 + 0.5;
-					float c2_alpha = (v_uv.x + v_uv.y) / 2.0;
-					v_color = u_text_color1 * (1.0 - c2_alpha) + u_text_color2 * c2_alpha;
-					v_vertex = a_vertex;
+					vec2 clip_pos = -u_camera_pos + a_pos + a_vertex * a_size;
+					clip_pos *= u_camera_scale * vec2(1.0 / u_camera_ratio, -1.0);
+					v_pos = clip_pos;
+					v_uv = a_texture_pos + a_vertex * a_texture_size;
+					v_color = a_color;
+					v_flags = a_flags;
 
-					vec2 clip_space = v_vertex * u_text_scale + u_text_offset;
-					clip_space *= u_cell_radius_skin * 0.45 * vec2(u_text_aspect_ratio, 1.0);
-					clip_space += -u_camera_pos + u_cell_pos;
-					clip_space *= u_camera_scale * vec2(1.0 / u_camera_ratio, -1.0);
-					gl_Position = vec4(clip_space, 0, 1);
+					gl_Position = vec4(clip_pos, 0, 1);
 				}
 			`, `
 				${parts.boilerplate}
 				in vec4 v_color;
+				flat in float v_flags;
+				in vec2 v_pos;
 				in vec2 v_uv;
-				in vec2 v_vertex;
-				${parts.cameraUbo}
-				${parts.cellUbo}
-				${parts.textUbo}
+				${parts.playerUbo}
 				uniform sampler2D u_texture;
-				uniform sampler2D u_silhouette;
 				out vec4 out_color;
 
-				float f(float x) {
-					// a cubic function with turning points at (0,0) and (1,0)
-					// meant to sharpen out blurry linear interpolation
-					return x * x * (3.0 - 2.0*x);
-				}
-
-				vec4 fv(vec4 v) {
-					return vec4(f(v.x), f(v.y), f(v.z), f(v.w));
-				}
-
 				void main() {
-					vec4 normal = texture(u_texture, v_uv);
-
-					if (u_text_silhouette_enabled != 0) {
-						vec4 silhouette = texture(u_silhouette, v_uv);
-
-						// #fff - #000 => color (text)
-						// #fff - #fff => #fff (respect emoji)
-						// #888 - #888 => #888 (respect emoji)
-						// #fff - #888 => #888 + color/2 (blur/antialias)
-						out_color = silhouette + fv(normal - silhouette) * v_color;
-					} else {
-						out_color = fv(normal) * v_color;
-					}
-
-					out_color.a *= u_text_alpha;
+					out_color = v_color;
 				}
-			`, ['Camera', 'Cell', 'Text'], ['u_texture', 'u_silhouette']);
+			`, ['Camera', 'Player'], []);
 
 			programs.tracer = program('tracer', `
 				${parts.boilerplate}
@@ -4122,84 +3974,69 @@
 				}
 			`, ['Camera', 'Tracer'], []);
 
-			// initialize two VAOs; one for pellets and all other objects (0), one for cell glow only (1)
-			glconf.vao = {};
-			const squareVAA = () => {
-				// square (location = 0), used for all instances
-				gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+			const attribute = (buffer, location, divisor, pointerArgs) => {
+				gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+				gl.enableVertexAttribArray(location);
+				gl.vertexAttribPointer(location, ...pointerArgs);
+				gl.vertexAttribDivisor(location, divisor);
+			};
+
+			// everything is drawn as a square, then resized with other attributes
+			const squareBuffer = () => {
+				const squareBuffer = gl.createBuffer();
+				gl.bindBuffer(gl.ARRAY_BUFFER, squareBuffer);
 				gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([ -1, -1,   1, -1,   -1, 1,   1, 1 ]), gl.STATIC_DRAW);
-				gl.enableVertexAttribArray(0);
-				gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-			};
-			const circleVAA = () => {
-				// circle buffer (each instance is 6 floats or 24 bytes)
-				const circleBuffer = /** @type {WebGLBuffer} */ (gl.createBuffer());
-				gl.bindBuffer(gl.ARRAY_BUFFER, circleBuffer);
-				// a_cell_pos, vec2 (location = 1)
-				gl.enableVertexAttribArray(1);
-				gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 4 * 7, 0);
-				gl.vertexAttribDivisor(1, 1);
-				// a_cell_radius, float (location = 2)
-				gl.enableVertexAttribArray(2);
-				gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 4 * 7, 4 * 2);
-				gl.vertexAttribDivisor(2, 1);
-				// a_cell_color, vec3 (location = 3)
-				gl.enableVertexAttribArray(3);
-				gl.vertexAttribPointer(3, 4, gl.FLOAT, false, 4 * 7, 4 * 3);
-				gl.vertexAttribDivisor(3, 1);
+				return squareBuffer;
+			}
 
-				return circleBuffer;
-			};
-			const alphaVAA = () => {
-				// circle alpha buffer, updated every frame
-				const alphaBuffer = /** @type {WebGLBuffer} */ (gl.createBuffer());
-				gl.bindBuffer(gl.ARRAY_BUFFER, alphaBuffer);
-				// a_cell_alpha, float (location = 4)
-				gl.enableVertexAttribArray(4);
-				gl.vertexAttribPointer(4, 1, gl.FLOAT, false, 0, 0);
-				gl.vertexAttribDivisor(4, 1);
+			// background vao
+			gl.bindVertexArray(glconf.backgroundVao = gl.createVertexArray());
+			attribute(squareBuffer(), 0, 0, [2, gl.FLOAT, false, 0, 0]); // vec2 a_vertex
 
-				return alphaBuffer;
-			};
-			const lineVAA = () => {
-				// circle alpha buffer, updated every frame
-				const lineBuffer = /** @type {WebGLBuffer} */ (gl.createBuffer());
-				gl.bindBuffer(gl.ARRAY_BUFFER, lineBuffer);
-				// a_pos1, vec2 (location = 1)
-				gl.enableVertexAttribArray(1);
-				gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 4 * 4, 0);
-				gl.vertexAttribDivisor(1, 1);
-				// a_pos2, vec2 (location = 2)
-				gl.enableVertexAttribArray(2);
-				gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 4 * 4, 4 * 2);
-				gl.vertexAttribDivisor(2, 1);
+			// circle vao (for cell glow only)
+			glconf.circleCellBuffer = gl.createBuffer();
+			glconf.circleCellAlphaBuffer = gl.createBuffer();
+			gl.bindVertexArray(glconf.circleCellVao = gl.createVertexArray());
+			attribute(squareBuffer(), 0, 0, [2, gl.FLOAT, false, 0, 0]); // vec2 a_vertex
+			attribute(glconf.circleCellBuffer, 1, 1, [2, gl.FLOAT, false, 4 * 7, 0]); // vec2 a_cell_pos
+			attribute(glconf.circleCellBuffer, 2, 1, [1, gl.FLOAT, false, 4 * 7, 4 * 2]); // float a_cell_radius
+			attribute(glconf.circleCellBuffer, 3, 1, [4, gl.FLOAT, false, 4 * 7, 4 * 3]); // vec4 a_cell_color
+			attribute(glconf.circleCellAlphaBuffer, 4, 1, [1, gl.FLOAT, false, 0, 0]); // float a_cell_alpha
 
-				return lineBuffer;
-			};
+			// circle vao (for pellets and pellet glow)
+			glconf.circlePelletBuffer = gl.createBuffer();
+			glconf.circlePelletAlphaBuffer = gl.createBuffer();
+			gl.bindVertexArray(glconf.circlePelletVao = gl.createVertexArray());
+			attribute(squareBuffer(), 0, 0, [2, gl.FLOAT, false, 0, 0]); // vec2 a_vertex
+			attribute(glconf.circlePelletBuffer, 1, 1, [2, gl.FLOAT, false, 4 * 7, 0]); // vec2 a_cell_pos
+			attribute(glconf.circlePelletBuffer, 2, 1, [1, gl.FLOAT, false, 4 * 7, 4 * 2]); // float a_cell_radius
+			attribute(glconf.circlePelletBuffer, 3, 1, [4, gl.FLOAT, false, 4 * 7, 4 * 3]); // vec4 a_cell_color
+			attribute(glconf.circlePelletAlphaBuffer, 4, 1, [1, gl.FLOAT, false, 0, 0]); // float a_cell_alpha
 
-			// main vao
-			let vao = /** @type {WebGLVertexArrayObject} */ (gl.createVertexArray());
-			gl.bindVertexArray(vao);
-			squareVAA();
-			glconf.vao.main = { vao };
-
-			// cell glow vao
-			vao = /** @type {WebGLVertexArrayObject} */ (gl.createVertexArray());
-			gl.bindVertexArray(vao);
-			squareVAA();
-			glconf.vao.cell = { vao, circle: circleVAA(), alpha: alphaVAA() };
-			
-			// pellet + pellet glow vao
-			vao = /** @type {WebGLVertexArrayObject} */ (gl.createVertexArray());
-			gl.bindVertexArray(vao);
-			squareVAA();
-			glconf.vao.pellet = { vao, circle: circleVAA(), alpha: alphaVAA() };
+			// player vao (for cells and text)
+			/* layout(location = 0) in vec2 a_vertex;
+				layout(location = 1) in vec2 a_pos;
+				layout(location = 2) in vec2 a_size;
+				layout(location = 3) in vec2 a_texture_pos;
+				layout(location = 4) in vec2 a_texture_size;
+				layout(location = 5) in vec4 a_color;
+				layout(location = 6) in int a_flags; */
+			glconf.playerBuffer = gl.createBuffer();
+			gl.bindVertexArray(glconf.playerVao = gl.createVertexArray());
+			attribute(squareBuffer(), 0, 0, [2, gl.FLOAT, false, 0, 0]); // vec2 a_vertex
+			attribute(glconf.playerBuffer, 1, 1, [2, gl.FLOAT, false, 4 * 13, 0]); // vec2 a_pos
+			attribute(glconf.playerBuffer, 2, 1, [2, gl.FLOAT, false, 4 * 13, 4 * 2]); // vec2 a_size
+			attribute(glconf.playerBuffer, 3, 1, [2, gl.FLOAT, false, 4 * 13, 4 * 4]); // vec2 a_texture_pos
+			attribute(glconf.playerBuffer, 4, 1, [2, gl.FLOAT, false, 4 * 13, 4 * 6]); // vec2 a_texture_size
+			attribute(glconf.playerBuffer, 5, 1, [4, gl.FLOAT, false, 4 * 13, 4 * 8]); // vec4 a_color
+			attribute(glconf.playerBuffer, 6, 1, [1, gl.FLOAT, false, 4 * 13, 4 * 12]); // int a_flags
 
 			// tracer vao
-			vao = /** @type {WebGLVertexArrayObject} */ (gl.createVertexArray());
-			gl.bindVertexArray(vao);
-			squareVAA();
-			glconf.vao.tracer = { vao, line: lineVAA() };
+			glconf.tracerBuffer = gl.createBuffer();
+			gl.bindVertexArray(glconf.tracerVao = gl.createVertexArray());
+			attribute(squareBuffer(), 0, 0, [2, gl.FLOAT, false, 0, 0]); // vec2 a_vertex
+			attribute(glconf.tracerBuffer, 1, 1, [2, gl.FLOAT, false, 4 * 4, 0]); // vec2 a_pos1
+			attribute(glconf.tracerBuffer, 2, 1, [2, gl.FLOAT, false, 4 * 4, 4 * 2]); // vec2 a_pos2
 		};
 
 		glconf.init();
@@ -4561,137 +4398,16 @@
 			return texture;
 		};
 
-		const circleBuffers = {
-			cell: new Float32Array(0),
-			cellAlpha: new Float32Array(0),
-			/** @type {object | undefined} */
-			lastCellVao: undefined,
-			pellet: new Float32Array(0),
-			pelletAlpha: new Float32Array(0),
-			pelletsUploaded: 0,
-			/** @type {object | undefined} */
-			lastPelletVao: undefined,
-		};
-		/** @param {boolean} pellets */
-		render.upload = pellets => {
-			const now = performance.now();
-			if (now - render.lastFrame > 1000) {
-				// do not render pellets on inactive windows (very laggy!)
-				circleBuffers.pelletsUploaded = 0;
-				return;
-			}
+		let circleCellBuffer = new Float32Array(0);
+		let circleCellAlphaBuffer = new Float32Array(0);
+		let circlePelletBuffer = new Float32Array(0);
+		let circlePelletAlphaBuffer = new Float32Array(0);
+		let circlePelletsUploaded = 0;
+		render.uploadPellets = false;
 
-			let uploading = 0;
-			for (const cell of world[pellets ? 'pellets' : 'cells'].values()) {
-				const frame = world.synchronized ? cell.merged : cell.views.get(world.selected)?.frames[0];
-				if (!frame) continue;
-				if (pellets) {
-					if (frame.deadTo === -1) ++uploading;
-				} else {
-					/** @type {CellDescription} */
-					const desc = world.synchronized ? cell.views.values().next().value : cell.views.get(world.selected);
-					if (!desc) continue; // shouldn't happen
-					if (!desc.jagged) ++uploading; // don't make viruses glow
-				}
-			}
-
-			let alpha = circleBuffers[pellets ? 'pelletAlpha' : 'cellAlpha'];
-			let instances = circleBuffers[pellets ? 'pellet' : 'cell'];
-			const vao = glconf.vao[pellets ? 'pellet' : 'cell'];
-
-			// resize buffers as necessary
-			let capacity = alpha.length || 1;
-			let resizing = circleBuffers[pellets ? 'lastPelletVao' : 'lastCellVao'] !== vao;
-			while (capacity < uploading) {
-				capacity *= 2;
-				resizing = true;
-			}
-			if (resizing) {
-				alpha = circleBuffers[pellets ? 'pelletAlpha' : 'cellAlpha'] = new Float32Array(capacity);
-				instances = circleBuffers[pellets ? 'pellet' : 'cell'] = new Float32Array(capacity * 7);
-			}
-
-			const override = pellets ? sigmod.settings.foodColor : sigmod.settings.cellColor;
-			let i = 0;
-			for (const cell of world[pellets ? 'pellets' : 'cells'].values()) {
-				const frame = world.synchronized ? cell.merged : cell.views.get(world.selected)?.frames[0];
-				if (!frame || (pellets && frame.deadTo !== -1)) continue;
-
-				let x, y, r;
-				if (pellets) {
-					({ nx: x, ny: y, nr: r } = frame);
-				} else {
-					const interp = world.synchronized ? cell.merged : cell.views.get(world.selected);
-					if (!interp) continue; // should never happen (ts-check)
-
-					/** @type {CellFrame | undefined} */
-					let killerFrame;
-					/** @type {CellInterpolation | undefined} */
-					let killerInterp;
-					let killer = frame.deadTo !== -1 && world.cells.get(frame.deadTo);
-					if (killer) {
-						killerFrame = world.synchronized ? killer.merged : killer.views.get(world.selected)?.frames[0];
-						killerInterp = world.synchronized ? killer.merged : killer.views.get(world.selected);
-					}
-
-					({ x, y, r } = world.xyr(frame, interp, killerFrame, killerInterp, false, now));
-				}
-				instances[i * 7] = x;
-				instances[i * 7 + 1] = y;
-				instances[i * 7 + 2] = r;
-
-				/** @type {CellDescription} */
-				const desc = world.synchronized ? cell.views.values().next().value : cell.views.get(world.selected);
-				if (!desc || desc.jagged) continue;
-
-				/** @type {[number, number, number] | [number, number, number, number]} */
-				let color = desc.rgb;
-				if (pellets) {
-					if (override?.[0] === 0 && override?.[1] === 0 && override?.[2] === 0) {
-						color = [color[0], color[1], color[2], override[3]];
-					} else if (override) {
-						color = override;
-					}
-				} else {
-					if (override) color = override;
-					const skin = render.skin(cell);
-					if (skin) {
-						// blend with player color
-						if (settings.colorUnderSkin) {
-							color = [
-								color[0] + (skin.color[0] - color[0]) * skin.color[3],
-								color[1] + (skin.color[1] - color[1]) * skin.color[3],
-								color[2] + (skin.color[2] - color[2]) * skin.color[3],
-								1
-							];
-						} else {
-							color = [skin.color[0], skin.color[1], skin.color[2], 1];
-						}
-					}
-				}
-				instances[i * 7 + 3] = color[0];
-				instances[i * 7 + 4] = color[1];
-				instances[i * 7 + 5] = color[2];
-				instances[i * 7 + 6] = color[3] ?? 1;
-
-				++i;
-			}
-
-			// now, upload data
-			if (resizing) {
-				gl.bindBuffer(gl.ARRAY_BUFFER, vao.alpha);
-				gl.bufferData(gl.ARRAY_BUFFER, alpha.byteLength, gl.STATIC_DRAW);
-				gl.bindBuffer(gl.ARRAY_BUFFER, vao.circle);
-				gl.bufferData(gl.ARRAY_BUFFER, instances, gl.STATIC_DRAW);
-			} else {
-				gl.bindBuffer(gl.ARRAY_BUFFER, vao.circle);
-				gl.bufferSubData(gl.ARRAY_BUFFER, 0, instances);
-			}
-			gl.bindBuffer(gl.ARRAY_BUFFER, null);
-
-			if (pellets) circleBuffers.pelletsUploaded = uploading;
-			circleBuffers[pellets ? 'lastPelletVao' : 'lastCellVao'] = vao;
-		};
+		let playerBuffer = new ArrayBuffer(0);
+		let playerBufferF32 = new Float32Array(playerBuffer);
+		let playerBufferS32 = new Int32Array(playerBuffer);
 
 		let tracerFloats = new Float32Array(0);
 
@@ -4703,18 +4419,8 @@
 		const borderUboFloats = new Float32Array(borderUboBuffer);
 		const borderUboInts = new Int32Array(borderUboBuffer);
 
-		gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Cell);
-		const cellUboBuffer = new ArrayBuffer(gl.getBufferParameter(gl.UNIFORM_BUFFER, gl.BUFFER_SIZE));
-		const cellUboFloats = new Float32Array(cellUboBuffer);
-		const cellUboInts = new Int32Array(cellUboBuffer);
-
 		gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
 		const circleUboFloats = new Float32Array(gl.getBufferParameter(gl.UNIFORM_BUFFER, gl.BUFFER_SIZE) / 4);
-
-		gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Text);
-		const textUboBuffer = new ArrayBuffer(gl.getBufferParameter(gl.UNIFORM_BUFFER, gl.BUFFER_SIZE));
-		const textUboFloats = new Float32Array(textUboBuffer);
-		const textUboInts = new Int32Array(textUboBuffer);
 
 		gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Tracer);
 		const tracerUboFloats = new Float32Array(gl.getBufferParameter(gl.UNIFORM_BUFFER, gl.BUFFER_SIZE) / 4);
@@ -4756,7 +4462,7 @@
 				]));
 				gl.bindBuffer(gl.UNIFORM_BUFFER, null);
 
-				gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.CellSettings);
+				gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Player);
 				gl.bufferSubData(gl.UNIFORM_BUFFER, 0, new Float32Array([
 					...settings.outlineMultiColor, // cell_active_outline
 					...settings.outlineMultiInactiveColor, // cell_inactive_outline
@@ -4774,7 +4480,7 @@
 				gl.clear(gl.COLOR_BUFFER_BIT);
 
 				gl.useProgram(glconf.programs.bg);
-				gl.bindVertexArray(glconf.vao.main.vao);
+				gl.bindVertexArray(glconf.backgroundVao);
 
 				let texture;
 				if (settings.background) {
@@ -4808,19 +4514,19 @@
 				gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 			})();
 
-			(function TODO_new_cells() {
+			/*(function TODO_lightweight_cells() {
 				// don't render anything if the current tab is not connected
 				const con = net.connections.get(world.selected);
 				if (!con?.handshake) return;
 
-				// set up circle program UBO
+				// set up circle program
+				gl.useProgram(glconf.programs.circle);
+				gl.bindVertexArray(glconf.circleCellVao);
 				circleUboFloats[0] = 1; // u_circle_alpha
 				circleUboFloats[1] = 0; // u_circle_scale
 				gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
 				gl.bufferSubData(gl.UNIFORM_BUFFER, 0, circleUboFloats);
 
-				gl.useProgram(glconf.programs.circle);
-				gl.bindVertexArray(glconf.vao.pellet.vao);
 				const main = new Float32Array((world.pellets.size + world.cells.size) * 7);
 				const alpha = new Float32Array(world.pellets.size + world.cells.size);
 				let o = 0, oa = 0;
@@ -4859,449 +4565,131 @@
 					main[o++] = 1;
 					alpha[oa++] = 1;
 				}
-				/* vao = (gl.createVertexArray());
-				gl.bindVertexArray(vao);
-				squareVAA();
-				glconf.vao.pellet = { vao, circle: circleVAA(), alpha: alphaVAA() }; */
-				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao.pellet.circle);
+				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.circleCellBuffer);
 				gl.bufferData(gl.ARRAY_BUFFER, main, gl.STATIC_DRAW);
-				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao.pellet.alpha);
+				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.circleCellAlphaBuffer);
 				gl.bufferData(gl.ARRAY_BUFFER, alpha, gl.STATIC_DRAW);
 				gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, alpha.length);
-			})();
+			})();*/
 
 			(function cells() {
 				// don't render anything if the current tab is not connected
 				const con = net.connections.get(world.selected);
 				if (!con?.handshake) return;
 
-				// for white cell outlines
-				let nextCellIdx = 0;
-				const ownedArray = Array.from(vision.owned);
-				/** @type {(CellFrame | undefined)[]} */
-				const ownedToFrame = ownedArray.map(id => {
-					const cell = world.cells.get(id);
-					return world.synchronized ? cell?.merged : cell?.views.get(world.selected)?.frames[0];
-				});
-				for (const cell of ownedToFrame) {
-					if (cell && cell.deadAt === undefined) ++nextCellIdx;
-				}
-				const canSplit = ownedToFrame.map(cell => {
-					if (!cell || cell.nr < 128) return false;
-					return nextCellIdx++ < 16;
-				});
+				// #1 : basic pellets
+				gl.useProgram(glconf.programs.circle);
+				gl.bindVertexArray(glconf.circlePelletVao);
+				circleUboFloats[0] = 1; // u_circle_alpha
+				circleUboFloats[1] = 0; // u_circle_scale (no glow)
+				gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
+				gl.bufferSubData(gl.UNIFORM_BUFFER, 0, circleUboFloats);
 
-				/**
-				 * @param {Cell} cell
-				 * @param {boolean} pellet
-				 */
-				const draw = (cell, pellet) => {
-					// #1 : draw cell
-					/** @type {CellFrame | undefined} */
-					const frame = world.synchronized ? cell.merged : cell.views.get(world.selected)?.frames[0];
-					/** @type {CellInterpolation | undefined} */
-					const interp = world.synchronized ? cell.merged : cell.views.get(world.selected);
-					if (!frame || !interp) return;
+				if (render.uploadPellets) {
+					// resize buffers if needed
+					if (world.pellets.size > circlePelletAlphaBuffer.length) {
+						let newLength = circlePelletAlphaBuffer.length || 1;
+						while (world.pellets.size > newLength) newLength *= 2;
 
-					/** @type {CellDescription | undefined} */
-					const desc = world.synchronized ? cell.views.values().next().value : cell.views.get(world.selected);
-					if (!desc) return;
-
-					/** @type {CellFrame | undefined} */
-					let killerFrame;
-					/** @type {CellInterpolation | undefined} */
-					let killerInterp;
-					let killer = frame.deadTo !== -1 && world.cells.get(frame.deadTo);
-					if (killer) {
-						killerFrame = world.synchronized ? killer.merged : killer.views.get(world.selected)?.frames[0];
-						killerInterp = world.synchronized ? killer.merged : killer.views.get(world.selected);
+						circlePelletBuffer = new Float32Array(newLength * 7);
+						gl.bindBuffer(gl.ARRAY_BUFFER, glconf.circlePelletBuffer);
+						gl.bufferData(gl.ARRAY_BUFFER, circlePelletBuffer.byteLength, gl.STATIC_DRAW);
+						circlePelletAlphaBuffer = new Float32Array(newLength);
+						gl.bindBuffer(gl.ARRAY_BUFFER, glconf.circlePelletAlphaBuffer);
+						gl.bufferData(gl.ARRAY_BUFFER, circlePelletAlphaBuffer.byteLength, gl.STATIC_DRAW);
 					}
 
-					gl.useProgram(glconf.programs.cell);
-
-					const alpha = render.alpha(frame, now);
-					cellUboFloats[8] = alpha * settings.cellOpacity;
-
-					const { x, y, r, jr } = world.xyr(frame, interp, killerFrame, killerInterp, pellet, now);
-					// without jelly physics, the radius of cells is adjusted such that its subtle outline doesn't go
-					// past its original radius.
-					// jelly physics does not do this, so colliding cells need to look kinda 'joined' together,
-					// so we multiply the radius by 1.02 (approximately the size increase from the stroke thickness)
-					cellUboFloats[2] = x;
-					cellUboFloats[3] = y;
-					if (aux.settings.jellyPhysics && !desc.jagged && !pellet) {
-						const strokeThickness = Math.max(jr * 0.01, 10);
-						cellUboFloats[0] = jr + strokeThickness;
-						cellUboFloats[1] = (settings.jellySkinLag ? r : jr) + strokeThickness;
-					} else {
-						cellUboFloats[0] = cellUboFloats[1] = r + 2;
-					}
-
-					if (desc.jagged) {
-						const virusTexture = textureFromCache(virusSrc);
-						if (virusTexture) {
-							gl.bindTexture(gl.TEXTURE_2D, virusTexture.texture);
-							cellUboInts[9] = 0x01; // skin and nothing else
-							// draw a fully transparent cell
-							cellUboFloats[4] = cellUboFloats[5] = cellUboFloats[6] = cellUboFloats[7] = 0;
+					const override = sigmod.settings.foodColor;
+					let o = 0;
+					circlePelletsUploaded = 0;
+					for (const pellet of world.pellets.values()) {
+						if (pellet.deadTo) continue;
+						circlePelletBuffer[o++] = pellet.tx;
+						circlePelletBuffer[o++] = pellet.ty;
+						circlePelletBuffer[o++] = pellet.tr;
+						if (override) {
+							circlePelletBuffer.set(override, o);
+							o += 4;
 						} else {
-							cellUboInts[9] = 0;
-							// #ff000080 if the virus texture doesn't load
-							cellUboFloats.set([1, 0, 0, 0.5], 4);
+							circlePelletBuffer[o++] = pellet.red;
+							circlePelletBuffer[o++] = pellet.green;
+							circlePelletBuffer[o++] = pellet.blue;
+							circlePelletBuffer[o++] = 1; // alpha
 						}
-
-						gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Cell);
-						gl.bufferSubData(gl.UNIFORM_BUFFER, 0, cellUboBuffer);
-						gl.bindBuffer(gl.UNIFORM_BUFFER, null);
-						if (!aux.settings.darkTheme && virusSrc === defaultVirusSrc) {
-							// draw default viruses twice as strong for better contrast against light theme
-							cellUboFloats[8] = alpha * settings.cellOpacity;
-						}
-						gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-						return;
+						++circlePelletsUploaded;
 					}
 
-					cellUboInts[9] = 0;
+					gl.bindBuffer(gl.ARRAY_BUFFER, glconf.circlePelletBuffer);
+					gl.bufferSubData(gl.ARRAY_BUFFER, 0, circlePelletBuffer);
 
-					/** @type {[number, number, number, number] | [number, number, number] | undefined} */
-					let color = pellet ? foodColor : cellColor;
-					if (pellet && foodColor && foodColor[0] === 0 && foodColor[1] === 0 && foodColor[2] === 0) {
-						color = [desc.rgb[0], desc.rgb[1], desc.rgb[2], foodColor[3]];
-					} else {
-						color ??= desc.rgb;
-					}
-
-					cellUboFloats[4] = color[0]; cellUboFloats[5] = color[1];
-					cellUboFloats[6] = color[2]; cellUboFloats[7] = color[3] ?? 1;
-
-					cellUboInts[9] |= settings.cellOutlines ? 0x02 : 0;
-					cellUboInts[9] |= settings.colorUnderSkin ? 0x20 : 0;
-
-					if (!pellet) {
-						/** @type {symbol | undefined} */
-						let ownerView;
-						let ownerVision;
-						for (const [otherView, otherVision] of world.views) {
-							if (!otherVision.owned.has(cell.id)) continue;
-							ownerView = otherView;
-							ownerVision = otherVision;
-							break;
-						}
-
-						if (ownerView === world.selected) {
-							const myIndex = ownedArray.indexOf(cell.id);
-							if (!canSplit[myIndex]) cellUboInts[9] |= 0x10;
-							if (vision.camera.merged) cellUboInts[9] |= 0x04;
-						} else if (ownerVision) {
-							if (ownerVision.camera.merged) cellUboInts[9] |= 0x08;
-						}
-
-						const texture = render.skin(cell);
-						if (texture) {
-							cellUboInts[9] |= 0x01; // skin
-							gl.bindTexture(gl.TEXTURE_2D, texture.texture);
-						}
-					}
-
-					gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Cell);
-					gl.bufferSubData(gl.UNIFORM_BUFFER, 0, cellUboBuffer);
-					gl.bindBuffer(gl.UNIFORM_BUFFER, null);
-					gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-
-					// #2 : draw text
-					if (pellet) return;
-					const name = desc.name || 'An unnamed cell';
-					const showThisName = (showNames ?? true) && frame.nr >= 64;
-					const showThisMass = aux.settings.showMass && frame.nr >= 64;
-					const clan = (settings.clans && aux.clans.get(desc.clan)) || '';
-					if (!showThisName && !showThisMass && !clan) return;
-
-					gl.useProgram(glconf.programs.text);
-					textUboFloats[8] = alpha; // text_alpha
-
-					let useSilhouette = false;
-					if (desc.sub) {
-						// text_color1 = #eb9500 * 1.2
-						textUboFloats[0] = 0xeb / 255 * 1.2; textUboFloats[1] = 0x95 / 255 * 1.2;
-						textUboFloats[2] = 0x00 / 255 * 1.2; textUboFloats[3] = 1;
-						// text_color2 = #f9bf0d * 1.2
-						textUboFloats[4] = 0xf9 / 255 * 1.2; textUboFloats[5] = 0xbf / 255 * 1.2;
-						textUboFloats[6] = 0x0d / 255 * 1.2; textUboFloats[7] = 1;
-						useSilhouette = true;
-					} else {
-						// text_color1 = text_color2 = #fff
-						textUboFloats[0] = textUboFloats[1] = textUboFloats[2] = textUboFloats[3] = 1;
-						textUboFloats[4] = textUboFloats[5] = textUboFloats[6] = textUboFloats[7] = 1;
-					}
-
-					if (input.nick.find(el => el.value === name)) {
-						const { nameColor1, nameColor2 } = sigmod.settings;
-						if (nameColor1) {
-							textUboFloats[0] = nameColor1[0]; textUboFloats[1] = nameColor1[1];
-							textUboFloats[2] = nameColor1[2]; textUboFloats[3] = nameColor1[3];
-							useSilhouette = true;
-						}
-
-						if (nameColor2) {
-							textUboFloats[4] = nameColor2[0]; textUboFloats[5] = nameColor2[1];
-							textUboFloats[6] = nameColor2[2]; textUboFloats[7] = nameColor2[3];
-							useSilhouette = true;
-						}
-					}
-
-					if (clan) {
-						const { aspectRatio, text, silhouette } = textFromCache(clan, useSilhouette);
-						if (text) {
-							textUboFloats[9] = aspectRatio; // text_aspect_ratio
-							textUboFloats[10]
-								= showThisName ? settings.clanScaleFactor * 0.5 : settings.nameScaleFactor;
-							textUboInts[11] = Number(useSilhouette); // text_silhouette_enabled
-							textUboFloats[12] = 0; // text_offset.x
-							textUboFloats[13] = showThisName
-								? -settings.nameScaleFactor/3 - settings.clanScaleFactor/6 : 0; // text_offset.y
-
-							gl.bindTexture(gl.TEXTURE_2D, text);
-							if (silhouette) {
-								gl.activeTexture(gl.TEXTURE1);
-								gl.bindTexture(gl.TEXTURE_2D, silhouette);
-								gl.activeTexture(gl.TEXTURE0);
-							}
-
-							gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Text);
-							gl.bufferSubData(gl.UNIFORM_BUFFER, 0, textUboBuffer);
-							gl.bindBuffer(gl.UNIFORM_BUFFER, null);
-							gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-						}
-					}
-
-					if (showThisName) {
-						const { aspectRatio, text, silhouette } = textFromCache(name, useSilhouette);
-						if (text) {
-							textUboFloats[9] = aspectRatio; // text_aspect_ratio
-							textUboFloats[10] = settings.nameScaleFactor; // text_scale
-							textUboInts[11] = Number(useSilhouette); // text_silhouette_enabled
-							textUboFloats[12] = textUboFloats[13] = 0; // text_offset = (0, 0)
-
-							gl.bindTexture(gl.TEXTURE_2D, text);
-							if (silhouette) {
-								gl.activeTexture(gl.TEXTURE1);
-								gl.bindTexture(gl.TEXTURE_2D, silhouette);
-								gl.activeTexture(gl.TEXTURE0);
-							}
-
-							gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Text);
-							gl.bufferSubData(gl.UNIFORM_BUFFER, 0, textUboBuffer);
-							gl.bindBuffer(gl.UNIFORM_BUFFER, null);
-							gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-						}
-					}
-
-					if (showThisMass) {
-						textUboFloats[8] = alpha * settings.massOpacity; // text_alpha
-						textUboFloats[10] = 0.5 * settings.massScaleFactor; // text_scale
-						textUboInts[11] = 0; // text_silhouette_enabled
-
-						let yOffset;
-						if (showThisName)
-							yOffset = (settings.nameScaleFactor + 0.5 * settings.massScaleFactor) / 3;
-						else if (clan)
-							yOffset = (1 + 0.5 * settings.massScaleFactor) / 3;
-						else
-							yOffset = 0;
-						// draw each digit separately, as Ubuntu makes them all the same width.
-						// significantly reduces the size of the text cache
-						const mass = Math.floor(frame.nr * frame.nr / 100).toString();
-						const maxWidth = maxMassWidth();
-						for (let i = 0; i < mass.length; ++i) {
-							const { height, width, texture } = massTextFromCache(mass[i]);
-							textUboFloats[9] = width / height; // text_aspect_ratio
-							// text_offset.x; kerning is fixed by subtracting most of the padding from lineWidth
-							textUboFloats[12] = (i - (mass.length - 1) / 2) * settings.massScaleFactor
-								* (maxWidth / width)
-								* (maxWidth - 20 * settings.textOutlinesFactor * settings.massScaleFactor) / maxWidth;
-							textUboFloats[13] = yOffset;
-							gl.bindTexture(gl.TEXTURE_2D, texture);
-
-							gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Text);
-							gl.bufferSubData(gl.UNIFORM_BUFFER, 0, textUboBuffer);
-							gl.bindBuffer(gl.UNIFORM_BUFFER, null);
-							gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-						}
-					}
+					render.uploadPellets = false;
 				}
 
-				// draw pellets
-				{
-					// blend function for all pellets
-					if (settings.pelletGlow && aux.settings.darkTheme) gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+				// always upload alpha every frame; order is definitely going to be the same
+				let i = 0;
+				for (const pellet of world.pellets.values()) {
+					if (pellet.deadTo) continue;
+					circlePelletAlphaBuffer[i++] = 1; // TODO: render.alpha
+				}
+				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.circlePelletAlphaBuffer);
+				gl.bufferSubData(gl.ARRAY_BUFFER, 0, circlePelletAlphaBuffer);
 
-					// draw unanimated pellets using instanced drawing
-					gl.useProgram(glconf.programs.circle);
-					gl.bindVertexArray(glconf.vao.pellet.vao);
-					let i = 0;
-					for (const cell of world.pellets.values()) {
-						const frame = world.synchronized ? cell.merged : cell.views.get(world.selected)?.frames[0];
-						if (frame?.deadTo !== -1) continue;
-						circleBuffers.pelletAlpha[i++] = render.alpha(frame, now);
-					}
-					gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao.pellet.alpha);
-					gl.bufferSubData(gl.ARRAY_BUFFER, 0, circleBuffers.pelletAlpha);
-					gl.bindBuffer(gl.ARRAY_BUFFER, null);
+				if (settings.pelletGlow && aux.settings.darkTheme) gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+				gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, circlePelletsUploaded);
 
-					gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
-					circleUboFloats[0] = 1; // alpha
-					circleUboFloats[1] = 0; // scale (0 means no blur)
-					gl.bufferSubData(gl.UNIFORM_BUFFER, 0, circleUboFloats);
-					gl.bindBuffer(gl.UNIFORM_BUFFER, null);
-					// pellet data is not uploaded if tab is closed for a while, so pelletsUploaded would be 0
-					gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, circleBuffers.pelletsUploaded);
+				// #2 : basic cells
+				gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+				gl.useProgram(glconf.programs.player);
+				gl.bindVertexArray(glconf.playerVao);
 
-					if (settings.pelletGlow) {
-						// draw unanimated pellet glow
-						gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-						circleUboFloats[0] = 0.25; // alpha
-						circleUboFloats[1] = 2; // scale
-						gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
-						gl.bufferData(gl.UNIFORM_BUFFER, circleUboFloats, gl.STATIC_DRAW);
-						gl.bindBuffer(gl.UNIFORM_BUFFER, null);
-						gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, i);
+				let numElements = 0;
+				const cellsSorted = [];
+				for (const cell of world.cells.values()) {
+					const killer = cell.deadTo ? world.cells.get(cell.deadTo) : undefined;
+					const xyr = world.xyr(cell, killer, now);
+					cellsSorted.push([cell, xyr, settings.jellyPhysics ? xyr.jr : xyr.r]);
+					numElements += 8; // TODO cell, text, mass digits, ...?
+				}
+				cellsSorted.sort((a, b) => a[2] - b[2]);
 
-						// reset blend func
-						gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-					}
+				if (numElements * 4 * 13 > playerBuffer.byteLength) {
+					let newLength = playerBuffer.byteLength || 1;
+					while (newLength < numElements * 4 * 13) newLength *= 2;
 
-					// draw animated pellets without instanced drawing
-					gl.bindVertexArray(glconf.vao.main.vao);
-					for (const cell of world.pellets.values()) {
-						const frame = world.synchronized ? cell.merged : cell.views.get(world.selected)?.frames[0];
-						if (frame && frame.deadTo !== -1) draw(cell, true);
-						// do not make eaten pellets glow
-					}
+					playerBuffer = new ArrayBuffer(newLength);
+					playerBufferF32 = new Float32Array(playerBuffer);
+					playerBufferS32 = new Int32Array(playerBuffer);
+					gl.bindBuffer(gl.ARRAY_BUFFER, glconf.playerBuffer);
+					gl.bufferData(gl.ARRAY_BUFFER, newLength, gl.STATIC_DRAW);
 				}
 
-				// draw cells
-				{
-					/** @type {[Cell, number][]} */
-					const sorted = [];
-					for (const cell of world.cells.values()) {
-						const frame = world.synchronized ? cell.merged : cell.views.get(world.selected)?.frames[0];
-						const interp = world.synchronized ? cell.merged : cell.views.get(world.selected);
-						if (!frame || !interp) continue;
-
-						const a = Math.min(Math.max((now - interp.updated) / settings.drawDelay, 0), 1);
-						const computedR = interp.or + (frame.nr - interp.or) * a;
-						sorted.push([cell, computedR]);
-					}
-
-					gl.bindVertexArray(glconf.vao.main.vao);
-					sorted.sort(([_a, ar], [_b, br]) => ar - br);
-					for (const [cell] of sorted) draw(cell, false);
-
-					// draw glow *after* all cells (so the glow goes above the text)
-					if (settings.cellGlow) {
-						// render.upload(false);
-						let i = 0;
-						for (const cell of world.cells.values()) {
-							const frame = world.synchronized ? cell.merged : cell.views.get(world.selected)?.frames[0];
-							/** @type {CellDescription} */
-							const desc = world.synchronized ? cell.views.values().next().value : cell.views.get(world.selected);
-							if (!frame || !desc || desc.jagged) continue;
-
-							let alpha = render.alpha(frame, now);
-							// it looks kinda weird when cells get sucked in when being eaten
-							if (frame.deadTo !== -1) alpha *= 0.25;
-							circleBuffers.cellAlpha[i++] = alpha;
-						}
-
-						gl.useProgram(glconf.programs.circle);
-						gl.bindVertexArray(glconf.vao.cell.vao);
-						gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-
-						gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao.cell.alpha);
-						gl.bufferSubData(gl.ARRAY_BUFFER, 0, circleBuffers.cellAlpha);
-						gl.bindBuffer(gl.ARRAY_BUFFER, null);
-
-						circleUboFloats[0] = 0.25; // alpha
-						// scale (can't be too big, otherwise it looks weird when cells come into view)
-						circleUboFloats[1] = 1.5;
-						gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
-						gl.bufferData(gl.UNIFORM_BUFFER, circleUboFloats, gl.STATIC_DRAW);
-						gl.bindBuffer(gl.UNIFORM_BUFFER, null);
-						gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, i);
-
-						gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-					}
+				/* attribute(glconf.playerBuffer, 1, 1, [2, gl.FLOAT, false, 4 * 13, 0]); // vec2 a_pos
+			attribute(glconf.playerBuffer, 2, 1, [2, gl.FLOAT, false, 4 * 13, 4 * 2]); // vec2 a_size
+			attribute(glconf.playerBuffer, 3, 1, [2, gl.FLOAT, false, 4 * 13, 4 * 4]); // vec2 a_texture_pos
+			attribute(glconf.playerBuffer, 4, 1, [2, gl.FLOAT, false, 4 * 13, 4 * 6]); // vec2 a_texture_size
+			attribute(glconf.playerBuffer, 5, 1, [4, gl.FLOAT, false, 4 * 13, 4 * 8]); // vec4 a_color
+			attribute(glconf.playerBuffer, 6, 1, [1, gl.INT, false, 4 * 13, 4 * 12]); // int a_flags */
+				let o = 0;
+				for (const [cell, xyr] of cellsSorted) {
+					playerBufferF32[o++] = xyr.x; // a_pos.x
+					playerBufferF32[o++] = xyr.y; // a_pos.y
+					playerBufferF32[o++] = xyr.r; // a_size.x
+					playerBufferF32[o++] = xyr.r; // a_size.y
+					playerBufferF32[o++] = 0; // a_texture_pos.x
+					playerBufferF32[o++] = 0; // a_texture_pos.y
+					playerBufferF32[o++] = 0; // a_texture_size.x
+					playerBufferF32[o++] = 0; // a_texture_size.y
+					playerBufferF32[o++] = cell.red; // a_color.r
+					playerBufferF32[o++] = cell.green; // a_color.g
+					playerBufferF32[o++] = cell.blue; // a_color.b
+					playerBufferF32[o++] = 1; // a_color.a TODO render.alpha?
+					playerBufferF32[o++] = 0; // a_flags
 				}
+				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.playerBuffer);
+				gl.bufferSubData(gl.ARRAY_BUFFER, 0, playerBuffer);
 
-				// draw tracers
-				if (settings.tracer) {
-					gl.useProgram(glconf.programs.tracer);
-					gl.bindVertexArray(glconf.vao.tracer.vao);
-
-					tracerUboFloats[0] = 0.5; // #7f7f7f color
-					tracerUboFloats[1] = 0.5;
-					tracerUboFloats[2] = 0.5;
-					tracerUboFloats[3] = 0.5;
-					tracerUboFloats[4] = 2; // line thickness
-					gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Tracer);
-					gl.bufferSubData(gl.UNIFORM_BUFFER, 0, tracerUboFloats);
-					gl.bindBuffer(gl.UNIFORM_BUFFER, null);
-
-					const mouse = input.toWorld(world.selected, input.current);
-					const inputs = input.views.get(world.selected);
-					if (!inputs) return; // tracers are the last step in cells(), so a return is OK
-
-					// resize by powers of 2
-					let capacity = tracerFloats.length || 1;
-					while (vision.owned.size * 4 > capacity) capacity *= 2;
-					const resizing = capacity !== tracerFloats.length;
-					if (resizing) tracerFloats = new Float32Array(capacity);
-
-					const camera
-						= world.singleCamera(vision, settings.camera !== 'default' ? 2 : 0, now);
-
-					let i = 0;
-					for (const id of vision.owned) {
-						const cell = world.cells.get(id);
-						const frame = world.synchronized ? cell?.merged : cell?.views.get(world.selected)?.frames[0];
-						const interp = world.synchronized ? cell?.merged : cell?.views.get(world.selected);
-						if (!frame || !interp || frame.deadAt !== undefined) continue;
-
-						const { x, y } = world.xyr(frame, interp, undefined, undefined, false, now);
-						tracerFloats[i * 4] = x;
-						tracerFloats[i * 4 + 1] = y;
-						tracerFloats[i * 4 + 2] = mouse[0];
-						tracerFloats[i * 4 + 3] = mouse[1];
-
-						switch (inputs.lock?.type) {
-							case 'point':
-								if (now > inputs.lock.until) break;
-								tracerFloats[i * 4 + 2] = inputs.lock.world[0];
-								tracerFloats[i * 4 + 3] = inputs.lock.world[1];
-								break;
-							case 'horizontal':
-								tracerFloats[i * 4 + 3] = inputs.lock.world[1];
-								break;
-							case 'vertical':
-								tracerFloats[i * 4 + 2] = inputs.lock.world[0];
-								break;
-							case 'fixed':
-								const dx = mouse[0] - camera.sumX / camera.weight;
-								const dy = mouse[1] - camera.sumY / camera.weight;
-								const d = Math.hypot(dx, dy);
-								tracerFloats[i * 4 + 2] = x + dx * 1e6 / d;
-								tracerFloats[i * 4 + 3] = y + dy * 1e6 / d;
-						}
-						++i;
-					}
-
-					gl.bindBuffer(gl.ARRAY_BUFFER, glconf.vao.tracer.line);
-					if (resizing) gl.bufferData(gl.ARRAY_BUFFER, tracerFloats, gl.STATIC_DRAW);
-					else gl.bufferSubData(gl.ARRAY_BUFFER, 0, tracerFloats);
-					gl.bindBuffer(gl.ARRAY_BUFFER, null);
-					gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, i);
-				}
-			}); // TODO no execute
+				gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, o / 13);
+			})();
 
 			ui.stats.update(world.selected);
 
