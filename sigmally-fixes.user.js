@@ -1995,7 +1995,7 @@
 					container.appendChild(caption);
 
 					const canvas = document.createElement('canvas');
-					canvas.style.cssText = 'height: 40px; position: absolute; top: 45px; left: 10px; width: 80px; border: 2px solid #fff9;';
+					canvas.style.cssText = 'height: 40px; position: absolute; top: 45px; left: 10px; width: 80px;';
 					container.appendChild(canvas);
 					tabs.set(view, {
 						container,
