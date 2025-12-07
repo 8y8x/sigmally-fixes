@@ -2639,7 +2639,6 @@
 							if (flags & 0x08) { // update name
 								[name, o] = aux.readZTString(dat, o);
 								name = aux.parseName(name);
-								if (name) render.textFromCache(name, sub); // make sure the texture is ready on render TODO performance hit???
 							}
 
 							const jagged = !!(flags & 0x11); // spiked or agitated
@@ -3732,10 +3731,7 @@
 
 			// bind texture uniforms to TEXTURE0, TEXTURE1, etc.
 			gl.useProgram(p);
-			for (let i = 0; i < textures.length; ++i) {
-				const loc = gl.getUniformLocation(p, textures[i]);
-				gl.uniform1i(loc, i);
-			}
+			if (textures.length > 0) gl.uniform1iv(gl.getUniformLocation(p, 'u_textures'), textures);
 			gl.useProgram(null);
 
 			return p;
@@ -3815,14 +3811,14 @@
 				in vec2 v_world_pos;
 				${parts.borderUbo}
 				${parts.cameraUbo}
-				uniform sampler2D u_texture;
+				uniform sampler2D u_textures;
 				out vec4 out_color;
 
 				void main() {
 					if ((u_border_flags & 0x01) != 0) { // background enabled
 						if ((u_border_flags & 0x04) != 0 // repeating
 							|| (0.0 <= min(v_uv.x, v_uv.y) && max(v_uv.x, v_uv.y) <= 1.0)) { // within border
-							out_color = texture(u_texture, v_uv);
+							out_color = texture(u_textures, v_uv);
 						}
 					}
 
@@ -3854,7 +3850,7 @@
 					out_color = out_color * (1.0 - alpha) + border_color * alpha;
 					out_color = vec4(0, 0, 0.25, 1); // TODO
 				}
-			`, ['Border', 'Camera'], ['u_texture']);
+			`, ['Border', 'Camera'], [0]);
 
 			// also used to draw glow
 			programs.circle = program('circle', `
@@ -3907,39 +3903,67 @@
 				layout(location = 2) in vec2 a_size;
 				layout(location = 3) in vec2 a_texture_pos;
 				layout(location = 4) in vec2 a_texture_size;
-				layout(location = 5) in vec4 a_color;
-				layout(location = 6) in float a_flags;
+				layout(location = 5) in float a_texture_index;
+				layout(location = 6) in vec4 a_color;
+				layout(location = 7) in float a_flags;
 				${parts.cameraUbo}
 				${parts.playerUbo}
+				flat out float f_blur;
+				flat out int f_flags;
+				flat out int f_texture_index;
 				out vec4 v_color;
-				flat out float v_flags;
-				out vec2 v_pos;
+				out vec2 v_vertex;
 				out vec2 v_uv;
 
 				void main() {
+					f_blur = 0.5 * a_size.x * (540.0 * u_camera_scale);
+					f_texture_index = int(a_texture_index);
+					f_flags = int(a_flags);
+
+					vec2 vertex01 = a_vertex * 0.5 + 0.5;
+					v_color = a_color;
+					v_uv = (a_texture_pos + vertex01 * a_texture_size * 2.0) / vec2(4096, 4096);
+					v_vertex = a_vertex;
+
 					vec2 clip_pos = -u_camera_pos + a_pos + a_vertex * a_size;
 					clip_pos *= u_camera_scale * vec2(1.0 / u_camera_ratio, -1.0);
-					v_pos = clip_pos;
-					v_uv = a_texture_pos + a_vertex * a_texture_size;
-					v_color = a_color;
-					v_flags = a_flags;
-
 					gl_Position = vec4(clip_pos, 0, 1);
 				}
 			`, `
 				${parts.boilerplate}
+				flat in float f_blur;
+				flat in int f_flags;
+				flat in int f_texture_index;
 				in vec4 v_color;
-				flat in float v_flags;
-				in vec2 v_pos;
+				in vec2 v_vertex;
 				in vec2 v_uv;
 				${parts.playerUbo}
-				uniform sampler2D u_texture;
+				uniform sampler2D u_textures[8];
 				out vec4 out_color;
 
 				void main() {
-					out_color = v_color;
+					vec4 texcol = vec4(0, 0, 0, 0);
+					if (f_texture_index == 0) texcol = texture(u_textures[0], v_uv);
+					else if (f_texture_index == 1) texcol = texture(u_textures[1], v_uv);
+					else if (f_texture_index == 2) texcol = texture(u_textures[2], v_uv);
+					else if (f_texture_index == 3) texcol = texture(u_textures[3], v_uv);
+					else if (f_texture_index == 4) texcol = texture(u_textures[4], v_uv);
+					else if (f_texture_index == 5) texcol = texture(u_textures[5], v_uv);
+					else if (f_texture_index == 6) texcol = texture(u_textures[6], v_uv);
+					else if (f_texture_index == 7) texcol = texture(u_textures[7], v_uv);
+
+					if ((f_flags & 1) != 0) {
+						// decorate like a cell
+						out_color = v_color * (1.0 - texcol.a) + texcol; // texture on top of cell color
+
+						float d = length(v_vertex);
+
+						// circle mask
+						float a = clamp(-f_blur * (d - 1.0), 0.0, 1.0);
+						out_color.a *= a;
+					}
 				}
-			`, ['Camera', 'Player'], []);
+			`, ['Camera', 'Player'], [0, 1, 2, 3, 4, 5, 6, 7]);
 
 			programs.tracer = program('tracer', `
 				${parts.boilerplate}
@@ -4024,12 +4048,13 @@
 			glconf.playerBuffer = gl.createBuffer();
 			gl.bindVertexArray(glconf.playerVao = gl.createVertexArray());
 			attribute(squareBuffer(), 0, 0, [2, gl.FLOAT, false, 0, 0]); // vec2 a_vertex
-			attribute(glconf.playerBuffer, 1, 1, [2, gl.FLOAT, false, 4 * 13, 0]); // vec2 a_pos
-			attribute(glconf.playerBuffer, 2, 1, [2, gl.FLOAT, false, 4 * 13, 4 * 2]); // vec2 a_size
-			attribute(glconf.playerBuffer, 3, 1, [2, gl.FLOAT, false, 4 * 13, 4 * 4]); // vec2 a_texture_pos
-			attribute(glconf.playerBuffer, 4, 1, [2, gl.FLOAT, false, 4 * 13, 4 * 6]); // vec2 a_texture_size
-			attribute(glconf.playerBuffer, 5, 1, [4, gl.FLOAT, false, 4 * 13, 4 * 8]); // vec4 a_color
-			attribute(glconf.playerBuffer, 6, 1, [1, gl.FLOAT, false, 4 * 13, 4 * 12]); // int a_flags
+			attribute(glconf.playerBuffer, 1, 1, [2, gl.FLOAT, false, 4 * 14, 0]); // vec2 a_pos
+			attribute(glconf.playerBuffer, 2, 1, [2, gl.FLOAT, false, 4 * 14, 4 * 2]); // vec2 a_size
+			attribute(glconf.playerBuffer, 3, 1, [2, gl.FLOAT, false, 4 * 14, 4 * 4]); // vec2 a_texture_pos
+			attribute(glconf.playerBuffer, 4, 1, [2, gl.FLOAT, false, 4 * 14, 4 * 6]); // vec2 a_texture_size
+			attribute(glconf.playerBuffer, 5, 1, [1, gl.FLOAT, false, 4 * 14, 4 * 8]); // float a_texture_index
+			attribute(glconf.playerBuffer, 6, 1, [4, gl.FLOAT, false, 4 * 14, 4 * 9]); // vec4 a_color
+			attribute(glconf.playerBuffer, 7, 1, [1, gl.FLOAT, false, 4 * 14, 4 * 13]); // int a_flags
 
 			// tracer vao
 			glconf.tracerBuffer = gl.createBuffer();
@@ -4062,340 +4087,71 @@
 		let minimapCache;
 		document.fonts.addEventListener('loadingdone', () => void (minimapCache = undefined));
 
+		render.atlasImages = [];
+		render.atlas = new Map();
+		render.colors = new Map();
+		render.addToAtlas = (key, imageData, width, height) => {
+			const upWidth = Math.ceil(width / 256) * 256;
+			const upHeight = Math.ceil(height / 256) * 256;
+			let rectangle = 1n;
+			for (let x = 0; x * 256 < upWidth; ++x) rectangle |= rectangle << 1n;
+			for (let y = 0; y * 256 < upWidth; ++y) rectangle |= rectangle << 16n;
 
-		// #2 : define caching functions
-		const { resetDatabaseCache, resetTextureCache, textureFromCache, textureFromDatabase } = (() => {
-			/** @type {Map<string, {
-			 * 	color: [number, number, number, number], texture: WebGLTexture, width: number, height: number
-			 * } | null>} */
-			const cache = new Map();
-			render.textureCache = cache;
-
-			/** @type {Map<string, {
-			 * 	color: [number, number, number, number], texture: WebGLTexture, width: number, height: number
-			 * } | null>} */
-			const dbCache = new Map();
-			render.dbCache = dbCache;
-
-			return {
-				resetTextureCache: () => cache.clear(),
-				/**
-				 * @param {string} src
-				 * @returns {{
-				 * 	color: [number, number, number, number], texture: WebGLTexture, width: number, height: number
-				 * } | undefined}
-				 */
-				textureFromCache: src => {
-					const cached = cache.get(src);
-					if (cached !== undefined)
-						return cached ?? undefined;
-
-					cache.set(src, null);
-
-					const image = new Image();
-					image.crossOrigin = '';
-					image.addEventListener('load', () => {
-						const texture = /** @type {WebGLTexture} */ (gl.createTexture());
-						if (!texture) return;
-
-						gl.bindTexture(gl.TEXTURE_2D, texture);
-						gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
-						gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
-						gl.generateMipmap(gl.TEXTURE_2D);
-
-						const color = aux.dominantColor(image);
-						cache.set(src, { color, texture, width: image.width, height: image.height });
-					});
-					image.src = src;
-
-					return undefined;
-				},
-				resetDatabaseCache: () => dbCache.clear(),
-				/**
-				 * @param {string} key
-				 * @returns {{
-				 * 	color: [number, number, number, number], texture: WebGLTexture, width: number, height: number
-				 * } | undefined}
-				 */
-				textureFromDatabase: key => {
-					const cached = dbCache.get(key);
-					if (cached !== undefined)
-						return cached ?? undefined;
-
-					/** @type {IDBDatabase | undefined} */
-					const database = settings.database;
-					if (!database) return undefined;
-
-					dbCache.set(key, null);
-					const req = database.transaction('images').objectStore('images').get(key);
-					req.addEventListener('success', () => {
-						if (!req.result) return;
-
-						const reader = new FileReader();
-						reader.addEventListener('load', () => {
-							const image = new Image();
-							// this can cause a lot of lag (~500ms) when loading a large image for the first time
-							image.addEventListener('load', () => {
-								const texture = gl.createTexture();
-								if (!texture) return;
-
-								gl.bindTexture(gl.TEXTURE_2D, texture);
-								gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
-								gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
-								gl.generateMipmap(gl.TEXTURE_2D);
-
-								const color = aux.dominantColor(image);
-								dbCache.set(key, { color, texture, width: image.width, height: image.height });
-							});
-							image.src = /** @type {string} */ (reader.result);
-						});
-						reader.readAsDataURL(req.result);
-					});
-					req.addEventListener('error', err => {
-						console.warn(`sigfix database failed to get ${key}:`, err);
-					});
-				},
-			};
-		})();
-		render.resetDatabaseCache = resetDatabaseCache;
-		render.resetTextureCache = resetTextureCache;
-
-		const { maxMassWidth, refreshTextCache, massTextFromCache, resetTextCache, textFromCache } = (() => {
-			/**
-			 * @template {boolean} T
-			 * @typedef {{
-			 * 	aspectRatio: number,
-			 * 	text: WebGLTexture | null,
-			 *	silhouette: WebGLTexture | null | undefined,
-			 * 	accessed: number
-			 * }} CacheEntry
-			 */
-			/** @type {Map<string, CacheEntry<boolean>>} */
-			const cache = new Map();
-			render.textCache = cache;
-
-			setInterval(() => {
-				// remove text after not being used for 1 minute
-				const now = performance.now();
-				cache.forEach((entry, text) => {
-					if (now - entry.accessed > 60_000) {
-						// immediately delete text instead of waiting for GC
-						if (entry.text !== undefined)
-							gl.deleteTexture(entry.text);
-						if (entry.silhouette !== undefined)
-							gl.deleteTexture(entry.silhouette);
-						cache.delete(text);
+			for (let i = 0; i < render.atlasImages.length; ++i) {
+				const atlas = render.atlasImages[i];
+				for (let x = 0; x * 256 + upWidth <= 4096; ++x) {
+					for (let y = 0; y * 256 + upHeight <= 4096; ++y) {
+						const shiftedRectangle = rectangle << BigInt(y * 16 + x);
+						if (!(atlas.reservedMap & shiftedRectangle)) {
+							// found a slot
+							atlas.reservedMap |= shiftedRectangle;
+							gl.bindTexture(gl.TEXTURE_2D, atlas.texture);
+							/*for (let level = 0; level < 8; ++level) {
+								gl.texSubImage2D(gl.TEXTURE_2D, level, x * 256, y * 256, width >> level, height >> level, gl.RGBA, gl.UNSIGNED_BYTE, imageData);
+							}*/
+							gl.texSubImage2D(gl.TEXTURE_2D, 0, x * 256, y * 256, width, height, gl.RGBA, gl.UNSIGNED_BYTE, imageData);
+							gl.generateMipmap(gl.TEXTURE_2D);
+							const entry = { atlasIndex: i, x: x * 256, y: y * 256, w: width, h: height };
+							render.atlas.set(key, entry);
+							return entry;
+						}
 					}
-				});
-			}, 60_000);
-
-			const canvas = document.createElement('canvas');
-			const ctx = aux.require(
-				canvas.getContext('2d', { willReadFrequently: true }),
-				'Unable to get 2D context for text drawing. This is probably your browser being weird, maybe reload ' +
-				'the page?',
-			);
-
-			// sigmod forces a *really* ugly shadow on ctx.fillText so we have to lock the property beforehand
-			const realProps = Object.getOwnPropertyDescriptors(Object.getPrototypeOf(ctx));
-			const realShadowBlurSet = realProps.shadowBlur.set.bind(ctx);
-			const realShadowColorSet = realProps.shadowColor.set.bind(ctx);
-			Object.defineProperties(ctx, {
-				shadowBlur: {
-					get: () => 0,
-					set: x => {
-						if (x === 0) realShadowBlurSet(0);
-						else realShadowBlurSet(8);
-					},
-				},
-				shadowColor: {
-					get: () => 'transparent',
-					set: x => {
-						if (x === 'transparent') realShadowColorSet('transparent');
-						else realShadowColorSet('#0003');
-					},
-				},
-			});
-
-			/**
-			 * @param {string} text
-			 * @param {boolean} silhouette
-			 * @param {boolean} mass
-			 * @returns {WebGLTexture | null}
-			 */
-			const texture = (text, silhouette, mass) => {
-				const texture = gl.createTexture();
-				if (!texture) return texture;
-
-				const baseTextSize = 96; // TODO: Too high quality?
-				const textSize = baseTextSize * (mass ? 0.5 * settings.massScaleFactor : settings.nameScaleFactor);
-				const lineWidth = Math.ceil(textSize / 10) * settings.textOutlinesFactor;
-
-				let font = `${textSize}px "${sigmod.settings.font || 'Ubuntu'}", Ubuntu`;
-				if (mass ? settings.massBold : settings.nameBold) font = 'bold ' + font;
-				ctx.font = font;
-				// if rendering an empty string (somehow) then width can be 0 with no outlines
-				canvas.width = (ctx.measureText(text).width + lineWidth * 4) || 1;
-				canvas.height = textSize * 3;
-				ctx.clearRect(0, 0, canvas.width, canvas.height); // TODO: necessary?
-
-				// setting canvas.width resets the canvas state
-				ctx.font = font;
-				ctx.lineJoin = 'round';
-				ctx.lineWidth = lineWidth;
-				ctx.fillStyle = silhouette ? '#000' : '#fff';
-				ctx.strokeStyle = '#000';
-				ctx.textBaseline = 'middle';
-
-				ctx.shadowBlur = lineWidth;
-				ctx.shadowColor = lineWidth > 0 ? '#0002' : 'transparent';
-
-				// add a space, which is to prevent sigmod from detecting the name
-				if (lineWidth > 0) ctx.strokeText(text + ' ', lineWidth * 2, textSize * 1.5);
-				ctx.shadowColor = 'transparent';
-				ctx.fillText(text + ' ', lineWidth * 2, textSize * 1.5);
-
-				const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-				gl.bindTexture(gl.TEXTURE_2D, texture);
-				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, data);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-				gl.generateMipmap(gl.TEXTURE_2D);
-				return texture;
-			};
-
-			let maxMassWidth = 0;
-			/** @type {({ height: number, width: number, texture: WebGLTexture | null } | undefined)[]} */
-			const massTextCache = [];
-
-			/**
-			 * @param {string} digit
-			 * @returns {{ height: number, width: number, texture: WebGLTexture | null }}
-			 */
-			const massTextFromCache = digit => {
-				let cached = massTextCache[/** @type {any} */ (digit)];
-				if (!cached) {
-					cached = massTextCache[digit] = {
-						texture: texture(digit, false, true),
-						height: canvas.height, // mind the execution order
-						width: canvas.width,
-					};
-					if (cached.width > maxMassWidth) maxMassWidth = cached.width;
 				}
+			}
 
-				return cached;
+			// no desirable atlas image was found
+			const texture = gl.createTexture();
+			gl.bindTexture(gl.TEXTURE_2D, texture);
+			gl.texStorage2D(gl.TEXTURE_2D, 8, gl.RGBA8, 4096, 4096);
+			const atlas = {
+				texture,
+				reservedMap: rectangle,
+				removed: 0,
 			};
+			render.atlasImages.push(atlas);
 
-			const resetTextCache = () => {
-				cache.clear();
-				maxMassWidth = 0;
-				massTextCache.length = 0;
-			};
-
-			/** @type {{
-			 * 	massBold: boolean, massScaleFactor: number, nameBold: boolean, nameScaleFactor: number,
-			 * 	outlinesFactor: number, font: string | undefined,
-			 * } | undefined} */
-			let drawn;
-
-			const refreshTextCache = () => {
-				if (!drawn ||
-					(drawn.massBold !== settings.massBold || drawn.massScaleFactor !== settings.massScaleFactor
-						|| drawn.nameBold !== settings.nameBold || drawn.nameScaleFactor !== settings.nameScaleFactor
-						|| drawn.outlinesFactor !== settings.textOutlinesFactor || drawn.font !== sigmod.settings.font)
-				) {
-					resetTextCache();
-					drawn = {
-						massBold: settings.massBold, massScaleFactor: settings.massScaleFactor,
-						nameBold: settings.nameBold, nameScaleFactor: settings.nameScaleFactor,
-						outlinesFactor: settings.textOutlinesFactor, font: sigmod.settings.font,
-					};
-				}
-			};
-
-			/**
-			 * @template {boolean} T
-			 * @param {string} text
-			 * @param {T} silhouette
-			 * @returns {CacheEntry<T>}
-			 */
-			const textFromCache = (text, silhouette) => {
-				let entry = cache.get(text);
-				if (!entry) {
-					const shortened = aux.trim(text);
-					cache.set(text, entry = {
-						text: texture(shortened, false, false),
-						aspectRatio: canvas.width / canvas.height, // mind the execution order
-						silhouette: silhouette ? texture(shortened, true, false) : undefined,
-						accessed: performance.now(),
-					});
-				} else {
-					entry.accessed = performance.now();
-				}
-
-				if (silhouette && entry.silhouette === undefined)
-					setTimeout(() => entry.silhouette = texture(aux.trim(text), true, false));
-				return entry;
-			};
-
-			// reload text once Ubuntu has loaded, prevents some serif fonts from being locked in
-			// also support loading in new fonts at any time via sigmod
-			document.fonts.addEventListener('loadingdone', () => resetTextCache());
-
-			return {
-				maxMassWidth: () => maxMassWidth,
-				massTextFromCache,
-				refreshTextCache,
-				resetTextCache,
-				textFromCache,
-			};
-		})();
-		render.resetTextCache = resetTextCache;
-		render.textFromCache = textFromCache;
-
-		// #3 : define other render functions
-		render.alpha = (frame, now) => {
-			let alpha = (now - frame.born) / settings.drawDelay;
-			if (frame.deadAt !== undefined) alpha = Math.min(alpha, 1 - (now - frame.deadAt) / settings.drawDelay);
-			return Math.min(Math.max(alpha, 0), 1);
+			gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, imageData);
+			gl.generateMipmap(gl.TEXTURE_2D);
+			/*for (let level = 0; level < 8; ++level) {
+				gl.texSubImage2D(gl.TEXTURE_2D, level, 0, 0, width >> level, height >> level, gl.RGBA, gl.UNSIGNED_BYTE, imageData);
+			}*/
+			const entry = { atlasIndex: render.atlasImages.length - 1, x: 0, y: 0, w: width, h: height };
+			render.atlas.set(key, entry);
+			return entry;
 		};
-
-		/**
-		 * @param {Cell} cell
-		 */
-		render.skin = cell => {
-			const desc = world.synchronized ? cell.views.values().next().value : cell.views.get(world.selected);
-			if (!desc) return undefined;
-
-			let ownerView;
-			for (const [view, vision] of world.views) {
-				if (vision.owned.has(cell.id)) {
-					ownerView = view;
-					break;
-				}
-			}
-
-			// 🖼️
-			let texture;
-			if (ownerView) {
-				const index = world.multis.indexOf(ownerView);
-				if (index >= 2) {
-					if (settings.selfSkinNbox[index]) {
-						if (settings.selfSkinNbox[index].startsWith('🖼️')) texture = textureFromDatabase(`selfSkinNbox.${index}`);
-						else texture = textureFromCache(settings.selfSkinNbox[index]);
-					}
-				} else {
-					const prop = ownerView === world.viewId.secondary ? 'selfSkinMulti' : 'selfSkin';
-					if (settings[prop]) {
-						if (settings[prop].startsWith('🖼️')) texture = textureFromDatabase(prop);
-						else texture = textureFromCache(settings[prop]);
-					}
-				}
-			}
-
-			// allow turning off sigmally skins while still using custom skins
-			if (!texture && aux.settings.showSkins && desc.skin) texture = textureFromCache(desc.skin);
-			return texture;
+		render.externalImage = (src) => {
+			const key = 'IMG:' + src;
+			let atlased = render.atlas.get(key);
+			if (atlased) return atlased;
+			
+			render.atlas.set(key, 'loading');
+			const image = new Image();
+			image.addEventListener('load', () => {
+				render.addToAtlas(key, image, image.width, image.height);
+				render.colors.set(key, aux.dominantColor(image)); // all external images must have a dominant color
+			});
+			image.src = src;
+			return 'loading';
 		};
 
 		let circleCellBuffer = new Float32Array(0);
@@ -4444,7 +4200,7 @@
 			const virusSrc = sigmod.settings.virusImage || defaultVirusSrc;
 			const { cellColor, foodColor, outlineColor, showNames } = sigmod.settings;
 
-			refreshTextCache();
+			// TODO refreshTextCache();
 
 			const vision = aux.require(world.views.get(world.selected), 'no selected vision (BAD BUG)');
 			vision.used = performance.now();
@@ -4483,12 +4239,12 @@
 				gl.bindVertexArray(glconf.backgroundVao);
 
 				let texture;
-				if (settings.background) {
+				/*if (settings.background) {
 					if (settings.background.startsWith('🖼️')) texture = textureFromDatabase('background');
 					else texture = textureFromCache(settings.background);
 				} else if (aux.settings.showGrid) {
 					texture = textureFromCache(aux.settings.darkTheme ? darkGridSrc : lightGridSrc);
-				}
+				}*/
 				gl.bindTexture(gl.TEXTURE_2D, texture?.texture ?? null);
 				const repeating = texture && texture.width <= 512 && texture.height <= 512;
 
@@ -4652,9 +4408,9 @@
 				}
 				cellsSorted.sort((a, b) => a[2] - b[2]);
 
-				if (numElements * 4 * 13 > playerBuffer.byteLength) {
+				if (numElements * 4 * 14 > playerBuffer.byteLength) {
 					let newLength = playerBuffer.byteLength || 1;
-					while (newLength < numElements * 4 * 13) newLength *= 2;
+					while (newLength < numElements * 4 * 14) newLength *= 2;
 
 					playerBuffer = new ArrayBuffer(newLength);
 					playerBufferF32 = new Float32Array(playerBuffer);
@@ -4670,25 +4426,50 @@
 			attribute(glconf.playerBuffer, 5, 1, [4, gl.FLOAT, false, 4 * 13, 4 * 8]); // vec4 a_color
 			attribute(glconf.playerBuffer, 6, 1, [1, gl.INT, false, 4 * 13, 4 * 12]); // int a_flags */
 				let o = 0;
+				const usedTextureIndices = new Set();
 				for (const [cell, xyr] of cellsSorted) {
 					playerBufferF32[o++] = xyr.x; // a_pos.x
 					playerBufferF32[o++] = xyr.y; // a_pos.y
 					playerBufferF32[o++] = xyr.r; // a_size.x
 					playerBufferF32[o++] = xyr.r; // a_size.y
-					playerBufferF32[o++] = 0; // a_texture_pos.x
-					playerBufferF32[o++] = 0; // a_texture_pos.y
-					playerBufferF32[o++] = 0; // a_texture_size.x
-					playerBufferF32[o++] = 0; // a_texture_size.y
+
+					let pushedTexture = false;
+					if (cell.skin) {
+						const atlased = render.externalImage(cell.skin);
+						if (atlased !== 'loading') {
+							pushedTexture = true;
+							playerBufferF32[o++] = atlased.x; // a_texture_pos.x
+							playerBufferF32[o++] = atlased.y; // a_texture_pos.y
+							playerBufferF32[o++] = atlased.w / 2; // a_texture_size.x
+							playerBufferF32[o++] = atlased.h / 2; // a_texture_size.y
+							playerBufferF32[o++] = atlased.atlasIndex;
+							usedTextureIndices.add(atlased.atlasIndex);
+						}
+					}
+					if (!pushedTexture) {
+						playerBufferF32[o++] = 0; // a_texture_pos.x
+						playerBufferF32[o++] = 0; // a_texture_pos.y
+						playerBufferF32[o++] = 0; // a_texture_size.x
+						playerBufferF32[o++] = 0; // a_texture_size.y
+						playerBufferF32[o++] = -1;
+					}
+
 					playerBufferF32[o++] = cell.red; // a_color.r
 					playerBufferF32[o++] = cell.green; // a_color.g
 					playerBufferF32[o++] = cell.blue; // a_color.b
 					playerBufferF32[o++] = 1; // a_color.a TODO render.alpha?
-					playerBufferF32[o++] = 0; // a_flags
+					playerBufferF32[o++] = 1; // a_flags: cell (1)
 				}
 				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.playerBuffer);
 				gl.bufferSubData(gl.ARRAY_BUFFER, 0, playerBuffer);
 
-				gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, o / 13);
+				for (const index of usedTextureIndices) {
+					gl.activeTexture(gl.TEXTURE0 + index);
+					gl.bindTexture(gl.TEXTURE_2D, render.atlasImages[index].texture);
+				}
+				gl.activeTexture(gl.TEXTURE0); // default
+
+				gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, o / 14);
 			})();
 
 			ui.stats.update(world.selected);
