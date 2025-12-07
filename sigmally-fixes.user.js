@@ -4078,6 +4078,8 @@
 		const render = {};
 		const { gl } = ui.game;
 
+		const BASE_TEXT_SIZE = 96;
+
 		// #1 : define small misc objects
 		// no point in breaking this across multiple lines
 		// eslint-disable-next-line max-len
@@ -4093,7 +4095,7 @@
 		render.atlasImages = [];
 		render.atlas = new Map();
 		render.colors = new Map();
-		render.addToAtlas = (key, imageData, width, height) => {
+		render.addToAtlas = (key, imageData, width, height, type) => {
 			const upWidth = Math.ceil(width / 256) * 256;
 			const upHeight = Math.ceil(height / 256) * 256;
 			let rectangle = 1n;
@@ -4111,7 +4113,7 @@
 							gl.bindTexture(gl.TEXTURE_2D, atlas.texture);
 							gl.texSubImage2D(gl.TEXTURE_2D, 0, x * 256, y * 256, width, height, gl.RGBA, gl.UNSIGNED_BYTE, imageData);
 							gl.generateMipmap(gl.TEXTURE_2D);
-							const entry = { atlasIndex: i, x: x * 256, y: y * 256, w: width, h: height };
+							const entry = { atlasIndex: i, x: x * 256, y: y * 256, w: width, h: height, type, rectangle: shiftedRectangle };
 							render.atlas.set(key, entry);
 							return entry;
 						}
@@ -4132,9 +4134,18 @@
 
 			gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, imageData);
 			gl.generateMipmap(gl.TEXTURE_2D); // generating mipmaps for the entire image is wasteful but faster(?)
-			const entry = { atlasIndex: render.atlasImages.length - 1, x: 0, y: 0, w: width, h: height };
+			const entry = { atlasIndex: render.atlasImages.length - 1, x: 0, y: 0, w: width, h: height, type, rectangle };
 			render.atlas.set(key, entry);
 			return entry;
+		};
+		render.deleteFromAtlas = (key, img) => {
+			render.atlas.delete(key);
+			const atlasImg = render.atlasImages[img.atlasIndex]
+			++atlasImg.removed;
+			atlasImg.reservedMap ^= img.rectangle;
+
+			gl.texSubImage2D(gl.TEXTURE_2D, 0, img.x, img.y, img.w, img.h, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(img.w * img.h * 4));
+			gl.generateMipmap(gl.TEXTURE_2D);
 		};
 		render.externalImage = (src) => {
 			const key = 'IMG:' + src;
@@ -4144,7 +4155,7 @@
 			render.atlas.set(key, 'loading');
 			const image = new Image();
 			image.addEventListener('load', () => {
-				render.addToAtlas(key, image, image.width, image.height);
+				render.addToAtlas(key, image, image.width, image.height, 'image');
 				render.colors.set(key, aux.dominantColor(image)); // all external images must have a dominant color
 			});
 			image.src = src;
@@ -4156,7 +4167,7 @@
 			let atlased = render.atlas.get(key);
 			if (atlased) return atlased;
 
-			const textSize = 96 * (isMass ? 0.5 * settings.massScaleFactor : settings.nameScaleFactor);
+			const textSize = BASE_TEXT_SIZE * (isMass ? 0.5 * settings.massScaleFactor : settings.nameScaleFactor);
 			const lineWidth = Math.ceil(textSize / 10) * settings.textOutlinesFactor;
 			let font = `${textSize}px "${sigmod.settings.font || 'Ubuntu'}", Ubuntu`;
 			if (isMass ? settings.massBold : settings.nameBold) font = 'bold ' + font;
@@ -4181,7 +4192,7 @@
 			textCtx.fillText(text + ' ', lineWidth * 2, textSize * 1.5);
 
 			const data = textCtx.getImageData(0, 0, textCtx.canvas.width, textCtx.canvas.height);
-			return render.addToAtlas(key, data, textCtx.canvas.width, textCtx.canvas.height);
+			return render.addToAtlas(key, data, textCtx.canvas.width, textCtx.canvas.height, 'text');
 		};
 
 		let circleCellBuffer = new Float32Array(0);
@@ -4191,9 +4202,7 @@
 		let circlePelletsUploaded = 0;
 		render.uploadPellets = false;
 
-		let playerBuffer = new ArrayBuffer(0);
-		let playerBufferF32 = new Float32Array(playerBuffer);
-		let playerBufferS32 = new Int32Array(playerBuffer);
+		let playerBuffer = new Float32Array(0);
 
 		let tracerFloats = new Float32Array(0);
 
@@ -4363,7 +4372,9 @@
 				const con = net.connections.get(world.selected);
 				if (!con?.handshake) return;
 
-				// #1 : basic pellets
+				// #1 : non-deadTo pellets
+				let cpBuf = circlePelletBuffer;
+				let pBuf = playerBuffer;
 				gl.useProgram(glconf.programs.circle);
 				gl.bindVertexArray(glconf.circlePelletVao);
 				circleUboFloats[0] = 1; // u_circle_alpha
@@ -4377,7 +4388,7 @@
 						let newLength = circlePelletAlphaBuffer.length || 1;
 						while (world.pellets.size > newLength) newLength *= 2;
 
-						circlePelletBuffer = new Float32Array(newLength * 7);
+						circlePelletBuffer = cpBuf = new Float32Array(newLength * 7);
 						gl.bindBuffer(gl.ARRAY_BUFFER, glconf.circlePelletBuffer);
 						gl.bufferData(gl.ARRAY_BUFFER, circlePelletBuffer.byteLength, gl.STATIC_DRAW);
 						circlePelletAlphaBuffer = new Float32Array(newLength);
@@ -4390,17 +4401,15 @@
 					circlePelletsUploaded = 0;
 					for (const pellet of world.pellets.values()) {
 						if (pellet.deadTo) continue;
-						circlePelletBuffer[o++] = pellet.tx;
-						circlePelletBuffer[o++] = pellet.ty;
-						circlePelletBuffer[o++] = pellet.tr;
+						cpBuf[o++] = pellet.tx; cpBuf[o++] = pellet.ty; cpBuf[o++] = pellet.tr;
 						if (override) {
-							circlePelletBuffer.set(override, o);
+							cpBuf.set(override, o);
 							o += 4;
 						} else {
-							circlePelletBuffer[o++] = pellet.red;
-							circlePelletBuffer[o++] = pellet.green;
-							circlePelletBuffer[o++] = pellet.blue;
-							circlePelletBuffer[o++] = 1; // alpha
+							cpBuf[o++] = pellet.red;
+							cpBuf[o++] = pellet.green;
+							cpBuf[o++] = pellet.blue;
+							cpBuf[o++] = 1; // alpha
 						}
 						++circlePelletsUploaded;
 					}
@@ -4411,7 +4420,6 @@
 					render.uploadPellets = false;
 				}
 
-				// #2 : pellet alpha => circlePelletAlphaBuffer, deadTo pellets => playerBuffer
 				let i = 0;
 				let numPlayerElements = 0;
 				let pbo = 0;
@@ -4425,7 +4433,7 @@
 				if (settings.pelletGlow && aux.settings.darkTheme) gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
 				gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, circlePelletsUploaded);
 
-				// #3 : deadTo pellets => playerBuffer for real now
+				// #2 : deadTo pellets, cells, and text
 				gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 				gl.useProgram(glconf.programs.player);
 				gl.bindVertexArray(glconf.playerVao);
@@ -4439,22 +4447,20 @@
 				}
 				cellsSorted.sort((a, b) => a[2] - b[2]);
 
-				if (numPlayerElements * 4 * 14 > playerBuffer.byteLength) {
-					let newLength = playerBuffer.byteLength || 1;
-					while (newLength < numPlayerElements * 4 * 14) newLength *= 2;
+				if (numPlayerElements * 14 > playerBuffer.length) {
+					let newLength = playerBuffer.length || 1;
+					while (numPlayerElements * 14 > newLength) newLength *= 2;
 
-					playerBuffer = new ArrayBuffer(newLength);
-					playerBufferF32 = new Float32Array(playerBuffer);
-					playerBufferS32 = new Int32Array(playerBuffer);
+					playerBuffer = pBuf = new Float32Array(newLength);
 					gl.bindBuffer(gl.ARRAY_BUFFER, glconf.playerBuffer);
-					gl.bufferData(gl.ARRAY_BUFFER, newLength, gl.STATIC_DRAW);
+					gl.bufferData(gl.ARRAY_BUFFER, playerBuffer.byteLength, gl.STATIC_DRAW);
 				}
 
 				for (const pellet of world.pellets.values()) {
 					if (!pellet.deadTo) continue;
 					const killer = world.cells.get(pellet.deadTo);
 					const xyr = world.xyr(pellet, killer, now);
-					playerBufferF32.set([
+					pBuf.set([
 						xyr.x, xyr.y, xyr.r, xyr.r, // square x,y,w,h
 						0, 0, 0, 0, -1, // texture x,y,w,h, and index
 						pellet.red, pellet.green, pellet.blue,
@@ -4463,63 +4469,75 @@
 					pbo += 14;
 				}
 
+				const digits = [];
+				for (let i = 0; i < 10; ++i) digits[i] = render.text(String(i), true, false);
+
 				const usedTextureIndices = new Set();
 				for (const [cell, xyr] of cellsSorted) {
-					playerBufferF32[pbo++] = xyr.x; // a_pos.x
-					playerBufferF32[pbo++] = xyr.y; // a_pos.y
-					playerBufferF32[pbo++] = xyr.r; // a_size.x
-					playerBufferF32[pbo++] = xyr.r; // a_size.y
+					const { x, y, r, jr } = xyr;
+					pBuf[pbo++] = x; pBuf[pbo++] = y; pBuf[pbo++] = pBuf[pbo++] = r; // a_size.y // a_pos.xy, a_size.xy
 
 					let pushedTexture = false;
 					if (cell.skin) {
-						const atlased = render.externalImage(cell.skin);
-						if (atlased !== 'loading') {
+						const img = render.externalImage(cell.skin);
+						if (img !== 'loading') {
 							pushedTexture = true;
-							playerBufferF32[pbo++] = atlased.x; // a_texture_pos.x
-							playerBufferF32[pbo++] = atlased.y; // a_texture_pos.y
-							playerBufferF32[pbo++] = atlased.w; // a_texture_size.x
-							playerBufferF32[pbo++] = atlased.h; // a_texture_size.y
-							playerBufferF32[pbo++] = atlased.atlasIndex;
-							usedTextureIndices.add(atlased.atlasIndex);
+							// a_texture_pos.xy, // a_texture_size.xy
+							pBuf[pbo++] = img.x; pBuf[pbo++] = img.y; pBuf[pbo++] = img.w; pBuf[pbo++] = img.h;
+							pBuf[pbo++] = img.atlasIndex; // a_texture_index
+							usedTextureIndices.add(img.atlasIndex);
 						}
 					}
 					if (!pushedTexture) {
-						playerBufferF32[pbo++] = 0; // a_texture_pos.x
-						playerBufferF32[pbo++] = 0; // a_texture_pos.y
-						playerBufferF32[pbo++] = 0; // a_texture_size.x
-						playerBufferF32[pbo++] = 0; // a_texture_size.y
-						playerBufferF32[pbo++] = -1;
+						// a_texture_pos.xy, a_texture_size.xy
+						pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 0;
+						pBuf[pbo++] = -1; // a_texture_index
 					}
 
-					playerBufferF32[pbo++] = cell.red; // a_color.r
-					playerBufferF32[pbo++] = cell.green; // a_color.g
-					playerBufferF32[pbo++] = cell.blue; // a_color.b
-					playerBufferF32[pbo++] = 1; // a_color.a TODO render.alpha?
-					playerBufferF32[pbo++] = 1; // a_flags: cell (1)
+					// a_color TODO render.alpha?
+					pBuf[pbo++] = cell.red; pBuf[pbo++] = cell.green; pBuf[pbo++] = cell.blue; pBuf[pbo++] = 1;
+					pBuf[pbo++] = 1; // a_flags: cell (1)
 
 					// now text
-					const showThisName = (showNames ?? true) && cell.tr >= 64;
-					if (showThisName) {
-						const atlased = render.text(cell.name, false, false); // TODO silhouettes
-						playerBufferF32[pbo++] = xyr.x;
-						playerBufferF32[pbo++] = xyr.y;
-						playerBufferF32[pbo++] = xyr.r / 100 * 0.3 * 0.5 * atlased.w;
-						playerBufferF32[pbo++] = xyr.r / 100 * 0.3 * 0.5 * atlased.h;
+					const nameScale = r / 100 * 0.15 * settings.nameScaleFactor;
+					if ((showNames ?? true) && cell.tr >= 64) {
+						const img = render.text(cell.name, false, false); // TODO silhouettes
 
-						// texture
-						playerBufferF32[pbo++] = atlased.x;
-						playerBufferF32[pbo++] = atlased.y;
-						playerBufferF32[pbo++] = atlased.w;
-						playerBufferF32[pbo++] = atlased.h;
-						playerBufferF32[pbo++] = atlased.atlasIndex;
-						usedTextureIndices.add(atlased.atlasIndex);
+						pBuf[pbo++] = x; pBuf[pbo++] = y; // a_pos.xy
+						pBuf[pbo++] = nameScale * img.w; pBuf[pbo++] = nameScale * img.h; // a_size.xy
+						// a_texture_pos.xy, a_texture_size.xy
+						pBuf[pbo++] = img.x; pBuf[pbo++] = img.y; pBuf[pbo++] = img.w; pBuf[pbo++] = img.h;
+						pBuf[pbo++] = img.atlasIndex;
+						usedTextureIndices.add(img.atlasIndex);
+						// color (white) TODO nameColor TODO render.alpha
+						pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 1;
+						pBuf[pbo++] = 0; // a_flags: (not a cell)
+					}
 
-						// color (white)
-						playerBufferF32[pbo++] = 1;
-						playerBufferF32[pbo++] = 1;
-						playerBufferF32[pbo++] = 1;
-						playerBufferF32[pbo++] = 1; // TODO render.alpha?
-						playerBufferF32[pbo++] = 0; // a_flags: (not a cell)
+					if ((showMass ?? true) && cell.tr >= 64) {
+						// draw each digit separately, significantly reduces the size of the text cache
+						const str = String(Math.floor(cell.tr * cell.tr / 100));
+						const scale = xyr.r / 100 * 0.15 * settings.massScaleFactor; // TODO if showNames and showClans is off
+						const lineY = y + scale * BASE_TEXT_SIZE; // TODO fix this!
+
+						let totalWidth = 0;
+						for (let i = 0; i < str.length - 1; ++i) totalWidth += digits[str[i]].w * 0.9; // TODO str.length - 1 ?
+						const xStart = x - scale * totalWidth / 2;
+
+						let sumWidth = 0;
+						for (let i = 0; i < str.length; ++i) {
+							const img = digits[str[i]];
+							pBuf[pbo++] = xStart + scale * sumWidth; pBuf[pbo++] = lineY; // a_pos.xy
+							pBuf[pbo++] = scale * img.w; pBuf[pbo++] = scale * img.h; // a_size.xy
+							// a_texture_pos.xy, a_texture_size.xy
+							pBuf[pbo++] = img.x; pBuf[pbo++] = img.y; pBuf[pbo++] = img.w; pBuf[pbo++] = img.h;
+							pBuf[pbo++] = img.atlasIndex;
+							// color (white) TODO nameColor TODO render.alpha
+							pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 1;
+							pBuf[pbo++] = 0; // a_flags: (not a cell)
+
+							sumWidth += img.w * 0.9;
+						}
 					}
 				}
 				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.playerBuffer);
