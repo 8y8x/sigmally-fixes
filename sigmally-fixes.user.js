@@ -3952,7 +3952,11 @@
 
 					if ((f_flags & 1) != 0) {
 						// decorate like a cell
-						out_color = vec4(v_color.rgb * (1.0 - texcol.a) + texcol.rgb, 1); // texture on top of color
+						if ((f_flags & 2) == 0) {
+							out_color = vec4(v_color.rgb * (1.0 - texcol.a) + texcol.rgb, 1); // texture on top of color
+						} else {
+							out_color = texcol; // no color under skin
+						}
 
 						float d = length(v_vertex);
 
@@ -4094,7 +4098,7 @@
 		render.atlasImages = [];
 		render.atlas = new Map();
 		render.colors = new Map();
-		render.addToAtlas = (key, imageData, width, height, type) => {
+		render.addToAtlas = (key, imageData, width, height, type, padding) => {
 			const upWidth = Math.ceil(width / ATLAS_GRID) * ATLAS_GRID;
 			const upHeight = Math.ceil(height / ATLAS_GRID) * ATLAS_GRID;
 			let rectangle = 1n;
@@ -4112,7 +4116,7 @@
 						gl.bindTexture(gl.TEXTURE_2D, atlas.texture);
 						gl.texSubImage2D(gl.TEXTURE_2D, 0, x * ATLAS_GRID, y * ATLAS_GRID, width, height, gl.RGBA, gl.UNSIGNED_BYTE, imageData);
 						gl.generateMipmap(gl.TEXTURE_2D);
-						const entry = { atlasIndex: i, x: x * ATLAS_GRID, y: y * ATLAS_GRID, w: width, h: height, type, rectangle: shiftedRectangle };
+						const entry = { atlasIndex: i, x: x * ATLAS_GRID, y: y * ATLAS_GRID, w: width, h: height, type, rectangle: shiftedRectangle, padding };
 						render.atlas.set(key, entry);
 						return entry;
 					}
@@ -4132,20 +4136,38 @@
 
 			gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, imageData);
 			gl.generateMipmap(gl.TEXTURE_2D); // generating mipmaps for the entire image is wasteful but faster(?)
-			const entry = { atlasIndex: render.atlasImages.length - 1, x: 0, y: 0, w: width, h: height, type, rectangle };
+			const entry = { atlasIndex: render.atlasImages.length - 1, x: 0, y: 0, w: width, h: height, type, rectangle, padding };
 			render.atlas.set(key, entry);
 			return entry;
 		};
-		render.deleteFromAtlas = (key, img) => {
+
+		render.deleteFromAtlas = (key, img, deferMipmaps) => {
 			render.atlas.delete(key);
 			const atlasImg = render.atlasImages[img.atlasIndex];
 			++atlasImg.removed;
 			atlasImg.reservedMap ^= img.rectangle;
 
 			gl.bindTexture(gl.TEXTURE_2D, atlasImg.texture);
-			gl.texSubImage2D(gl.TEXTURE_2D, 0, img.x, img.y, img.w, img.h, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(img.w * img.h * 4)); // TODO there is a bug where this will sometimes cut into other images. FIX IT
-			gl.generateMipmap(gl.TEXTURE_2D);
+			gl.texSubImage2D(gl.TEXTURE_2D, 0, img.x, img.y, img.w, img.h, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(img.w * img.h * 4));
+			if (!deferMipmaps) gl.generateMipmap(gl.TEXTURE_2D);
 		};
+
+		render.resetTextCache = () => {
+			const mipmapsNeeded = new Set();
+			for (const [key, img] of render.atlas) {
+				if (img.type !== 'text') continue;
+				render.deleteFromAtlas(key, img, true);
+				mipmapsNeeded.add(img.atlasIndex);
+			}
+
+			for (const index of mipmapsNeeded) {
+				gl.bindTexture(gl.TEXTURE_2D, render.atlasImages[index].texture);
+				gl.generateMipmap(gl.TEXTURE_2D);
+			}
+		};
+		// reload text once Ubuntu has loaded, prevents some serif fonts from being locked in
+		document.fonts.addEventListener('loadingdone', () => render.resetTextCache());
+
 		render.externalImage = (src) => {
 			const key = 'IMG:' + src;
 			let atlased = render.atlas.get(key);
@@ -4154,12 +4176,13 @@
 			render.atlas.set(key, 'loading');
 			const image = new Image();
 			image.addEventListener('load', () => {
-				render.addToAtlas(key, image, image.width, image.height, 'image');
+				render.addToAtlas(key, image, image.width, image.height, 'image', 0);
 				render.colors.set(key, aux.dominantColor(image)); // all external images must have a dominant color
 			});
 			image.src = src;
 			return 'loading';
 		};
+
 		const textCtx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
 		render.text = (text, isMass, isSilhouette) => {
 			const key = (isSilhouette ? 'SIL:' : 'TXT:') + text;
@@ -4191,8 +4214,10 @@
 			textCtx.fillText(text + ' ', lineWidth * 2, textSize * 1.5);
 
 			const data = textCtx.getImageData(0, 0, textCtx.canvas.width, textCtx.canvas.height);
-			return render.addToAtlas(key, data, textCtx.canvas.width, textCtx.canvas.height, 'text');
+			return render.addToAtlas(key, data, textCtx.canvas.width, textCtx.canvas.height, 'text', lineWidth * 3.75);
 		};
+
+
 
 		let circleCellBuffer = new Float32Array(0);
 		let circleCellAlphaBuffer = new Float32Array(0);
@@ -4488,12 +4513,36 @@
 					const alpha = cellOrPelletAlpha(cell);
 					pBuf[pbo++] = x; pBuf[pbo++] = y; pBuf[pbo++] = pBuf[pbo++] = r; // a_size.y // a_pos.xy, a_size.xy
 
+					if (cell.jagged) {
+						// special case
+						const img = render.externalImage(virusSrc);
+						if (img !== 'loading') {
+							// a_texture_pos.xy, a_texture_size.xy
+							pBuf[pbo++] = img.x; pBuf[pbo++] = img.y; pBuf[pbo++] = img.w; pBuf[pbo++] = img.h;
+							pBuf[pbo++] = img.atlasIndex; // a_texture_index
+							usedTextureIndices.add(img.atlasIndex);
+
+							pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 0; // a_color.rgb
+							// a_color.a: draw default viruses twice as strong for better contrast against light theme
+							pBuf[pbo++] = ((!aux.settings.darkTheme && virusSrc === defaultVirusSrc) ? 1.5 : 1) * alpha;
+							pBuf[pbo++] = 1 | 2; // a_flags: cell (1) | no background color (2)
+						} else {
+							// a_texture_pos.xy, a_texture_size.xy
+							pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 0;
+							pBuf[pbo++] = -1; // a_texture_index
+
+							pBuf[pbo++] = 1; pBuf[pbo++] = 0; pBuf[pbo++] = 0; pBuf[pbo++] = alpha; // a_color (red)
+							pBuf[pbo++] = 1; // a_flags: cell (1)
+						}
+						continue;
+					}
+
 					let pushedTexture = false;
 					if (cell.skin) {
 						const img = render.externalImage(cell.skin);
 						if (img !== 'loading') {
 							pushedTexture = true;
-							// a_texture_pos.xy, // a_texture_size.xy
+							// a_texture_pos.xy, a_texture_size.xy
 							pBuf[pbo++] = img.x; pBuf[pbo++] = img.y; pBuf[pbo++] = img.w; pBuf[pbo++] = img.h;
 							pBuf[pbo++] = img.atlasIndex; // a_texture_index
 							usedTextureIndices.add(img.atlasIndex);
@@ -4510,12 +4559,35 @@
 					pBuf[pbo++] = 1; // a_flags: cell (1)
 
 					// now text
-					const nameScale = r / BASE_TEXT_SIZE * 0.15 * settings.nameScaleFactor;
+					const lineHeight = r * 0.15; // note: images are 3x taller than line height
+					const baseLine = y;
+					let massLine = baseLine + lineHeight * (settings.nameScaleFactor + settings.massScaleFactor / 2);
+					let clanLine = baseLine - lineHeight * (settings.nameScaleFactor + settings.clanScaleFactor);
+					const hasName = (showNames ?? true) && cell.tr >= 64;
+					const hasMass = (aux.settings.showMass ?? true) && cell.tr >= 64;
+
+					const clanName = cell.clan && aux.clans.get(cell.clan);
+					if (settings.clans && clanName) {
+						const img = render.text(clanName, true, false); // TODO silhouettes
+						const imgHeight = lineHeight * 3 * settings.clanScaleFactor * 0.5;
+
+						pBuf[pbo++] = x; pBuf[pbo++] = clanLine; // a_pos.xy
+						pBuf[pbo++] = imgHeight / img.h * img.w; pBuf[pbo++] = imgHeight; // a_size.xy
+						// a_texture_pos.xy, a_texture_size.xy
+						pBuf[pbo++] = img.x; pBuf[pbo++] = img.y; pBuf[pbo++] = img.w; pBuf[pbo++] = img.h;
+						pBuf[pbo++] = img.atlasIndex;
+						usedTextureIndices.add(img.atlasIndex);
+						// color (white) TODO nameColor
+						pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 1; pBuf[pbo++] = alpha;
+						pBuf[pbo++] = 0; // a_flags: (not a cell)
+					}
+
 					if ((showNames ?? true) && cell.tr >= 64) {
 						const img = render.text(cell.name, false, false); // TODO silhouettes
+						const imgHeight = lineHeight * 3 * settings.nameScaleFactor;
 
 						pBuf[pbo++] = x; pBuf[pbo++] = y; // a_pos.xy
-						pBuf[pbo++] = nameScale * img.w; pBuf[pbo++] = nameScale * img.h; // a_size.xy
+						pBuf[pbo++] = imgHeight / img.h * img.w; pBuf[pbo++] = imgHeight; // a_size.xy
 						// a_texture_pos.xy, a_texture_size.xy
 						pBuf[pbo++] = img.x; pBuf[pbo++] = img.y; pBuf[pbo++] = img.w; pBuf[pbo++] = img.h;
 						pBuf[pbo++] = img.atlasIndex;
@@ -4528,18 +4600,23 @@
 					if ((aux.settings.showMass ?? true) && cell.tr >= 64) {
 						// draw each digit separately, significantly reduces the size of the text cache
 						const str = String(Math.floor(cell.tr * cell.tr / 100));
-						const scale = xyr.r / 100 * 0.15 * settings.massScaleFactor; // TODO if showNames and showClans is off
-						const lineY = y + scale * BASE_TEXT_SIZE; // TODO fix this!
+						const imgHeight = lineHeight * 3 * settings.massScaleFactor * 0.5;
 
+						const kerning = 10 * settings.massScaleFactor * settings.textOutlinesFactor;
 						let totalWidth = 0;
-						for (let i = 0; i < str.length - 1; ++i) totalWidth += digits[str[i]].w * 0.9; // TODO str.length - 1 ?
-						const xStart = x - scale * totalWidth / 2;
+						for (let i = 0; i < str.length; ++i) {
+							const digit = digits[str[i]];
+							totalWidth += (digit.w - digit.padding) * 2;
+						}
+						totalWidth *= (str.length - 1) / str.length; // ???
 
 						let sumWidth = 0;
 						for (let i = 0; i < str.length; ++i) {
+							const xOffset = sumWidth - totalWidth / 2;
+
 							const img = digits[str[i]];
-							pBuf[pbo++] = xStart + scale * sumWidth; pBuf[pbo++] = lineY; // a_pos.xy
-							pBuf[pbo++] = scale * img.w; pBuf[pbo++] = scale * img.h; // a_size.xy
+							pBuf[pbo++] = x + imgHeight / img.h * xOffset; pBuf[pbo++] = massLine; // a_pos.xy
+							pBuf[pbo++] = imgHeight / img.h * img.w; pBuf[pbo++] = imgHeight; // a_size.xy
 							// a_texture_pos.xy, a_texture_size.xy
 							pBuf[pbo++] = img.x; pBuf[pbo++] = img.y; pBuf[pbo++] = img.w; pBuf[pbo++] = img.h;
 							pBuf[pbo++] = img.atlasIndex;
@@ -4547,7 +4624,7 @@
 							pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 1; pBuf[pbo++] = alpha;
 							pBuf[pbo++] = 0; // a_flags: (not a cell)
 
-							sumWidth += img.w * 0.9;
+							sumWidth += (img.w - img.padding) * 2;
 						}
 					}
 				}
