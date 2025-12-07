@@ -3922,7 +3922,7 @@
 
 					vec2 vertex01 = a_vertex * 0.5 + 0.5;
 					v_color = a_color;
-					v_uv = (a_texture_pos + vertex01 * a_texture_size * 2.0) / vec2(4096, 4096);
+					v_uv = (a_texture_pos + vertex01 * a_texture_size) / vec2(4096, 4096);
 					v_vertex = a_vertex;
 
 					vec2 clip_pos = -u_camera_pos + a_pos + a_vertex * a_size;
@@ -3961,6 +3961,9 @@
 						// circle mask
 						float a = clamp(-f_blur * (d - 1.0), 0.0, 1.0);
 						out_color.a *= a;
+					} else {
+						// decorate like text
+						out_color = texcol;
 					}
 				}
 			`, ['Camera', 'Player'], [0, 1, 2, 3, 4, 5, 6, 7]);
@@ -4106,9 +4109,6 @@
 							// found a slot
 							atlas.reservedMap |= shiftedRectangle;
 							gl.bindTexture(gl.TEXTURE_2D, atlas.texture);
-							/*for (let level = 0; level < 8; ++level) {
-								gl.texSubImage2D(gl.TEXTURE_2D, level, x * 256, y * 256, width >> level, height >> level, gl.RGBA, gl.UNSIGNED_BYTE, imageData);
-							}*/
 							gl.texSubImage2D(gl.TEXTURE_2D, 0, x * 256, y * 256, width, height, gl.RGBA, gl.UNSIGNED_BYTE, imageData);
 							gl.generateMipmap(gl.TEXTURE_2D);
 							const entry = { atlasIndex: i, x: x * 256, y: y * 256, w: width, h: height };
@@ -4122,7 +4122,7 @@
 			// no desirable atlas image was found
 			const texture = gl.createTexture();
 			gl.bindTexture(gl.TEXTURE_2D, texture);
-			gl.texStorage2D(gl.TEXTURE_2D, 8, gl.RGBA8, 4096, 4096);
+			gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, 4096, 4096);
 			const atlas = {
 				texture,
 				reservedMap: rectangle,
@@ -4131,10 +4131,7 @@
 			render.atlasImages.push(atlas);
 
 			gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, imageData);
-			gl.generateMipmap(gl.TEXTURE_2D);
-			/*for (let level = 0; level < 8; ++level) {
-				gl.texSubImage2D(gl.TEXTURE_2D, level, 0, 0, width >> level, height >> level, gl.RGBA, gl.UNSIGNED_BYTE, imageData);
-			}*/
+			gl.generateMipmap(gl.TEXTURE_2D); // generating mipmaps for the entire image is wasteful but faster(?)
 			const entry = { atlasIndex: render.atlasImages.length - 1, x: 0, y: 0, w: width, h: height };
 			render.atlas.set(key, entry);
 			return entry;
@@ -4152,6 +4149,39 @@
 			});
 			image.src = src;
 			return 'loading';
+		};
+		const textCtx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+		render.text = (text, isMass, isSilhouette) => {
+			const key = (isSilhouette ? 'SIL:' : 'TXT:') + text;
+			let atlased = render.atlas.get(key);
+			if (atlased) return atlased;
+
+			const textSize = 96 * (isMass ? 0.5 * settings.massScaleFactor : settings.nameScaleFactor);
+			const lineWidth = Math.ceil(textSize / 10) * settings.textOutlinesFactor;
+			let font = `${textSize}px "${sigmod.settings.font || 'Ubuntu'}", Ubuntu`;
+			if (isMass ? settings.massBold : settings.nameBold) font = 'bold ' + font;
+
+			textCtx.font = font;
+			// if rendering an empty string (somehow) then width can be 0 with no outlines
+			textCtx.canvas.width = (textCtx.measureText(text).width + lineWidth * 4) || 1; // clears the canvas
+			textCtx.canvas.height = textSize * 3; // give sufficient space for fancy decorator characters
+
+			textCtx.font = font; // setting .width clears canvas state
+			textCtx.lineJoin = 'round';
+			textCtx.lineWidth = lineWidth;
+			textCtx.fillStyle = isSilhouette ? '#000' : '#fff';
+			textCtx.strokeStyle = '#000';
+			textCtx.textBaseline = 'middle';
+
+			// TODO: shadow blur
+
+			// add a space, which is to prevent sigmod from detecting the name
+			if (lineWidth > 0) textCtx.strokeText(text + ' ', lineWidth * 2, textSize * 1.5);
+			textCtx.shadowColor = 'transparent';
+			textCtx.fillText(text + ' ', lineWidth * 2, textSize * 1.5);
+
+			const data = textCtx.getImageData(0, 0, textCtx.canvas.width, textCtx.canvas.height);
+			return render.addToAtlas(key, data, textCtx.canvas.width, textCtx.canvas.height);
 		};
 
 		let circleCellBuffer = new Float32Array(0);
@@ -4386,20 +4416,8 @@
 				let numPlayerElements = 0;
 				let pbo = 0;
 				for (const pellet of world.pellets.values()) {
-					if (pellet.deadTo) {
-						const killer = world.cells.get(pellet.deadTo);
-						const xyr = world.xyr(pellet, killer, now);
-						playerBufferF32.set([
-							xyr.x, xyr.y, xyr.r, xyr.r, // square x,y,w,h
-							0, 0, 0, 0, -1, // texture x,y,w,h, and index
-							pellet.red, pellet.green, pellet.blue,
-							1, // flags: cell (1)
-						], pbo);
-						pbo += 14;
-						++numPlayerElements;
-					} else {
-						circlePelletAlphaBuffer[i++] = 1; // TODO: render.alpha
-					}
+					if (pellet.deadTo) ++numPlayerElements;
+					else circlePelletAlphaBuffer[i++] = 1; // TODO: render.alpha
 				}
 				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.circlePelletAlphaBuffer);
 				gl.bufferSubData(gl.ARRAY_BUFFER, 0, circlePelletAlphaBuffer);
@@ -4407,7 +4425,7 @@
 				if (settings.pelletGlow && aux.settings.darkTheme) gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
 				gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, circlePelletsUploaded);
 
-				// #2 : basic cells
+				// #3 : deadTo pellets => playerBuffer for real now
 				gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 				gl.useProgram(glconf.programs.player);
 				gl.bindVertexArray(glconf.playerVao);
@@ -4432,6 +4450,19 @@
 					gl.bufferData(gl.ARRAY_BUFFER, newLength, gl.STATIC_DRAW);
 				}
 
+				for (const pellet of world.pellets.values()) {
+					if (!pellet.deadTo) continue;
+					const killer = world.cells.get(pellet.deadTo);
+					const xyr = world.xyr(pellet, killer, now);
+					playerBufferF32.set([
+						xyr.x, xyr.y, xyr.r, xyr.r, // square x,y,w,h
+						0, 0, 0, 0, -1, // texture x,y,w,h, and index
+						pellet.red, pellet.green, pellet.blue,
+						1, // flags: cell (1)
+					], pbo);
+					pbo += 14;
+				}
+
 				const usedTextureIndices = new Set();
 				for (const [cell, xyr] of cellsSorted) {
 					playerBufferF32[pbo++] = xyr.x; // a_pos.x
@@ -4446,8 +4477,8 @@
 							pushedTexture = true;
 							playerBufferF32[pbo++] = atlased.x; // a_texture_pos.x
 							playerBufferF32[pbo++] = atlased.y; // a_texture_pos.y
-							playerBufferF32[pbo++] = atlased.w / 2; // a_texture_size.x
-							playerBufferF32[pbo++] = atlased.h / 2; // a_texture_size.y
+							playerBufferF32[pbo++] = atlased.w; // a_texture_size.x
+							playerBufferF32[pbo++] = atlased.h; // a_texture_size.y
 							playerBufferF32[pbo++] = atlased.atlasIndex;
 							usedTextureIndices.add(atlased.atlasIndex);
 						}
@@ -4465,6 +4496,31 @@
 					playerBufferF32[pbo++] = cell.blue; // a_color.b
 					playerBufferF32[pbo++] = 1; // a_color.a TODO render.alpha?
 					playerBufferF32[pbo++] = 1; // a_flags: cell (1)
+
+					// now text
+					const showThisName = (showNames ?? true) && cell.tr >= 64;
+					if (showThisName) {
+						const atlased = render.text(cell.name, false, false); // TODO silhouettes
+						playerBufferF32[pbo++] = xyr.x;
+						playerBufferF32[pbo++] = xyr.y;
+						playerBufferF32[pbo++] = xyr.r / 100 * 0.3 * 0.5 * atlased.w;
+						playerBufferF32[pbo++] = xyr.r / 100 * 0.3 * 0.5 * atlased.h;
+
+						// texture
+						playerBufferF32[pbo++] = atlased.x;
+						playerBufferF32[pbo++] = atlased.y;
+						playerBufferF32[pbo++] = atlased.w;
+						playerBufferF32[pbo++] = atlased.h;
+						playerBufferF32[pbo++] = atlased.atlasIndex;
+						usedTextureIndices.add(atlased.atlasIndex);
+
+						// color (white)
+						playerBufferF32[pbo++] = 1;
+						playerBufferF32[pbo++] = 1;
+						playerBufferF32[pbo++] = 1;
+						playerBufferF32[pbo++] = 1; // TODO render.alpha?
+						playerBufferF32[pbo++] = 0; // a_flags: (not a cell)
+					}
 				}
 				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.playerBuffer);
 				gl.bufferSubData(gl.ARRAY_BUFFER, 0, playerBuffer);
