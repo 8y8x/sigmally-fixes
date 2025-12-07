@@ -4562,14 +4562,20 @@
 					const lineHeight = r * 0.15; // note: images are 3x taller than line height
 					const baseLine = y;
 					let massLine = baseLine + lineHeight * (settings.nameScaleFactor + settings.massScaleFactor / 2);
-					let clanLine = baseLine - lineHeight * (settings.nameScaleFactor + settings.clanScaleFactor);
+					let clanLine = baseLine - lineHeight * (settings.nameScaleFactor + settings.clanScaleFactor / 2);
 					const hasName = (showNames ?? true) && cell.tr >= 64;
 					const hasMass = (aux.settings.showMass ?? true) && cell.tr >= 64;
+					const clanName = settings.clans && cell.clan && aux.clans.get(cell.clan);
 
-					const clanName = cell.clan && aux.clans.get(cell.clan);
-					if (settings.clans && clanName) {
-						const img = render.text(clanName, true, false); // TODO silhouettes
-						const imgHeight = lineHeight * 3 * settings.clanScaleFactor * 0.5;
+					if (!hasName) {
+						// this only does something if showNames is off
+						if (!clanName) massLine = baseLine;
+						else clanLine = baseLine;
+					}
+
+					if (clanName) {
+						const img = render.text(clanName, hasName ? false : true, false); // TODO silhouettes
+						const imgHeight = lineHeight * 3 * settings.clanScaleFactor * (hasName ? 0.5 : 1);
 
 						pBuf[pbo++] = x; pBuf[pbo++] = clanLine; // a_pos.xy
 						pBuf[pbo++] = imgHeight / img.h * img.w; pBuf[pbo++] = imgHeight; // a_size.xy
@@ -4582,7 +4588,7 @@
 						pBuf[pbo++] = 0; // a_flags: (not a cell)
 					}
 
-					if ((showNames ?? true) && cell.tr >= 64) {
+					if (hasName) {
 						const img = render.text(cell.name, false, false); // TODO silhouettes
 						const imgHeight = lineHeight * 3 * settings.nameScaleFactor;
 
@@ -4597,24 +4603,23 @@
 						pBuf[pbo++] = 0; // a_flags: (not a cell)
 					}
 
-					if ((aux.settings.showMass ?? true) && cell.tr >= 64) {
+					if (hasMass) {
 						// draw each digit separately, significantly reduces the size of the text cache
 						const str = String(Math.floor(cell.tr * cell.tr / 100));
 						const imgHeight = lineHeight * 3 * settings.massScaleFactor * 0.5;
 
-						const kerning = 10 * settings.massScaleFactor * settings.textOutlinesFactor;
 						let totalWidth = 0;
 						for (let i = 0; i < str.length; ++i) {
 							const digit = digits[str[i]];
 							totalWidth += (digit.w - digit.padding) * 2;
 						}
-						totalWidth *= (str.length - 1) / str.length; // ???
 
 						let sumWidth = 0;
 						for (let i = 0; i < str.length; ++i) {
-							const xOffset = sumWidth - totalWidth / 2;
-
 							const img = digits[str[i]];
+							sumWidth += img.w - img.padding;
+
+							const xOffset = sumWidth - totalWidth / 2;
 							pBuf[pbo++] = x + imgHeight / img.h * xOffset; pBuf[pbo++] = massLine; // a_pos.xy
 							pBuf[pbo++] = imgHeight / img.h * img.w; pBuf[pbo++] = imgHeight; // a_size.xy
 							// a_texture_pos.xy, a_texture_size.xy
@@ -4624,7 +4629,7 @@
 							pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 1; pBuf[pbo++] = alpha;
 							pBuf[pbo++] = 0; // a_flags: (not a cell)
 
-							sumWidth += (img.w - img.padding) * 2;
+							sumWidth += img.w - img.padding;
 						}
 					}
 				}
