@@ -3848,7 +3848,6 @@
 					}
 
 					out_color = out_color * (1.0 - alpha) + border_color * alpha;
-					out_color = vec4(0, 0, 0.25, 1); // TODO
 				}
 			`, ['Border', 'Camera'], [0]);
 
@@ -4078,7 +4077,9 @@
 		const render = {};
 		const { gl } = ui.game;
 
-		const BASE_TEXT_SIZE = 96;
+		const ATLAS_GRID = 128;
+		const ATLAS_PER_ROW = 4096 / ATLAS_GRID;
+		const BASE_TEXT_SIZE = Math.floor(ATLAS_GRID / 3) * 2;
 
 		// #1 : define small misc objects
 		// no point in breaking this across multiple lines
@@ -4096,27 +4097,26 @@
 		render.atlas = new Map();
 		render.colors = new Map();
 		render.addToAtlas = (key, imageData, width, height, type) => {
-			const upWidth = Math.ceil(width / 256) * 256;
-			const upHeight = Math.ceil(height / 256) * 256;
+			const upWidth = Math.ceil(width / ATLAS_GRID) * ATLAS_GRID;
+			const upHeight = Math.ceil(height / ATLAS_GRID) * ATLAS_GRID;
 			let rectangle = 1n;
-			for (let x = 0; x * 256 < upWidth; ++x) rectangle |= rectangle << 1n;
-			for (let y = 0; y * 256 < upWidth; ++y) rectangle |= rectangle << 16n;
+			for (let x = 1; x * ATLAS_GRID < upWidth; ++x) rectangle |= rectangle << 1n;
+			for (let y = 1; y * ATLAS_GRID < upHeight; ++y) rectangle |= rectangle << BigInt(ATLAS_PER_ROW);
 
 			for (let i = 0; i < render.atlasImages.length; ++i) {
 				const atlas = render.atlasImages[i];
-				for (let x = 0; x * 256 + upWidth <= 4096; ++x) {
-					for (let y = 0; y * 256 + upHeight <= 4096; ++y) {
-						const shiftedRectangle = rectangle << BigInt(y * 16 + x);
-						if (!(atlas.reservedMap & shiftedRectangle)) {
-							// found a slot
-							atlas.reservedMap |= shiftedRectangle;
-							gl.bindTexture(gl.TEXTURE_2D, atlas.texture);
-							gl.texSubImage2D(gl.TEXTURE_2D, 0, x * 256, y * 256, width, height, gl.RGBA, gl.UNSIGNED_BYTE, imageData);
-							gl.generateMipmap(gl.TEXTURE_2D);
-							const entry = { atlasIndex: i, x: x * 256, y: y * 256, w: width, h: height, type, rectangle: shiftedRectangle };
-							render.atlas.set(key, entry);
-							return entry;
-						}
+				for (let x = 0; x * ATLAS_GRID + upWidth <= 4096; ++x) {
+					for (let y = 0; y * ATLAS_GRID + upHeight <= 4096; ++y) { // this is not as slow as you'd think
+						const shiftedRectangle = rectangle << BigInt(y * ATLAS_PER_ROW + x);
+						if (atlas.reservedMap & shiftedRectangle) continue; // reserved
+
+						atlas.reservedMap |= shiftedRectangle;
+						gl.bindTexture(gl.TEXTURE_2D, atlas.texture);
+						gl.texSubImage2D(gl.TEXTURE_2D, 0, x * ATLAS_GRID, y * ATLAS_GRID, width, height, gl.RGBA, gl.UNSIGNED_BYTE, imageData);
+						gl.generateMipmap(gl.TEXTURE_2D);
+						const entry = { atlasIndex: i, x: x * ATLAS_GRID, y: y * ATLAS_GRID, w: width, h: height, type, rectangle: shiftedRectangle };
+						render.atlas.set(key, entry);
+						return entry;
 					}
 				}
 			}
@@ -4140,11 +4140,12 @@
 		};
 		render.deleteFromAtlas = (key, img) => {
 			render.atlas.delete(key);
-			const atlasImg = render.atlasImages[img.atlasIndex]
+			const atlasImg = render.atlasImages[img.atlasIndex];
 			++atlasImg.removed;
 			atlasImg.reservedMap ^= img.rectangle;
 
-			gl.texSubImage2D(gl.TEXTURE_2D, 0, img.x, img.y, img.w, img.h, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(img.w * img.h * 4));
+			gl.bindTexture(gl.TEXTURE_2D, atlasImg.texture);
+			gl.texSubImage2D(gl.TEXTURE_2D, 0, img.x, img.y, img.w, img.h, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(img.w * img.h * 4)); // TODO there is a bug where this will sometimes cut into other images. FIX IT
 			gl.generateMipmap(gl.TEXTURE_2D);
 		};
 		render.externalImage = (src) => {
@@ -4226,6 +4227,7 @@
 		// #5 : define the render function
 		render.fps = 0;
 		render.lastFrame = performance.now();
+		render.BACKGROUND = null;
 		const renderGame = () => {
 			const now = performance.now();
 			const dt = Math.max(now - render.lastFrame, 0.1) / 1000; // there's a chance (now - lastFrame) can be 0
@@ -4277,15 +4279,16 @@
 				gl.useProgram(glconf.programs.bg);
 				gl.bindVertexArray(glconf.backgroundVao);
 
-				let texture;
+				let texture = render.BACKGROUND;
 				/*if (settings.background) {
 					if (settings.background.startsWith('🖼️')) texture = textureFromDatabase('background');
 					else texture = textureFromCache(settings.background);
 				} else if (aux.settings.showGrid) {
 					texture = textureFromCache(aux.settings.darkTheme ? darkGridSrc : lightGridSrc);
 				}*/
-				gl.bindTexture(gl.TEXTURE_2D, texture?.texture ?? null);
-				const repeating = texture && texture.width <= 512 && texture.height <= 512;
+				// gl.bindTexture(gl.TEXTURE_2D, texture?.texture ?? null);
+				gl.bindTexture(gl.TEXTURE_2D, texture);
+				const repeating = /*texture && texture.width <= 512 && texture.height <= 512*/ false;
 
 				let borderColor;
 				let borderLrtb;
@@ -4299,8 +4302,8 @@
 				borderUboInts[8] = (texture ? 0x01 : 0) | (aux.settings.darkTheme ? 0x02 : 0) | (repeating ? 0x04 : 0)
 					| (settings.rainbowBorder ? 0x08 : 0);
 
-				borderUboFloats[9] = texture?.width ?? 1; // u_background_width
-				borderUboFloats[10] = texture?.height ?? 1; // u_background_height
+				borderUboFloats[9] = 4096; // u_background_width
+				borderUboFloats[10] = 4096; // u_background_height
 				borderUboFloats[11] = now / 1000 * 0.2 % (Math.PI * 2); // u_border_time
 
 				gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Border);
@@ -4499,7 +4502,7 @@
 					pBuf[pbo++] = 1; // a_flags: cell (1)
 
 					// now text
-					const nameScale = r / 100 * 0.15 * settings.nameScaleFactor;
+					const nameScale = r / BASE_TEXT_SIZE * 0.15 * settings.nameScaleFactor;
 					if ((showNames ?? true) && cell.tr >= 64) {
 						const img = render.text(cell.name, false, false); // TODO silhouettes
 
