@@ -1955,7 +1955,7 @@
 			const perftab = {};
 
 			const overlay = document.createElement('div');
-			overlay.style.cssText = 'position: fixed; top: 10px; left: 50vw; width: 0; height: 95px; \
+			overlay.style.cssText = 'position: fixed; top: 10px; left: 50vw; width: 0; height: 65px; \
 				user-select: none; z-index: 2; background: #0006; transform: translateX(-50%); \
 				display: none; grid-template-rows: 1fr;';
 			document.body.appendChild(overlay);
@@ -1983,19 +1983,18 @@
 					overlay.appendChild(container);
 
 					const multiIndex = world.multis.indexOf(view);
-					const title = document.createElement('div');
-					title.style.cssText = 'height: 30px; text-align: center; position: absolute; top: 0; left: 0; width: 100px; color: #fff; font: bold 18px Ubuntu; line-height: 30px;';
-					if (multiIndex !== -1) title.textContent = `#${multiIndex + 1}`;
-					else if (view === world.viewId.spectate) title.textContent = 'Spectator';
-					else title.textContent = '?'; // :)
-					container.appendChild(title);
+					let title;
+					if (multiIndex !== -1) title = `#${multiIndex + 1}`;
+					else if (view === world.viewId.spectate) title = 'spec';
+					else title = '?'; // :)
 
 					const caption = document.createElement('div');
-					caption.style.cssText = 'height: 15px; text-align: center; position: absolute; top: 30px; left: 0; width: 100px; color: #fffc; font: bold 12px Ubuntu; line-height: 15px;';
+					caption.style.cssText = 'height: 20px; text-align: center; position: absolute; top: 0px; left: 0; width: 100px; color: #fff; font: bold 14px Ubuntu; line-height: 15px;';
+					caption.textContent = title;
 					container.appendChild(caption);
 
 					const canvas = document.createElement('canvas');
-					canvas.style.cssText = 'height: 40px; position: absolute; top: 45px; left: 10px; width: 80px;';
+					canvas.style.cssText = 'height: 40px; position: absolute; top: 20px; left: 10px; width: 80px;';
 					container.appendChild(canvas);
 					tabs.set(view, {
 						container,
@@ -2036,7 +2035,7 @@
 						const diff = tab.points[i][0] - 40;
 						if (maxDifference < diff) maxDifference = diff;
 					}
-					tab.caption.textContent = `±${Math.round(maxDifference)}ms`;
+					tab.caption.innerHTML = `${tab.title}: <span style="color: #fffc">±${Math.round(maxDifference)}ms</span>`;
 				}
 
 				const { canvas, ctx } = tab;
