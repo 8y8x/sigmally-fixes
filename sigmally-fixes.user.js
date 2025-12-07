@@ -4381,11 +4381,25 @@
 					render.uploadPellets = false;
 				}
 
-				// always upload alpha every frame; order is definitely going to be the same
+				// #2 : pellet alpha => circlePelletAlphaBuffer, deadTo pellets => playerBuffer
 				let i = 0;
+				let numPlayerElements = 0;
+				let pbo = 0;
 				for (const pellet of world.pellets.values()) {
-					if (pellet.deadTo) continue;
-					circlePelletAlphaBuffer[i++] = 1; // TODO: render.alpha
+					if (pellet.deadTo) {
+						const killer = world.cells.get(pellet.deadTo);
+						const xyr = world.xyr(pellet, killer, now);
+						playerBufferF32.set([
+							xyr.x, xyr.y, xyr.r, xyr.r, // square x,y,w,h
+							0, 0, 0, 0, -1, // texture x,y,w,h, and index
+							pellet.red, pellet.green, pellet.blue,
+							1, // flags: cell (1)
+						], pbo);
+						pbo += 14;
+						++numPlayerElements;
+					} else {
+						circlePelletAlphaBuffer[i++] = 1; // TODO: render.alpha
+					}
 				}
 				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.circlePelletAlphaBuffer);
 				gl.bufferSubData(gl.ARRAY_BUFFER, 0, circlePelletAlphaBuffer);
@@ -4398,19 +4412,18 @@
 				gl.useProgram(glconf.programs.player);
 				gl.bindVertexArray(glconf.playerVao);
 
-				let numElements = 0;
 				const cellsSorted = [];
 				for (const cell of world.cells.values()) {
 					const killer = cell.deadTo ? world.cells.get(cell.deadTo) : undefined;
 					const xyr = world.xyr(cell, killer, now);
 					cellsSorted.push([cell, xyr, settings.jellyPhysics ? xyr.jr : xyr.r]);
-					numElements += 8; // TODO cell, text, mass digits, ...?
+					numPlayerElements += 8; // TODO cell, text, mass digits, ...?
 				}
 				cellsSorted.sort((a, b) => a[2] - b[2]);
 
-				if (numElements * 4 * 14 > playerBuffer.byteLength) {
+				if (numPlayerElements * 4 * 14 > playerBuffer.byteLength) {
 					let newLength = playerBuffer.byteLength || 1;
-					while (newLength < numElements * 4 * 14) newLength *= 2;
+					while (newLength < numPlayerElements * 4 * 14) newLength *= 2;
 
 					playerBuffer = new ArrayBuffer(newLength);
 					playerBufferF32 = new Float32Array(playerBuffer);
@@ -4419,46 +4432,39 @@
 					gl.bufferData(gl.ARRAY_BUFFER, newLength, gl.STATIC_DRAW);
 				}
 
-				/* attribute(glconf.playerBuffer, 1, 1, [2, gl.FLOAT, false, 4 * 13, 0]); // vec2 a_pos
-			attribute(glconf.playerBuffer, 2, 1, [2, gl.FLOAT, false, 4 * 13, 4 * 2]); // vec2 a_size
-			attribute(glconf.playerBuffer, 3, 1, [2, gl.FLOAT, false, 4 * 13, 4 * 4]); // vec2 a_texture_pos
-			attribute(glconf.playerBuffer, 4, 1, [2, gl.FLOAT, false, 4 * 13, 4 * 6]); // vec2 a_texture_size
-			attribute(glconf.playerBuffer, 5, 1, [4, gl.FLOAT, false, 4 * 13, 4 * 8]); // vec4 a_color
-			attribute(glconf.playerBuffer, 6, 1, [1, gl.INT, false, 4 * 13, 4 * 12]); // int a_flags */
-				let o = 0;
 				const usedTextureIndices = new Set();
 				for (const [cell, xyr] of cellsSorted) {
-					playerBufferF32[o++] = xyr.x; // a_pos.x
-					playerBufferF32[o++] = xyr.y; // a_pos.y
-					playerBufferF32[o++] = xyr.r; // a_size.x
-					playerBufferF32[o++] = xyr.r; // a_size.y
+					playerBufferF32[pbo++] = xyr.x; // a_pos.x
+					playerBufferF32[pbo++] = xyr.y; // a_pos.y
+					playerBufferF32[pbo++] = xyr.r; // a_size.x
+					playerBufferF32[pbo++] = xyr.r; // a_size.y
 
 					let pushedTexture = false;
 					if (cell.skin) {
 						const atlased = render.externalImage(cell.skin);
 						if (atlased !== 'loading') {
 							pushedTexture = true;
-							playerBufferF32[o++] = atlased.x; // a_texture_pos.x
-							playerBufferF32[o++] = atlased.y; // a_texture_pos.y
-							playerBufferF32[o++] = atlased.w / 2; // a_texture_size.x
-							playerBufferF32[o++] = atlased.h / 2; // a_texture_size.y
-							playerBufferF32[o++] = atlased.atlasIndex;
+							playerBufferF32[pbo++] = atlased.x; // a_texture_pos.x
+							playerBufferF32[pbo++] = atlased.y; // a_texture_pos.y
+							playerBufferF32[pbo++] = atlased.w / 2; // a_texture_size.x
+							playerBufferF32[pbo++] = atlased.h / 2; // a_texture_size.y
+							playerBufferF32[pbo++] = atlased.atlasIndex;
 							usedTextureIndices.add(atlased.atlasIndex);
 						}
 					}
 					if (!pushedTexture) {
-						playerBufferF32[o++] = 0; // a_texture_pos.x
-						playerBufferF32[o++] = 0; // a_texture_pos.y
-						playerBufferF32[o++] = 0; // a_texture_size.x
-						playerBufferF32[o++] = 0; // a_texture_size.y
-						playerBufferF32[o++] = -1;
+						playerBufferF32[pbo++] = 0; // a_texture_pos.x
+						playerBufferF32[pbo++] = 0; // a_texture_pos.y
+						playerBufferF32[pbo++] = 0; // a_texture_size.x
+						playerBufferF32[pbo++] = 0; // a_texture_size.y
+						playerBufferF32[pbo++] = -1;
 					}
 
-					playerBufferF32[o++] = cell.red; // a_color.r
-					playerBufferF32[o++] = cell.green; // a_color.g
-					playerBufferF32[o++] = cell.blue; // a_color.b
-					playerBufferF32[o++] = 1; // a_color.a TODO render.alpha?
-					playerBufferF32[o++] = 1; // a_flags: cell (1)
+					playerBufferF32[pbo++] = cell.red; // a_color.r
+					playerBufferF32[pbo++] = cell.green; // a_color.g
+					playerBufferF32[pbo++] = cell.blue; // a_color.b
+					playerBufferF32[pbo++] = 1; // a_color.a TODO render.alpha?
+					playerBufferF32[pbo++] = 1; // a_flags: cell (1)
 				}
 				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.playerBuffer);
 				gl.bufferSubData(gl.ARRAY_BUFFER, 0, playerBuffer);
@@ -4469,7 +4475,7 @@
 				}
 				gl.activeTexture(gl.TEXTURE0); // default
 
-				gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, o / 14);
+				gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, pbo / 14);
 			})();
 
 			ui.stats.update(world.selected);
