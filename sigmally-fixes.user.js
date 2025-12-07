@@ -3953,16 +3953,16 @@
 
 					if ((f_flags & 1) != 0) {
 						// decorate like a cell
-						out_color = v_color * (1.0 - texcol.a) + texcol; // texture on top of cell color
+						out_color = vec4(v_color.rgb * (1.0 - texcol.a) + texcol.rgb, 1); // texture on top of color
 
 						float d = length(v_vertex);
 
 						// circle mask
 						float a = clamp(-f_blur * (d - 1.0), 0.0, 1.0);
-						out_color.a *= a;
+						out_color.a *= a * v_color.a;
 					} else {
 						// decorate like text
-						out_color = texcol;
+						out_color = texcol * v_color;
 					}
 				}
 			`, ['Camera', 'Player'], [0, 1, 2, 3, 4, 5, 6, 7]);
@@ -4081,7 +4081,6 @@
 		const ATLAS_PER_ROW = 4096 / ATLAS_GRID;
 		const BASE_TEXT_SIZE = Math.floor(ATLAS_GRID / 3) * 2;
 
-		// #1 : define small misc objects
 		// no point in breaking this across multiple lines
 		// eslint-disable-next-line max-len
 		const darkGridSrc = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAAACXBIWXMAAA7DAAAOwwHHb6hkAAAAGXRFWHRTb2Z0d2FyZQB3d3cuaW5rc2NhcGUub3Jnm+48GgAAAGBJREFUaIHtz4EJwCAAwDA39oT/H+qeEAzSXNA+a61xgfmeLtilEU0jmkY0jWga0TSiaUTTiKYRTSOaRjSNaBrRNKJpRNOIphFNI5pGNI1oGtE0omlEc83IN8aYpyN2+AH6nwOVa0odrQAAAABJRU5ErkJggg==';
@@ -4375,6 +4374,15 @@
 				const con = net.connections.get(world.selected);
 				if (!con?.handshake) return;
 
+				const cellOrPelletAlpha = cell => {
+					let alpha = (now - cell.born) / settings.drawDelay;
+					if (cell.deadAt) {
+						let alpha2 = 1 - (now - cell.deadAt) / settings.drawDelay;
+						if (alpha2 < alpha) alpha = alpha2;
+					}
+					return alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
+				};
+
 				// #1 : non-deadTo pellets
 				let cpBuf = circlePelletBuffer;
 				let pBuf = playerBuffer;
@@ -4428,7 +4436,7 @@
 				let pbo = 0;
 				for (const pellet of world.pellets.values()) {
 					if (pellet.deadTo) ++numPlayerElements;
-					else circlePelletAlphaBuffer[i++] = 1; // TODO: render.alpha
+					else circlePelletAlphaBuffer[i++] = cellOrPelletAlpha(pellet);
 				}
 				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.circlePelletAlphaBuffer);
 				gl.bufferSubData(gl.ARRAY_BUFFER, 0, circlePelletAlphaBuffer);
@@ -4478,6 +4486,7 @@
 				const usedTextureIndices = new Set();
 				for (const [cell, xyr] of cellsSorted) {
 					const { x, y, r, jr } = xyr;
+					const alpha = cellOrPelletAlpha(cell);
 					pBuf[pbo++] = x; pBuf[pbo++] = y; pBuf[pbo++] = pBuf[pbo++] = r; // a_size.y // a_pos.xy, a_size.xy
 
 					let pushedTexture = false;
@@ -4497,8 +4506,8 @@
 						pBuf[pbo++] = -1; // a_texture_index
 					}
 
-					// a_color TODO render.alpha?
-					pBuf[pbo++] = cell.red; pBuf[pbo++] = cell.green; pBuf[pbo++] = cell.blue; pBuf[pbo++] = 1;
+					// a_color
+					pBuf[pbo++] = cell.red; pBuf[pbo++] = cell.green; pBuf[pbo++] = cell.blue; pBuf[pbo++] = alpha;
 					pBuf[pbo++] = 1; // a_flags: cell (1)
 
 					// now text
@@ -4512,12 +4521,12 @@
 						pBuf[pbo++] = img.x; pBuf[pbo++] = img.y; pBuf[pbo++] = img.w; pBuf[pbo++] = img.h;
 						pBuf[pbo++] = img.atlasIndex;
 						usedTextureIndices.add(img.atlasIndex);
-						// color (white) TODO nameColor TODO render.alpha
-						pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 1;
+						// color (white) TODO nameColor
+						pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 1; pBuf[pbo++] = alpha;
 						pBuf[pbo++] = 0; // a_flags: (not a cell)
 					}
 
-					if ((showMass ?? true) && cell.tr >= 64) {
+					if ((aux.settings.showMass ?? true) && cell.tr >= 64) {
 						// draw each digit separately, significantly reduces the size of the text cache
 						const str = String(Math.floor(cell.tr * cell.tr / 100));
 						const scale = xyr.r / 100 * 0.15 * settings.massScaleFactor; // TODO if showNames and showClans is off
@@ -4535,8 +4544,8 @@
 							// a_texture_pos.xy, a_texture_size.xy
 							pBuf[pbo++] = img.x; pBuf[pbo++] = img.y; pBuf[pbo++] = img.w; pBuf[pbo++] = img.h;
 							pBuf[pbo++] = img.atlasIndex;
-							// color (white) TODO nameColor TODO render.alpha
-							pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 1;
+							// color (white) TODO nameColor
+							pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 1; pBuf[pbo++] = alpha;
 							pBuf[pbo++] = 0; // a_flags: (not a cell)
 
 							sumWidth += img.w * 0.9;
