@@ -4242,6 +4242,7 @@
 			
 			render.atlas.set(key, 'loading');
 			const image = new Image();
+			image.crossOrigin = '';
 			image.addEventListener('load', () => {
 				render.addToAtlas(key, image, image.width, image.height, 'image', 0, isBackground);
 				render.colors.set(key, aux.dominantColor(image)); // all external images must have a dominant color
