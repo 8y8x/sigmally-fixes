@@ -1817,7 +1817,8 @@
 							z-index: 1000;`;
 					}
 
-					return type !== 'v3'; // v3 is invisible, so it shouldn't hide the play buttons
+					// v3 is invisible, so it shouldn't hide the play buttons
+					return type !== 'v3' && view !== world.viewId.spectate;
 				};
 
 				/** @type {CaptchaInstance} */
