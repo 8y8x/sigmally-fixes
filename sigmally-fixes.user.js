@@ -335,6 +335,14 @@
 		// clicking "continue" immediately makes a request for user data, so we can get it even if sigfixes runs late
 		/** @type {HTMLButtonElement | null} */ (document.querySelector('#continue_button'))?.click();
 
+		// the iconic Ubuntu font was replaced with Arial for some stupid reason, no one wants that
+		const link = document.createElement('link');
+		link.href = `https://fonts.googleapis.com/css2?family=Ubuntu:wght@400,700&display=swap`;
+		link.rel = 'stylesheet';
+		document.head.appendChild(link);
+
+		document.body.style.fontFamily = 'Ubuntu, Arial, sans-serif';
+
 		return aux;
 	})();
 
@@ -441,7 +449,7 @@
 			// sigmod's showNames setting is always "true" interally (i think??)
 			sigmod.settings.showNames = aux.setting('input#showNames', true);
 
-			sigmod.settings.font = real.game?.font;
+			sigmod.settings.font = real.game?.font ?? 'Ubuntu';
 
 			// sigmod does not download the bold variants of fonts, so we have to do that ourselves
 			if (sigmod.settings.font && !loadedFonts.has(sigmod.settings.font)) {
