@@ -4344,6 +4344,8 @@
 		gl.bindBuffer(gl.UNIFORM_BUFFER, null); // leaving uniform buffer bound = scary!
 
 
+		let lastTextSettingsCheck = performance.now();
+		let lastTextSettings = [];
 		let lastCacheClean = performance.now();
 		render.fps = 0;
 		render.lastFrame = performance.now();
@@ -4363,7 +4365,25 @@
 
 			const vision = aux.require(world.views.get(world.selected), 'no selected vision (BAD BUG)');
 			vision.used = performance.now();
+
+			if (settings.multibox && settings.mergeCamera && settings.camera === 'default') {
+				settings.camera = 'natural';
+				settings.save();
+				settings.refresh();
+			}
 			world.cameras(now);
+
+			// delete text if any related settings were changed
+			if (now - lastTextSettingsCheck > 200) {
+				// the delay here is so you can drag the sliders without destroying your framerate
+				lastTextSettingsCheck = now;
+				const s = [settings.nameBold, settings.nameScaleFactor, settings.massBold, settings.massScaleFactor, settings.textOutlinesFactor, sigmod.settings.font];
+				const l = lastTextSettings;
+				if (s[0] !== l[0] || s[1] !== l[1] || s[2] !== l[2] || s[3] !== l[3] || s[4] !== l[4] || s[5] !== l[5]) {
+					render.resetCache(img => img.type === 'text');
+					lastTextSettings = s;
+				}
+			}
 
 			// delete old assets that haven't been used in a while
 			if (now - lastCacheClean > 60_000) {
