@@ -204,7 +204,11 @@
 		};
 
 		/** @param {string} name */
-		aux.parseName = name => name.match(/^\{.*?\}(.*)$/)?.[1] ?? name;
+		aux.parseName = name => {
+			const match = name.match(/^\{(.*?)\}(.*)$/);
+			if (match) return [match[2], aux.parseSkin(match[1])];
+			else return [name];
+		}
 
 		/** @param {string} skin */
 		aux.parseSkin = skin => {
@@ -2623,7 +2627,9 @@
 							let name;
 							if (flags & 0x08) { // update name
 								[name, o] = aux.readZTString(dat, o);
-								name = aux.parseName(name);
+								const parsed = aux.parseName(name);
+								name = parsed[0];
+								if (parsed[1]) skin = parsed[1];
 							}
 
 							const jagged = !!(flags & 0x11); // spiked or agitated
@@ -2841,7 +2847,7 @@
 							o += 4;
 
 							let name; [name, o] = aux.readZTString(dat, o);
-							name = aux.parseName(name);
+							[name] = aux.parseName(name);
 
 							// why this is copied into every leaderboard entry is beyond my understanding
 							myPosition = dat.getUint32(o, true);
@@ -2856,7 +2862,7 @@
 								const nick = input.nick[view === world.viewId.secondary ? 1 : 0].value;
 								lb.push({
 									me: true,
-									name: aux.parseName(nick),
+									name: aux.parseName(nick)[0],
 									place: myPosition,
 									sub: false, // doesn't matter
 								});
