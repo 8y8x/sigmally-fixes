@@ -2754,11 +2754,11 @@
 						// check if this is the first owned cell
 						let first = true;
 						let firstThis = true;
-						for (const [otherView, otherVision] of world.views) {
+						for (const otherVision of world.views.values()) {
 							for (const id of otherVision.owned) {
 								const cell = world.cells.get(id);
 								if (!cell) continue;
-								const record = cell[otherView];
+								const record = cell[otherVision.view];
 								if (record[CELL_DEADAT]) continue;
 
 								first = false;
@@ -3027,8 +3027,8 @@
 				world.cameras(now);
 				const { l, r, t, b } = vision.border;
 
-				for (const [otherView, otherVision] of world.views) {
-					if (otherView === view || world.score(otherView) <= 0) continue;
+				for (const otherVision of world.views.values()) {
+					if (otherVision === vision || world.score(otherVision.view) <= 0) continue;
 
 					// block respawns if both views are close enough (minimap squares give too large of a threshold)
 					const d = Math.hypot(vision.camera.tx - otherVision.camera.tx, vision.camera.ty - otherVision.camera.ty);
@@ -4070,7 +4070,8 @@
 		// eslint-disable-next-line max-len
 		const lightGridSrc = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAAACXBIWXMAAA7DAAAOwwHHb6hkAAAAGXRFWHRTb2Z0d2FyZQB3d3cuaW5rc2NhcGUub3Jnm+48GgAAAGFJREFUaIHtzwENgDAQwMA9LvAvdJgg2UF6CtrZe6+vm5n7Oh3xlkY0jWga0TSiaUTTiKYRTSOaRjSNaBrRNKJpRNOIphFNI5pGNI1oGtE0omlE04imEc1vRmatdZ+OeMMDa8cDlf3ZAHkAAAAASUVORK5CYII=';
 
-		let lastMinimapDraw = performance.now();
+		let now = performance.now(); // used everywhere in render module
+		let lastMinimapDraw = now;
 		/** @type {{ bg: ImageData, darkTheme: boolean } | undefined} */
 		let minimapCache;
 		document.fonts.addEventListener('loadingdone', () => void (minimapCache = undefined));
@@ -4096,7 +4097,11 @@
 						gl.bindTexture(gl.TEXTURE_2D, atlas.texture);
 						gl.texSubImage2D(gl.TEXTURE_2D, 0, x * ATLAS_GRID, y * ATLAS_GRID, width, height, gl.RGBA, gl.UNSIGNED_BYTE, imageData);
 						gl.generateMipmap(gl.TEXTURE_2D);
-						const entry = { atlasIndex: i, x: x * ATLAS_GRID, y: y * ATLAS_GRID, w: width, h: height, type, rectangle: shiftedRectangle, padding };
+						const entry = {
+							atlasIndex: i, x: x * ATLAS_GRID, y: y * ATLAS_GRID, w: width, h: height,
+							type, rectangle: shiftedRectangle, padding,
+
+						};
 						render.atlas.set(key, entry);
 						return entry;
 					}
@@ -4116,7 +4121,11 @@
 
 			gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, imageData);
 			gl.generateMipmap(gl.TEXTURE_2D); // generating mipmaps for the entire image is wasteful but faster(?)
-			const entry = { atlasIndex: render.atlasImages.length - 1, x: 0, y: 0, w: width, h: height, type, rectangle, padding };
+			const entry = {
+				atlasIndex: render.atlasImages.length - 1,
+				x: 0, y: 0, w: width, h: height,
+				type, rectangle, padding, accessed: performance.now(),
+			};
 			render.atlas.set(key, entry);
 			return entry;
 		};
@@ -4128,14 +4137,15 @@
 			atlasImg.reservedMap ^= img.rectangle;
 
 			gl.bindTexture(gl.TEXTURE_2D, atlasImg.texture);
+			// clear old data... probably a good idea, right?
 			gl.texSubImage2D(gl.TEXTURE_2D, 0, img.x, img.y, img.w, img.h, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(img.w * img.h * 4));
 			if (!deferMipmaps) gl.generateMipmap(gl.TEXTURE_2D);
 		};
 
-		render.resetTextCache = () => {
+		render.resetCache = (filter) => {
 			const mipmapsNeeded = new Set();
 			for (const [key, img] of render.atlas) {
-				if (img.type !== 'text') continue;
+				if (!filter(img)) continue;
 				render.deleteFromAtlas(key, img, true);
 				mipmapsNeeded.add(img.atlasIndex);
 			}
@@ -4146,12 +4156,15 @@
 			}
 		};
 		// reload text once Ubuntu has loaded, prevents some serif fonts from being locked in
-		document.fonts.addEventListener('loadingdone', () => render.resetTextCache());
+		document.fonts.addEventListener('loadingdone', () => render.resetCache(img => img.type === 'text'));
 
-		render.externalImage = (src) => {
+		render.externalImage = src => {
 			const key = 'IMG:' + src;
 			let atlased = render.atlas.get(key);
-			if (atlased) return atlased;
+			if (atlased) {
+				atlased.accessed = now;
+				return atlased;
+			}
 			
 			render.atlas.set(key, 'loading');
 			const image = new Image();
@@ -4167,7 +4180,10 @@
 		render.text = (text, isMass, isSilhouette) => {
 			const key = (isSilhouette ? 'SIL:' : 'TXT:') + text;
 			let atlased = render.atlas.get(key);
-			if (atlased) return atlased;
+			if (atlased) {
+				atlased.accessed = now;
+				return atlased;
+			}
 
 			const textSize = BASE_TEXT_SIZE * (isMass ? 0.5 * settings.massScaleFactor : settings.nameScaleFactor);
 			const lineWidth = Math.ceil(textSize / 10) * settings.textOutlinesFactor;
@@ -4224,11 +4240,12 @@
 		gl.bindBuffer(gl.UNIFORM_BUFFER, null); // leaving uniform buffer bound = scary!
 
 
+		let lastCacheClean = performance.now();
 		render.fps = 0;
 		render.lastFrame = performance.now();
 		render.BACKGROUND = null;
 		const renderGame = () => {
-			const now = performance.now();
+			now = performance.now();
 			const dt = Math.max(now - render.lastFrame, 0.1) / 1000; // there's a chance (now - lastFrame) can be 0
 			render.fps += (1 / dt - render.fps) / 10;
 			render.lastFrame = now;
@@ -4238,13 +4255,17 @@
 			// get settings
 			const defaultVirusSrc = '/assets/images/viruses/2.png';
 			const virusSrc = sigmod.settings.virusImage || defaultVirusSrc;
-			const { cellColor, foodColor, outlineColor, showNames } = sigmod.settings;
-
-			// TODO refreshTextCache();
+			const { cellColor, foodColor, outlineColor, showNames } = sigmod.settings
 
 			const vision = aux.require(world.views.get(world.selected), 'no selected vision (BAD BUG)');
 			vision.used = performance.now();
 			world.cameras(now);
+
+			// delete old assets that haven't been used in a while
+			if (now - lastCacheClean > 60_000) {
+				lastCacheClean = now;
+				render.resetCache(img => now - img.accessed > 60_000);
+			}
 
 			// note: most routines are named, for benchmarking purposes
 			(function setGlobalUniforms() {
