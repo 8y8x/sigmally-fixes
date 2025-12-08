@@ -2664,10 +2664,10 @@
 										cell.vx = x; cell.vy = y; cell.vr = cell.vjr = r; cell.vweight = 0;
 									}
 
+									record[CELL_TOPINDEX] = (record[CELL_TOPINDEX] + 1) & CELL_TOPINDEX_MASK;
 									record[3 * record[CELL_TOPINDEX]] = x;
 									record[3 * record[CELL_TOPINDEX] + 1] = y;
 									record[3 * record[CELL_TOPINDEX] + 2] = r;
-									record[CELL_TOPINDEX] = (record[CELL_TOPINDEX] + 1) & CELL_TOPINDEX_MASK;
 
 									const { x: ix, y: iy, r: ir, jr, weight } = world.xyr(cell, undefined, now);
 									cell.vx = ix;
@@ -2705,7 +2705,7 @@
 									record[0] = x;
 									record[1] = y;
 									record[2] = r;
-									record[CELL_TOPINDEX] = (record[CELL_TOPINDEX] + 1) & CELL_TOPINDEX_MASK;
+									record[CELL_TOPINDEX] = 0;
 
 									// predict which cells we will own
 									if (!isEject) {
