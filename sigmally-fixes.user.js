@@ -4697,12 +4697,8 @@
 				if (now - lastMinimapDraw < 40) return; // should be good enough when multiboxing, may change later
 				lastMinimapDraw = now;
 
-				if (!aux.settings.showMinimap) {
-					ui.minimap.canvas.style.display = 'none';
-					return;
-				} else {
-					ui.minimap.canvas.style.display = '';
-				}
+				if (!aux.settings.showMinimap) return ui.minimap.canvas.style.display = 'none';
+				else ui.minimap.canvas.style.display = '';
 
 				const { canvas, ctx } = ui.minimap;
 				// clears the canvas
@@ -4752,31 +4748,25 @@
 						sigmodMinimap.width = sigmodMinimap.height = canvas.width;
 				}
 
-				const gameWidth = (border.r - border.l);
-				const gameHeight = (border.b - border.t);
+				const gameWidth = border.r - border.l;
+				const gameHeight = border.b - border.t;
 
 				// highlight current section
-				ctx.fillStyle = settings.theme[3] ? aux.rgba2hex6(...settings.theme) : '#ff0';
-				ctx.globalAlpha = 0.3;
-
 				const sectionX = Math.floor((vision.camera.x - border.l) / gameWidth * 5);
 				const sectionY = Math.floor((vision.camera.y - border.t) / gameHeight * 5);
+				ctx.fillStyle = settings.theme[3] ? aux.rgba2hex6(...settings.theme) : '#ff0';
+				ctx.globalAlpha = 0.3;
 				ctx.fillRect(sectionX * sectorSize, sectionY * sectorSize, sectorSize, sectorSize);
-
 				ctx.globalAlpha = 1;
 
 				// draw cells
-				/**
-				 * @param {{ nx: number, ny: number, nr: number }} frame
-				 * @param {{ rgb: [number, number, number] | [number, number, number, number] }} desc
-				 */
-				const drawCell = (frame, desc) => {
-					const x = (frame.nx - border.l) / gameWidth * canvas.width;
-					const y = (frame.ny - border.t) / gameHeight * canvas.height;
-					const r = Math.max(frame.nr / gameWidth * canvas.width, 2);
+				const drawCell = cell => {
+					const x = (cell.tx - border.l) / gameWidth * canvas.width;
+					const y = (cell.ty - border.t) / gameHeight * canvas.height;
+					const r = Math.max(cell.tr / gameWidth * canvas.width, 2);
 
 					ctx.scale(0.01, 0.01); // prevent sigmod from treating minimap cells as pellets
-					ctx.fillStyle = aux.rgba2hex6(desc.rgb[0], desc.rgb[1], desc.rgb[2], 1);
+					ctx.fillStyle = aux.rgba2hex6(cell.red, cell.green, cell.blue, 1);
 					ctx.beginPath();
 					ctx.moveTo((x + r) * 100, y * 100);
 					ctx.arc(x * 100, y * 100, r * 100, 0, 2 * Math.PI);
@@ -4784,12 +4774,7 @@
 					ctx.resetTransform();
 				};
 
-				/**
-				 * @param {number} x
-				 * @param {number} y
-				 * @param {string} name
-				 */
-				const drawName = function drawName(x, y, name) {
+				const drawName = (x, y, name) => {
 					x = (x - border.l) / gameWidth * canvas.width;
 					y = (y - border.t) / gameHeight * canvas.height;
 
@@ -4803,59 +4788,50 @@
 				/** @type {Map<string, { name: string, n: number, x: number, y: number }>} */
 				const avgPos = new Map();
 				for (const cell of world.cells.values()) {
-					const frame = world.synchronized ? cell.merged : cell.views.get(world.selected)?.frames[0];
-					/** @type {CellDescription} */
-					const desc = world.synchronized ? cell.views.values().next().value : cell.views.get(world.selected);
-					if (!frame || !desc || frame.deadAt !== undefined) continue;
+					if (cell.deadAt) continue;
 
 					let ownedByOther = false;
-					for (const [view, vision] of world.views) {
-						if (view === world.selected) continue;
-						ownedByOther = vision.owned.has(cell.id) && frame.born >= vision.spawned;
+					for (const otherVision of world.views.values()) {
+						if (otherVision === vision) continue;
+						ownedByOther = otherVision.owned.has(cell.id) && cell.born >= otherVision.spawned;
 						if (ownedByOther) break;
 					}
-					if ((!desc.clan || desc.clan !== aux.userData?.clan) && !ownedByOther) continue;
+					if ((!cell.clan || cell.clan !== aux.userData?.clan) && !ownedByOther) continue;
+					drawCell(cell);
 
-					drawCell(frame, desc);
-
-					const name = desc.name || 'An unnamed cell';
-					const hash = desc.name + (desc.rgb[0] * 65536 + desc.rgb[1] * 256 + desc.rgb[2]);
+					const hash = cell.name + (cell.red * 65536 + cell.green * 256 + cell.blue);
 					const entry = avgPos.get(hash);
 					if (entry) {
 						++entry.n;
-						entry.x += frame.nx;
-						entry.y += frame.ny;
+						entry.x += cell.tx;
+						entry.y += cell.ty;
 					} else {
-						avgPos.set(hash, { name, n: 1, x: frame.nx, y: frame.ny });
+						avgPos.set(hash, { name: cell.name, n: 1, x: cell.tx, y: cell.ty });
 					}
 				}
 
-				avgPos.forEach(entry => {
-					drawName(entry.x / entry.n, entry.y / entry.n, entry.name);
-				});
+				for (const entry of avgPos) drawName(entry.x / entry.n, entry.y / entry.n, entry.name);
 
 				// draw my cells above everyone else
-				let myName = '';
-				let ownN = 0;
-				let ownX = 0;
-				let ownY = 0;
+				let myName = '', ownN = 0, ownX = 0, ownY = 0;
 				for (const id of vision.owned) {
 					const cell = world.cells.get(id);
-					const frame = world.synchronized ? cell?.merged : cell?.views.get(world.selected)?.frames[0];
-					const desc = world.synchronized ? cell?.views.values().next().value : cell?.views.get(world.selected);
-					if (!frame || !desc || frame.deadAt !== undefined) continue;
+					if (!cell || cell.deadAt) continue;
 
-					drawCell(frame, desc);
-					myName = desc.name || 'An unnamed cell';
+					drawCell(cell);
+					myName = cell.name;
 					++ownN;
-					ownX += frame.nx;
-					ownY += frame.ny;
+					ownX += cell.tx;
+					ownY += cell.ty;
 				}
 
 				if (ownN <= 0) {
 					// if no cells were drawn, draw our spectate pos instead
-					drawCell({ nx: vision.camera.x, ny: vision.camera.y, nr: gameWidth / canvas.width * 5, },
-						{ rgb: settings.theme[3] ? settings.theme : [1, 0.6, 0.6] });
+					let red = 1, green = 0.6, blue = 0.6, _alpha = 1;
+					if (settings.theme[3]) [red, green, blue, _alpha] = settings.theme;
+					drawCell({
+						tx: vision.camera.x, ty: vision.camera.y, tr: gameWidth / canvas.width * 5, red, green, blue,
+					});
 				} else {
 					ownX /= ownN;
 					ownY /= ownN;
@@ -4866,7 +4842,7 @@
 					ctx.globalAlpha = 0;
 					ctx.fillText(`X: ${ownX}, Y: ${ownY}`, 0, -1000);
 				}
-			}); // TODO no execute
+			})();
 
 			requestAnimationFrame(renderGame);
 		}
