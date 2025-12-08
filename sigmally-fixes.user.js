@@ -4117,6 +4117,7 @@
 
 			for (let i = 0; i < render.atlasImages.length; ++i) {
 				const atlas = render.atlasImages[i];
+				if (!atlas || atlas.reservedMap === undefined) continue; // this is/was a large image slot
 				for (let x = 0; x * ATLAS_GRID + upWidth <= 4096; ++x) {
 					for (let y = 0; y * ATLAS_GRID + upHeight <= 4096; ++y) { // this is not as slow as you'd think
 						const shiftedRectangle = rectangle << BigInt(y * ATLAS_PER_ROW + x);
@@ -4129,7 +4130,6 @@
 						const entry = {
 							atlasIndex: i, x: x * ATLAS_GRID, y: y * ATLAS_GRID, w: width, h: height,
 							type, rectangle: shiftedRectangle, padding,
-
 						};
 						render.atlas.set(key, entry);
 						return entry;
@@ -4138,6 +4138,11 @@
 			}
 
 			// no desirable atlas image was found
+			let bestIndex;
+			for (let i = 0; bestIndex === undefined; ++i) {
+				if (!render.atlasImages[i]) bestIndex = i;
+			}
+
 			const texture = gl.createTexture();
 			gl.bindTexture(gl.TEXTURE_2D, texture);
 			gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, 4096, 4096);
@@ -4146,12 +4151,12 @@
 				reservedMap: rectangle,
 				removed: 0,
 			};
-			render.atlasImages.push(atlas);
+			render.atlasImages[bestIndex] = atlas;
 
 			gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, imageData);
 			gl.generateMipmap(gl.TEXTURE_2D); // generating mipmaps for the entire image is wasteful but faster(?)
 			const entry = {
-				atlasIndex: render.atlasImages.length - 1,
+				atlasIndex: bestIndex,
 				x: 0, y: 0, w: width, h: height,
 				type, rectangle, padding, accessed: performance.now(),
 			};
@@ -4167,10 +4172,7 @@
 			if (atlasImg.reservedMap === undefined || img.rectangle === undefined) {
 				// this is not really an "atlas" and can't be reused
 				gl.deleteTexture(atlasImg.texture);
-				render.atlasImages.splice(img.atlasIndex, 1);
-				for (const otherImg of render.atlas.values()) {
-					if (otherImg.atlasIndex >= img.atlasIndex) --otherImg.atlasIndex;
-				}
+				render.atlasImages[img.atlasIndex] = undefined;
 				return;
 			}
 			atlasImg.reservedMap ^= img.rectangle;
@@ -4185,7 +4187,7 @@
 			const DEBUG_keysDeleted = [];
 			const mipmapsNeeded = new Set();
 			for (const [key, img] of render.atlas) {
-				if (!filter(img)) continue;
+				if (img === 'loading' || !filter(img)) continue;
 				render.deleteFromAtlas(key, img, true);
 				mipmapsNeeded.add(img.atlasIndex);
 				DEBUG_keysDeleted.push(key);
@@ -4194,6 +4196,7 @@
 			console.log('render.resetCache:', DEBUG_keysDeleted);
 
 			for (const index of mipmapsNeeded) {
+				if (!render.atlasImages[index]) continue; // happens when a large image is removed
 				gl.bindTexture(gl.TEXTURE_2D, render.atlasImages[index].texture);
 				gl.generateMipmap(gl.TEXTURE_2D);
 			}
@@ -4375,16 +4378,16 @@
 				gl.useProgram(glconf.programs.bg);
 				gl.bindVertexArray(glconf.backgroundVao);
 
-				let texture = render.BACKGROUND;
-				/*if (settings.background) {
-					if (settings.background.startsWith('🖼️')) texture = textureFromDatabase('background');
-					else texture = textureFromCache(settings.background);
-				} else if (aux.settings.showGrid) {
-					texture = textureFromCache(aux.settings.darkTheme ? darkGridSrc : lightGridSrc);
-				}*/
-				// gl.bindTexture(gl.TEXTURE_2D, texture?.texture ?? null);
-				gl.bindTexture(gl.TEXTURE_2D, texture);
-				const repeating = /*texture && texture.width <= 512 && texture.height <= 512*/ false;
+				let img = render.BACKGROUND;
+				if (settings.background?.startsWith('🖼️')) img = render.localImage('background');
+				else if (settings.background) img = render.externalImage(settings.background);
+				else if (aux.settings.showGrid) {
+					img = render.externalImage(aux.settings.darkTheme ? darkGridSrc : lightGridSrc);
+				}
+
+				if (img && img !== 'loading') gl.bindTexture(gl.TEXTURE_2D, render.atlasImages[img.atlasIndex].texture);
+				else gl.bindTexture(gl.TEXTURE_2D, null);
+				const repeating = img && img.width <= 512 && img.height <= 512;
 
 				let borderColor;
 				let borderLrtb;
@@ -4395,8 +4398,8 @@
 				borderUboFloats.set(borderColor, 0); // u_border_color
 				borderUboFloats.set([borderLrtb.l, borderLrtb.r, borderLrtb.t, borderLrtb.b], 4); // u_border_xyzw_lrtb
 				// flags
-				borderUboInts[8] = (texture ? 0x01 : 0) | (aux.settings.darkTheme ? 0x02 : 0) | (repeating ? 0x04 : 0)
-					| (settings.rainbowBorder ? 0x08 : 0);
+				borderUboInts[8] = ((img && img !== 'loading') ? 0x01 : 0) | (aux.settings.darkTheme ? 0x02 : 0)
+					| (repeating ? 0x04 : 0) | (settings.rainbowBorder ? 0x08 : 0);
 
 				borderUboFloats[9] = 4096; // u_background_width
 				borderUboFloats[10] = 4096; // u_background_height
