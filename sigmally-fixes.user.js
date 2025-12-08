@@ -601,8 +601,6 @@
 			showStats: true,
 			spectator: false,
 			spectatorLatency: false,
-			/** @type {'' | 'latest' | 'latest-smart'} */
-			synchronization: 'latest',
 			textOutlinesFactor: 1,
 			// default is the default chat color
 			theme: /** @type {[number, number, number, number]} */ ([252 / 255, 114 / 255, 0, 0]),
@@ -642,9 +640,6 @@
 
 			// 2.7.1: accidentally set the default to 'none' which sucks
 			if (synchronization === 'none') settings.synchronization = 'flawless';
-
-			// 2.8.0: flawless => latest-smart
-			if (settings.synchronization === 'flawless') settings.synchronization = 'latest-smart';
 		}
 
 		/** @type {(() => void)[]} */
@@ -1082,10 +1077,6 @@
 		setting('Multibox keybind', [keybind('multibox')], () => true,
 			'The key to press for switching multibox tabs. "Tab" is recommended, but you can also use "Ctrl+Tab" and ' +
 			'most other keybinds.');
-		setting(`Vision merging`,
-			[dropdown('synchronization', [['latest-smart', 'latest-smart'], ['latest', 'latest'], ['', '']])],
-			() => !!settings.multibox || settings.spectator,
-			'TODO');
 		setting('One-tab mode', [checkbox('mergeCamera')], () => !!settings.multibox,
 			'When enabled, your camera will focus on both multibox tabs at once. Disable this if you prefer two-tab-' +
 			'style multiboxing. <br>' +
@@ -1989,7 +1980,7 @@
 						const diff = tab.points[i][0] - 40;
 						if (maxDifference < diff) maxDifference = diff;
 					}
-					tab.caption.innerHTML = `${tab.title}: <span style="color: #fffc">±${Math.round(maxDifference)}ms</span>`;
+					tab.caption.innerHTML = `${tab.title}:&nbsp;&nbsp;<span style="color: #fffc">±${Math.round(maxDifference)}ms</span>`;
 				}
 
 				const { canvas, ctx } = tab;
@@ -3617,7 +3608,7 @@
 
 		const parts = {
 			boilerplate: '#version 300 es\nprecision highp float; precision highp int;',
-			borderUbo: `layout(std140) uniform Border { // size = 0x28
+			borderUbo: `layout(std140) uniform Border {
 				vec4 u_border_color; // @ 0x00, i = 0
 				vec4 u_border_xyzw_lrtb; // @ 0x10, i = 4
 				int u_border_flags; // @ 0x20, i = 8
@@ -3625,23 +3616,25 @@
 				float u_background_height; // @ 0x28, i = 10
 				float u_border_time; // @ 0x2c, i = 11
 			};`,
-			cameraUbo: `layout(std140) uniform Camera { // size = 0x10
+			cameraUbo: `layout(std140) uniform Camera {
 				float u_camera_ratio; // @ 0x00
 				float u_camera_scale; // @ 0x04
 				vec2 u_camera_pos; // @ 0x08
 			};`,
-			circleUbo: `layout(std140) uniform Circle { // size = 0x08
+			circleUbo: `layout(std140) uniform Circle {
 				float u_circle_alpha; // @ 0x00
 				float u_circle_scale; // @ 0x04
 			};`,
-			playerUbo: `layout(std140) uniform Player { // size = 0x40
+			playerUbo: `layout(std140) uniform Player {
 				vec4 u_cell_active_outline; // @ 0x00
 				vec4 u_cell_inactive_outline; // @ 0x10
 				vec4 u_cell_unsplittable_outline; // @ 0x20
 				vec4 u_cell_subtle_outline_override; // @ 0x30
-				float u_cell_active_outline_thickness; // @ 0x40
+				vec4 u_cell_name_color1; // @ 0x40
+				vec4 u_cell_name_color2; // @ 0x50
+				float u_cell_active_outline_thickness; // @ 0x60
 			};`,
-			tracerUbo: `layout(std140) uniform Tracer { // size = 0x10
+			tracerUbo: `layout(std140) uniform Tracer {
 				vec4 u_tracer_color; // @ 0x00, i = 0
 				float u_tracer_thickness; // @ 0x10, i = 4
 			};`,
@@ -3781,32 +3774,51 @@
 				layout(location = 3) in vec2 a_texture_pos;
 				layout(location = 4) in vec2 a_texture_size;
 				layout(location = 5) in float a_texture_index;
-				layout(location = 6) in vec4 a_color;
-				layout(location = 7) in float a_flags;
+				layout(location = 6) in vec2 a_silhouette_pos;
+				layout(location = 7) in float a_silhouette_index;
+				layout(location = 8) in vec4 a_color;
+				layout(location = 9) in float a_flags;
 				${parts.cameraUbo}
 				${parts.playerUbo}
 				flat out vec4 f_active_outline;
 				flat out float f_active_radius;
 				flat out float f_blur;
 				flat out int f_flags;
+				flat out int f_silhouette_index;
 				flat out vec4 f_subtle_outline;
 				flat out float f_subtle_radius;
 				flat out int f_texture_index;
 				flat out vec4 f_unsplittable_outline;
 				flat out float f_unsplittable_radius;
 				out vec4 v_color;
+				out vec2 v_silhouette_uv;
 				out vec2 v_vertex;
 				out vec2 v_uv;
 
 				void main() {
 					f_blur = 0.5 * a_size.x * (540.0 * u_camera_scale);
+					f_silhouette_index = int(a_silhouette_index);
 					f_texture_index = int(a_texture_index);
 					f_flags = int(a_flags);
 
 					vec2 vertex01 = a_vertex * 0.5 + 0.5;
 					v_color = a_color;
 					v_uv = (a_texture_pos + vertex01 * a_texture_size) / vec2(4096, 4096);
+					v_silhouette_uv = (a_silhouette_pos + vertex01 * a_texture_size) / vec2(4096, 4096);
 					v_vertex = a_vertex;
+
+					// gold name
+					float gradient_a = ((f_flags & 0x200) != 0) ? 0.5 : (length(vertex01) / sqrt(2.0));
+					if ((f_flags & 0x100) != 0) {
+						// #eb9500 * 1.2 to #f9bf0d * 1.2
+						v_color = vec4(1.1058, 0.7011, 0, 1) * (1.0 - gradient_a)
+							+ vec4(1.1717, 0.8988, 0.0611, 1) * gradient_a;
+					}
+
+					// custom name gradient
+					if ((f_flags & 0x80) != 0) {
+						v_color = u_cell_name_color1 * (1.0 - gradient_a) + u_cell_name_color2 * gradient_a;
+					}
 
 					// subtle outlines (at least 1px wide)
 					float subtle_thickness = max(max(a_size.x * 0.02, 2.0 / (540.0 * u_camera_scale)), 10.0);
@@ -3849,30 +3861,46 @@
 				flat in float f_active_radius;
 				flat in float f_blur;
 				flat in int f_flags;
+				flat in int f_silhouette_index;
 				flat in vec4 f_subtle_outline;
 				flat in float f_subtle_radius;
 				flat in int f_texture_index;
 				flat in vec4 f_unsplittable_outline;
 				flat in float f_unsplittable_radius;
 				in vec4 v_color;
+				in vec2 v_silhouette_uv;
 				in vec2 v_vertex;
 				in vec2 v_uv;
 				${parts.playerUbo}
 				uniform sampler2D u_textures[8];
 				out vec4 out_color;
 
-				void main() {
-					vec4 texcol = vec4(0, 0, 0, 0);
-					if (f_texture_index == 0) texcol = texture(u_textures[0], v_uv);
-					else if (f_texture_index == 1) texcol = texture(u_textures[1], v_uv);
-					else if (f_texture_index == 2) texcol = texture(u_textures[2], v_uv);
-					else if (f_texture_index == 3) texcol = texture(u_textures[3], v_uv);
-					else if (f_texture_index == 4) texcol = texture(u_textures[4], v_uv);
-					else if (f_texture_index == 5) texcol = texture(u_textures[5], v_uv);
-					else if (f_texture_index == 6) texcol = texture(u_textures[6], v_uv);
-					else if (f_texture_index == 7) texcol = texture(u_textures[7], v_uv);
+				float sharpf(float x) {
+					// a cubic function with turning points at (0,0) and (1,0)
+					// meant to sharpen out blurry linear interpolation
+					return x * x * (3.0 - 2.0*x);
+				}
 
-					if ((f_flags & 1) != 0) {
+				vec4 sharp(vec4 v) {
+					return vec4(sharpf(v.x), sharpf(v.y), sharpf(v.z), sharpf(v.w));
+				}
+
+				vec4 from_texture_array(int index, vec2 uv) {
+					if (index == -1) return vec4(0, 0, 0, 0);
+					else if (index == 0) return texture(u_textures[0], uv);
+					else if (index == 1) return texture(u_textures[1], uv);
+					else if (index == 2) return texture(u_textures[2], uv);
+					else if (index == 3) return texture(u_textures[3], uv);
+					else if (index == 4) return texture(u_textures[4], uv);
+					else if (index == 5) return texture(u_textures[5], uv);
+					else if (index == 6) return texture(u_textures[6], uv);
+					else if (index == 7) return texture(u_textures[7], uv);
+				}
+
+				void main() {
+					vec4 texcol = from_texture_array(f_texture_index, v_uv);
+
+					if ((f_flags & 0x01) != 0) {
 						// decorate like a cell
 						float d = length(v_vertex);
 
@@ -3906,7 +3934,16 @@
 						out_color.a *= a * v_color.a;
 					} else {
 						// decorate like text
-						out_color = texcol * v_color;
+						if (f_silhouette_index != -1) {
+							vec4 silcol = from_texture_array(f_silhouette_index, v_silhouette_uv);
+							// #fff - #000 => color (text)
+							// #fff - #fff => #fff (respect emoji)
+							// #888 - #888 => #888 (respect emoji)
+							// #fff - #888 => #888 + color/2 (blur/antialias)
+							out_color = silcol + sharp(texcol - silcol) * v_color;
+						} else {
+							out_color = sharp(texcol) * v_color;
+						}
 					}
 				}
 			`, ['Camera', 'Player'], [0, 1, 2, 3, 4, 5, 6, 7]);
@@ -3994,13 +4031,15 @@
 			glconf.playerBuffer = gl.createBuffer();
 			gl.bindVertexArray(glconf.playerVao = gl.createVertexArray());
 			attribute(squareBuffer(), 0, 0, [2, gl.FLOAT, false, 0, 0]); // vec2 a_vertex
-			attribute(glconf.playerBuffer, 1, 1, [2, gl.FLOAT, false, 4 * 14, 0]); // vec2 a_pos
-			attribute(glconf.playerBuffer, 2, 1, [2, gl.FLOAT, false, 4 * 14, 4 * 2]); // vec2 a_size
-			attribute(glconf.playerBuffer, 3, 1, [2, gl.FLOAT, false, 4 * 14, 4 * 4]); // vec2 a_texture_pos
-			attribute(glconf.playerBuffer, 4, 1, [2, gl.FLOAT, false, 4 * 14, 4 * 6]); // vec2 a_texture_size
-			attribute(glconf.playerBuffer, 5, 1, [1, gl.FLOAT, false, 4 * 14, 4 * 8]); // float a_texture_index
-			attribute(glconf.playerBuffer, 6, 1, [4, gl.FLOAT, false, 4 * 14, 4 * 9]); // vec4 a_color
-			attribute(glconf.playerBuffer, 7, 1, [1, gl.FLOAT, false, 4 * 14, 4 * 13]); // int a_flags
+			attribute(glconf.playerBuffer, 1, 1, [2, gl.FLOAT, false, 4 * 17, 0]); // vec2 a_pos
+			attribute(glconf.playerBuffer, 2, 1, [2, gl.FLOAT, false, 4 * 17, 4 * 2]); // vec2 a_size
+			attribute(glconf.playerBuffer, 3, 1, [2, gl.FLOAT, false, 4 * 17, 4 * 4]); // vec2 a_texture_pos
+			attribute(glconf.playerBuffer, 4, 1, [2, gl.FLOAT, false, 4 * 17, 4 * 6]); // vec2 a_texture_size
+			attribute(glconf.playerBuffer, 5, 1, [1, gl.FLOAT, false, 4 * 17, 4 * 8]); // float a_texture_index
+			attribute(glconf.playerBuffer, 6, 1, [2, gl.FLOAT, false, 4 * 17, 4 * 9]); // vec2 a_silhouette_pos
+			attribute(glconf.playerBuffer, 7, 1, [1, gl.FLOAT, false, 4 * 17, 4 * 11]); // float a_silhouette_index
+			attribute(glconf.playerBuffer, 8, 1, [4, gl.FLOAT, false, 4 * 17, 4 * 12]); // vec4 a_color
+			attribute(glconf.playerBuffer, 9, 1, [1, gl.FLOAT, false, 4 * 17, 4 * 16]); // int a_flags
 
 			// tracer vao
 			glconf.tracerBuffer = gl.createBuffer();
@@ -4185,7 +4224,6 @@
 		gl.bindBuffer(gl.UNIFORM_BUFFER, null); // leaving uniform buffer bound = scary!
 
 
-		// #5 : define the render function
 		render.fps = 0;
 		render.lastFrame = performance.now();
 		render.BACKGROUND = null;
@@ -4226,6 +4264,8 @@
 					...settings.outlineMultiInactiveColor, // cell_inactive_outline
 					...settings.unsplittableColor, // cell_unsplittable_outline
 					...(outlineColor ?? [0, 0, 0, 0]), // cell_subtle_outline_override
+					...(sigmod.settings.nameColor1 ?? [1, 1, 1, 1]), // cell_name_color1
+					...(sigmod.settings.nameColor2 ?? [1, 1, 1, 1]), // cell_name_color2
 					settings.outlineMulti,
 				]));
 				gl.bindBuffer(gl.UNIFORM_BUFFER, null);
@@ -4370,9 +4410,9 @@
 				}
 				cellsSorted.sort((a, b) => a[2] - b[2]);
 
-				if (numPlayerElements * 14 > playerBuffer.length) {
+				if (numPlayerElements * 17 > playerBuffer.length) {
 					let newLength = playerBuffer.length || 1;
-					while (numPlayerElements * 14 > newLength) newLength *= 2;
+					while (numPlayerElements * 17 > newLength) newLength *= 2;
 
 					playerBuffer = pBuf = new Float32Array(newLength);
 					gl.bindBuffer(gl.ARRAY_BUFFER, glconf.playerBuffer);
@@ -4390,10 +4430,11 @@
 					pBuf.set([
 						xyr.x, xyr.y, xyr.r, xyr.r, // square x,y,w,h
 						0, 0, 0, 0, -1, // texture x,y,w,h, and index
-						red, green, blue, alpha,
-						1, // flags: cell (1)
+						0, 0, -1, // silhouette x,y, and index
+						red, green, blue, alpha * cellOrPelletAlpha(pellet),
+						1 | 0x20, // flags: cell (1) | color under skin (0x20)
 					], pbo);
-					pbo += 14;
+					pbo += 17;
 				}
 
 				// #4 : player cells and text
@@ -4434,6 +4475,9 @@
 							pBuf[pbo++] = img.atlasIndex; // a_texture_index
 							usedTextureIndices.add(img.atlasIndex);
 
+							pBuf[pbo++] = pBuf[pbo++] = 0; // a_silhouette_pos.xy
+							pBuf[pbo++] = -1; // a_silhouette_index
+
 							pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 0; // a_color.rgb
 							// a_color.a: draw default viruses twice as strong for better contrast against light theme
 							pBuf[pbo++] = ((!aux.settings.darkTheme && virusSrc === defaultVirusSrc) ? 1.5 : 1) * alpha;
@@ -4442,6 +4486,9 @@
 							// a_texture_pos.xy, a_texture_size.xy
 							pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 0;
 							pBuf[pbo++] = -1; // a_texture_index
+
+							pBuf[pbo++] = pBuf[pbo++] = 0; // a_silhouette_pos.xy
+							pBuf[pbo++] = -1; // a_silhouette_index
 
 							pBuf[pbo++] = 1; pBuf[pbo++] = 0; pBuf[pbo++] = 0; pBuf[pbo++] = alpha; // a_color (red)
 							pBuf[pbo++] = 1 | 0x20; // a_flags: cell (1) | color under skin (0x20)
@@ -4469,6 +4516,9 @@
 						pBuf[pbo++] = -1; // a_texture_index
 					}
 
+					pBuf[pbo++] = pBuf[pbo++] = 0; // a_silhouette_pos.xy
+					pBuf[pbo++] = -1; // a_silhouette_index
+
 					// a_color
 					if (cellColor) {
 						pBuf[pbo++] = cellColor[0]; pBuf[pbo++] = cellColor[1]; pBuf[pbo++] = cellColor[2];
@@ -4493,41 +4543,62 @@
 					const hasName = (showNames ?? true) && cell.tr >= 64;
 					const hasMass = (aux.settings.showMass ?? true) && cell.tr >= 64;
 					const clanName = settings.clans && cell.clan && aux.clans.get(cell.clan);
-
 					if (!hasName) {
 						// this only does something if showNames is off
 						if (!clanName) massLine = baseLine;
 						else clanLine = baseLine;
 					}
 
+					const useNameColor = cellOwnedByMe && sigmod.settings.nameColor1;
+					const useSilhouette = useNameColor || cell.sub;
+
 					if (clanName) {
-						const img = render.text(clanName, hasName ? false : true, false); // TODO silhouettes
+						const img = render.text(clanName, hasName ? false : true, false);
 						const imgHeight = lineHeight * 3 * settings.clanScaleFactor * (hasName ? 0.5 : 1);
 
 						pBuf[pbo++] = x; pBuf[pbo++] = clanLine; // a_pos.xy
 						pBuf[pbo++] = imgHeight / img.h * img.w; pBuf[pbo++] = imgHeight; // a_size.xy
 						// a_texture_pos.xy, a_texture_size.xy
 						pBuf[pbo++] = img.x; pBuf[pbo++] = img.y; pBuf[pbo++] = img.w; pBuf[pbo++] = img.h;
-						pBuf[pbo++] = img.atlasIndex;
-						usedTextureIndices.add(img.atlasIndex);
-						// color (white) TODO nameColor
+						usedTextureIndices.add(pBuf[pbo++] = img.atlasIndex); // a_texture_index
+
+						if (useSilhouette) {
+							const sil = render.text(clanName, hasName ? false : true, true);
+							pBuf[pbo++] = sil.x; pBuf[pbo++] = sil.y; // a_silhouette_pos.xy
+							usedTextureIndices.add(pBuf[pbo++] = sil.atlasIndex); // a_silhouette_index
+						} else {
+							pBuf[pbo++] = pBuf[pbo++] = 0; // a_silhouette_pos.xy
+							pBuf[pbo++] = -1; // a_silhouette_index
+						}
+
+						// a_color, always white, modified in vertex shader
 						pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 1; pBuf[pbo++] = alpha;
-						pBuf[pbo++] = 0; // a_flags: (not a cell)
+						// a_flags
+						pBuf[pbo++] = (useSilhouette ? 0x40 : 0) | (useNameColor ? 0x80 : 0) | (cell.sub ? 0x100 : 0);
 					}
 
 					if (hasName) {
-						const img = render.text(cell.name, false, false); // TODO silhouettes
+						const img = render.text(cell.name, false, false);
 						const imgHeight = lineHeight * 3 * settings.nameScaleFactor;
 
 						pBuf[pbo++] = x; pBuf[pbo++] = y; // a_pos.xy
 						pBuf[pbo++] = imgHeight / img.h * img.w; pBuf[pbo++] = imgHeight; // a_size.xy
 						// a_texture_pos.xy, a_texture_size.xy
 						pBuf[pbo++] = img.x; pBuf[pbo++] = img.y; pBuf[pbo++] = img.w; pBuf[pbo++] = img.h;
-						pBuf[pbo++] = img.atlasIndex;
-						usedTextureIndices.add(img.atlasIndex);
-						// color (white) TODO nameColor
-						pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 1; pBuf[pbo++] = alpha;
-						pBuf[pbo++] = 0; // a_flags: (not a cell)
+						usedTextureIndices.add(pBuf[pbo++] = img.atlasIndex); // a_texture_index
+
+						if (useSilhouette) {
+							const sil = render.text(cell.name, false, true);
+							pBuf[pbo++] = sil.x; pBuf[pbo++] = sil.y; // a_silhouette_pos.xy
+							usedTextureIndices.add(pBuf[pbo++] = sil.atlasIndex); // a_silhouette_index
+						} else {
+							pBuf[pbo++] = pBuf[pbo++] = 0; // a_silhouette_pos.xy
+							pBuf[pbo++] = -1; // a_silhouette_index
+						}
+
+						pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 1; pBuf[pbo++] = alpha; // a_color (white)
+						// a_flags
+						pBuf[pbo++] = (useSilhouette ? 0x40 : 0) | (useNameColor ? 0x80 : 0) | (cell.sub ? 0x100 : 0);
 					}
 
 					if (hasMass) {
@@ -4551,10 +4622,14 @@
 							pBuf[pbo++] = imgHeight / img.h * img.w; pBuf[pbo++] = imgHeight; // a_size.xy
 							// a_texture_pos.xy, a_texture_size.xy
 							pBuf[pbo++] = img.x; pBuf[pbo++] = img.y; pBuf[pbo++] = img.w; pBuf[pbo++] = img.h;
-							pBuf[pbo++] = img.atlasIndex;
-							// color (white) TODO nameColor
-							pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 1; pBuf[pbo++] = alpha;
-							pBuf[pbo++] = 0; // a_flags: (not a cell)
+							usedTextureIndices.add(pBuf[pbo++] = img.atlasIndex); // a_texture_index
+
+							pBuf[pbo++] = pBuf[pbo++] = 0; // a_silhouette_pos.xy
+							pBuf[pbo++] = -1; // a_silhouette_index
+
+							pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 1; pBuf[pbo++] = alpha; // a_color (white)
+							// a_flags : 0x80 | 0x100 | ignore gradient (0x200)
+							pBuf[pbo++] = (useNameColor ? 0x80 : 0) | (cell.sub ? 0x100 : 0) | 0x200; // a_flags
 
 							sumWidth += img.w - img.padding;
 						}
@@ -4569,7 +4644,7 @@
 				}
 				gl.activeTexture(gl.TEXTURE0); // default
 
-				gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, pbo / 14);
+				gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, pbo / 17);
 
 				// #5 : cell glow (not including deadTo pellets)
 				if (settings.cellGlow) {
