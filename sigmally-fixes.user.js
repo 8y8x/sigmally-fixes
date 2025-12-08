@@ -4158,8 +4158,6 @@
 			return render.addToAtlas(key, data, textCtx.canvas.width, textCtx.canvas.height, 'text', lineWidth * 3.75);
 		};
 
-
-
 		let circleCellBuffer = new Float32Array(0);
 		let circleCellAlphaBuffer = new Float32Array(0);
 		let circlePelletBuffer = new Float32Array(0);
@@ -4171,7 +4169,6 @@
 
 		let tracerFloats = new Float32Array(0);
 
-		// #4 : define ubo views
 		// firefox (and certain devices) adds some padding to uniform buffer sizes, so best to check its size
 		gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Border);
 		const borderUboBuffer = new ArrayBuffer(gl.getBufferParameter(gl.UNIFORM_BUFFER, gl.BUFFER_SIZE));
@@ -4631,6 +4628,67 @@
 				}
 
 				gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+			})();
+
+			(function tracers() {
+				if (!settings.tracer) return;
+				gl.useProgram(glconf.programs.tracer);
+				gl.bindVertexArray(glconf.tracerVao);
+
+				tracerUboFloats.set([ 0.5, 0.5, 0.5, 0.5, 2 ]); // #7f7f7f7f color, 2 line thickness
+				gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Tracer);
+				gl.bufferSubData(gl.UNIFORM_BUFFER, 0, tracerUboFloats);
+				gl.bindBuffer(gl.UNIFORM_BUFFER, null);
+
+				const mouse = input.toWorld(world.selected, input.current);
+				const inputs = input.views.get(world.selected);
+				if (!inputs) return;
+
+				// resize by powers of 2
+				let capacity = tracerFloats.length || 1;
+				while (vision.owned.size * 4 > capacity) capacity *= 2;
+				const resizing = capacity !== tracerFloats.length;
+				if (resizing) tracerFloats = new Float32Array(capacity);
+
+				let i = 0;
+				for (const id of vision.owned) {
+					const cell = world.cells.get(id);
+					if (!cell || cell.deadAt) continue;
+
+					const { x, y } = world.xyr(cell, undefined, now);
+					tracerFloats[i * 4] = x;
+					tracerFloats[i * 4 + 1] = y;
+					tracerFloats[i * 4 + 2] = mouse[0];
+					tracerFloats[i * 4 + 3] = mouse[1];
+
+					switch (inputs.lock?.type) {
+						case 'point':
+							if (now > inputs.lock.until) break;
+							tracerFloats[i * 4 + 2] = inputs.lock.world[0];
+							tracerFloats[i * 4 + 3] = inputs.lock.world[1];
+							break;
+						case 'horizontal':
+							tracerFloats[i * 4 + 3] = inputs.lock.world[1];
+							break;
+						case 'vertical':
+							tracerFloats[i * 4 + 2] = inputs.lock.world[0];
+							break;
+						case 'fixed':
+							const camera = world.singleCamera(vision, settings.camera !== 'default' ? 2 : 0, now);
+							const dx = mouse[0] - camera.sumX / camera.weight;
+							const dy = mouse[1] - camera.sumY / camera.weight;
+							const d = Math.hypot(dx, dy);
+							tracerFloats[i * 4 + 2] = x + dx * 1e6 / d;
+							tracerFloats[i * 4 + 3] = y + dy * 1e6 / d;
+					}
+					++i;
+				}
+
+				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.tracerBuffer);
+				if (resizing) gl.bufferData(gl.ARRAY_BUFFER, tracerFloats, gl.STATIC_DRAW);
+				else gl.bufferSubData(gl.ARRAY_BUFFER, 0, tracerFloats);
+				gl.bindBuffer(gl.ARRAY_BUFFER, null);
+				gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, i);
 			})();
 
 			ui.stats.update(world.selected);
