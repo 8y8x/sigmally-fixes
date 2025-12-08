@@ -3906,9 +3906,15 @@
 				layout(location = 7) in float a_flags;
 				${parts.cameraUbo}
 				${parts.playerUbo}
+				flat out vec4 f_active_outline;
+				flat out float f_active_radius;
 				flat out float f_blur;
 				flat out int f_flags;
+				flat out vec4 f_subtle_outline;
+				flat out float f_subtle_radius;
 				flat out int f_texture_index;
+				flat out vec4 f_unsplittable_outline;
+				flat out float f_unsplittable_radius;
 				out vec4 v_color;
 				out vec2 v_vertex;
 				out vec2 v_uv;
@@ -3923,15 +3929,52 @@
 					v_uv = (a_texture_pos + vertex01 * a_texture_size) / vec2(4096, 4096);
 					v_vertex = a_vertex;
 
+					// subtle outlines (at least 1px wide)
+					float subtle_thickness = max(max(a_size.x * 0.02, 2.0 / (540.0 * u_camera_scale)), 10.0);
+					f_subtle_radius = 1.0 - (subtle_thickness / a_size.x);
+					if ((f_flags & 0x02) != 0) {
+						f_subtle_outline = a_color * 0.9; // darker outline by default
+						f_subtle_outline.rgb += (u_cell_subtle_outline_override.rgb - f_subtle_outline.rgb)
+							* u_cell_subtle_outline_override.a;
+					} else {
+						f_subtle_outline = vec4(0, 0, 0, 0);
+					}
+
+					// unsplittable cell outline, 2x the subtle thickness
+					// (except at small sizes, it shouldn't look overly thick)
+					float unsplittable_thickness = max(max(a_size.x * 0.04, 4.0 / (540.0 * u_camera_scale)), 10.0);
+					f_unsplittable_radius = 1.0 - (unsplittable_thickness / a_size.x);
+					if ((f_flags & 0x10) != 0) {
+						f_unsplittable_outline = u_cell_unsplittable_outline;
+					} else {
+						f_unsplittable_outline = vec4(0, 0, 0, 0);
+					}
+
+					// active multibox outlines (thick, a % of the visible cell radius)
+					// or at minimum, 3x the subtle thickness
+					float active_thickness = max(max(a_size.x * 0.06, 6.0 / (540.0 * u_camera_scale)), 10.0);
+					f_active_radius = 1.0 - max(active_thickness / a_size.x, u_cell_active_outline_thickness);
+					if ((f_flags & 0x0c) != 0) {
+						f_active_outline = (f_flags & 0x04) != 0 ? u_cell_active_outline : u_cell_inactive_outline;
+					} else {
+						f_active_outline = vec4(0, 0, 0, 0);
+					}
+
 					vec2 clip_pos = -u_camera_pos + a_pos + a_vertex * a_size;
 					clip_pos *= u_camera_scale * vec2(1.0 / u_camera_ratio, -1.0);
 					gl_Position = vec4(clip_pos, 0, 1);
 				}
 			`, `
 				${parts.boilerplate}
+				flat in vec4 f_active_outline;
+				flat in float f_active_radius;
 				flat in float f_blur;
 				flat in int f_flags;
+				flat in vec4 f_subtle_outline;
+				flat in float f_subtle_radius;
 				flat in int f_texture_index;
+				flat in vec4 f_unsplittable_outline;
+				flat in float f_unsplittable_radius;
 				in vec4 v_color;
 				in vec2 v_vertex;
 				in vec2 v_uv;
@@ -3952,13 +3995,32 @@
 
 					if ((f_flags & 1) != 0) {
 						// decorate like a cell
-						if ((f_flags & 2) == 0) {
+						float d = length(v_vertex);
+
+						// color under skin
+						if ((f_flags & 0x20) != 0) {
 							out_color = vec4(v_color.rgb * (1.0 - texcol.a) + texcol.rgb, 1); // texture on top of color
 						} else {
 							out_color = texcol; // no color under skin
 						}
 
-						float d = length(v_vertex);
+						// subtle outline
+						if ((f_flags & 0x02) != 0) {
+							float a = clamp(f_blur * (d - f_subtle_radius), 0.0, 1.0) * f_subtle_outline.a;
+							out_color.rgb += (f_subtle_outline.rgb - out_color.rgb) * a;
+						}
+
+						// active multibox outline
+						if ((f_flags & 0x0c) != 0) {
+							float a = clamp(f_blur * (d - f_active_radius), 0.0, 1.0) * f_active_outline.a;
+							out_color.rgb += (f_active_outline.rgb - out_color.rgb) * a;
+						}
+
+						// unsplittable cell outline
+						if ((f_flags & 0x10) != 0) {
+							float a = clamp(f_blur * (d - f_unsplittable_radius), 0.0, 1.0) * f_unsplittable_outline.a;
+							out_color.rgb += (f_unsplittable_outline.rgb - out_color.rgb) * a;
+						}
 
 						// circle mask
 						float a = clamp(-f_blur * (d - 1.0), 0.0, 1.0);
@@ -4459,6 +4521,25 @@
 				}
 
 				// #4 : player cells and text
+				// for white cell outlines
+				let nextCellIdx = 0;
+				const unsplittable = new Set();
+				for (const id of vision.owned) {
+					const cell = world.cells.get(id);
+					if (cell && !cell.deadAt) ++nextCellIdx; // this counts towards the split limit
+				}
+				for (const id of vision.owned) {
+					const cell = world.cells.get(id);
+					if (!cell || cell.deadAt) continue;
+					// cells under 128 radius can't split; cells that would make a 17th (or above) cell can't split
+					if (cell.nr < 128 || nextCellIdx++ < 16) unsplittable.add(id);
+				}
+
+				const ownedByMe = new Set();
+				for (const vision of world.views.values()) {
+					for (const id of vision.owned) ownedByMe.add(id);
+				}
+
 				const digits = [];
 				for (let i = 0; i < 10; ++i) digits[i] = render.text(String(i), true, false);
 
@@ -4480,14 +4561,14 @@
 							pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 0; // a_color.rgb
 							// a_color.a: draw default viruses twice as strong for better contrast against light theme
 							pBuf[pbo++] = ((!aux.settings.darkTheme && virusSrc === defaultVirusSrc) ? 1.5 : 1) * alpha;
-							pBuf[pbo++] = 1 | 2; // a_flags: cell (1) | no background color (2)
+							pBuf[pbo++] = 1; // a_flags: cell (1)
 						} else {
 							// a_texture_pos.xy, a_texture_size.xy
 							pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 0;
 							pBuf[pbo++] = -1; // a_texture_index
 
 							pBuf[pbo++] = 1; pBuf[pbo++] = 0; pBuf[pbo++] = 0; pBuf[pbo++] = alpha; // a_color (red)
-							pBuf[pbo++] = 1; // a_flags: cell (1)
+							pBuf[pbo++] = 1 | 0x20; // a_flags: cell (1) | color under skin (0x20)
 						}
 						continue;
 					}
@@ -4516,7 +4597,14 @@
 					} else {
 						pBuf[pbo++] = cell.red; pBuf[pbo++] = cell.green; pBuf[pbo++] = cell.blue; pBuf[pbo++] = alpha;
 					}
-					pBuf[pbo++] = 1; // a_flags: cell (1)
+
+					let flags = 1; // cell
+					if (settings.cellOutlines) flags |= 2; // subtle outlines (or custom cell outlines)
+					if (vision.camera.merged && vision.owned.has(cell.id)) flags |= 4; // active
+					if (vision.camera.merged && ownedByMe.has(cell.id)) flags |= 8; // inactive
+					if (unsplittable.has(cell.id)) flags |= 0x10; // unsplittable
+					if (!cell.skin || settings.colorUnderSkin) flags |= 0x20; // color under skin
+					pBuf[pbo++] = flags; // a_flags
 
 					// now text
 					const lineHeight = r * 0.15; // note: images are 3x taller than line height
