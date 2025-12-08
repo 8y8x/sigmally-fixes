@@ -3811,13 +3811,13 @@
 					float gradient_a = ((f_flags & 0x200) != 0) ? 0.5 : (length(vertex01) / sqrt(2.0));
 					if ((f_flags & 0x100) != 0) {
 						// #eb9500 * 1.2 to #f9bf0d * 1.2
-						v_color = vec4(1.1058, 0.7011, 0, 1) * (1.0 - gradient_a)
-							+ vec4(1.1717, 0.8988, 0.0611, 1) * gradient_a;
+						v_color.rgb = vec3(1.1058, 0.7011, 0) * (1.0 - gradient_a)
+							+ vec3(1.1717, 0.8988, 0.0611) * gradient_a;
 					}
 
 					// custom name gradient
 					if ((f_flags & 0x80) != 0) {
-						v_color = u_cell_name_color1 * (1.0 - gradient_a) + u_cell_name_color2 * gradient_a;
+						v_color.rgb = u_cell_name_color1.rgb * (1.0 - gradient_a) + u_cell_name_color2.rgb * gradient_a;
 					}
 
 					// subtle outlines (at least 1px wide)
