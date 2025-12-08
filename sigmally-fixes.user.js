@@ -4162,7 +4162,7 @@
 			const key = 'IMG:' + src;
 			let atlased = render.atlas.get(key);
 			if (atlased) {
-				atlased.accessed = now;
+				if (atlased !== 'loading') atlased.accessed = now;
 				return atlased;
 			}
 			
@@ -4181,7 +4181,7 @@
 			const key = (isSilhouette ? 'SIL:' : 'TXT:') + text;
 			let atlased = render.atlas.get(key);
 			if (atlased) {
-				atlased.accessed = now;
+				if (atlased !== 'loading') atlased.accessed = now;
 				return atlased;
 			}
 
