@@ -4177,7 +4177,7 @@
 			const image = new Image();
 			image.addEventListener('load', () => {
 				render.addToAtlas(key, image, image.width, image.height, 'image', 0);
-				render.colors.set(key, aux.dominantColor(image)); // all external images must have a dominant color
+				render.colors.set(src, aux.dominantColor(image)); // all external images must have a dominant color
 			});
 			image.src = src;
 			return 'loading';
@@ -4408,6 +4408,7 @@
 				};
 
 				// #1 : non-deadTo pellets
+				let ccBuf = circleCellBuffer;
 				let cpBuf = circlePelletBuffer;
 				let pBuf = playerBuffer;
 				gl.useProgram(glconf.programs.circle);
@@ -4431,14 +4432,13 @@
 						gl.bufferData(gl.ARRAY_BUFFER, circlePelletAlphaBuffer.byteLength, gl.STATIC_DRAW);
 					}
 
-					const override = sigmod.settings.foodColor;
 					let o = 0;
 					circlePelletsUploaded = 0;
 					for (const pellet of world.pellets.values()) {
 						if (pellet.deadTo) continue;
 						cpBuf[o++] = pellet.tx; cpBuf[o++] = pellet.ty; cpBuf[o++] = pellet.tr;
-						if (override) {
-							cpBuf.set(override, o);
+						if (foodColor) {
+							cpBuf.set(foodColor, o);
 							o += 4;
 						} else {
 							cpBuf[o++] = pellet.red;
@@ -4468,7 +4468,18 @@
 				if (settings.pelletGlow && aux.settings.darkTheme) gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
 				gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, circlePelletsUploaded);
 
-				// #2 : deadTo pellets, cells, and text
+				// #2 : pellet glow, drawn below cells
+				if (settings.pelletGlow) {
+					gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+					circleUboFloats[0] = 0.25; // u_circle_alpha
+					circleUboFloats[1] = 2; // u_circle_scale
+					gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
+					gl.bufferSubData(gl.UNIFORM_BUFFER, 0, circleUboFloats);
+
+					gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, circlePelletsUploaded);
+				}
+
+				// #3 : deadTo pellets
 				gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 				gl.useProgram(glconf.programs.player);
 				gl.bindVertexArray(glconf.playerVao);
@@ -4495,15 +4506,20 @@
 					if (!pellet.deadTo) continue;
 					const killer = world.cells.get(pellet.deadTo);
 					const xyr = world.xyr(pellet, killer, now);
+
+					let { red, green, blue } = pellet;
+					let alpha = 1;
+					if (foodColor) [red, green, blue, alpha] = foodColor;
 					pBuf.set([
 						xyr.x, xyr.y, xyr.r, xyr.r, // square x,y,w,h
 						0, 0, 0, 0, -1, // texture x,y,w,h, and index
-						pellet.red, pellet.green, pellet.blue,
+						red, green, blue, alpha,
 						1, // flags: cell (1)
 					], pbo);
 					pbo += 14;
 				}
 
+				// #4 : player cells and text
 				const digits = [];
 				for (let i = 0; i < 10; ++i) digits[i] = render.text(String(i), true, false);
 
@@ -4555,7 +4571,12 @@
 					}
 
 					// a_color
-					pBuf[pbo++] = cell.red; pBuf[pbo++] = cell.green; pBuf[pbo++] = cell.blue; pBuf[pbo++] = alpha;
+					if (cellColor) {
+						pBuf[pbo++] = cellColor[0]; pBuf[pbo++] = cellColor[1]; pBuf[pbo++] = cellColor[2];
+						pBuf[pbo++] = cellColor[3] * alpha;
+					} else {
+						pBuf[pbo++] = cell.red; pBuf[pbo++] = cell.green; pBuf[pbo++] = cell.blue; pBuf[pbo++] = alpha;
+					}
 					pBuf[pbo++] = 1; // a_flags: cell (1)
 
 					// now text
@@ -4643,6 +4664,64 @@
 				gl.activeTexture(gl.TEXTURE0); // default
 
 				gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, pbo / 14);
+
+				// #5 : cell glow (not including deadTo pellets)
+				if (settings.cellGlow) {
+					gl.useProgram(glconf.programs.circle);
+					gl.bindVertexArray(glconf.circleCellVao);
+					gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+
+					circleUboFloats[0] = 0.25; // u_circle_alpha
+					// u_circle_scale (can't be too big, otherwise it looks weird when cells come into view)
+					circleUboFloats[1] = 1.5;
+					gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
+					gl.bufferSubData(gl.UNIFORM_BUFFER, 0, circleUboFloats);
+
+					// resize buffers if needed
+					if (cellsSorted.length > circleCellAlphaBuffer.length) {
+						let newLength = circleCellAlphaBuffer.length || 1;
+						while (cellsSorted.length * 7 > newLength) newLength *= 2;
+
+						circleCellBuffer = ccBuf = new Float32Array(newLength * 7);
+						gl.bindBuffer(gl.ARRAY_BUFFER, glconf.circleCellBuffer);
+						gl.bufferData(gl.ARRAY_BUFFER, circleCellBuffer.byteLength, gl.STATIC_DRAW);
+						circleCellAlphaBuffer = new Float32Array(newLength);
+						gl.bindBuffer(gl.ARRAY_BUFFER, glconf.circleCellAlphaBuffer);
+						gl.bufferData(gl.ARRAY_BUFFER, circleCellAlphaBuffer.byteLength, gl.STATIC_DRAW);
+					}
+
+					let o = 0;
+					let uploaded = 0;
+					for (const [cell, xyr] of cellsSorted) {
+						if (cell.jagged) continue; // viruses look weird with glow
+						ccBuf[o++] = xyr.x; ccBuf[o++] = xyr.y; ccBuf[o++] = xyr.r;
+
+						let { red, green, blue } = cell;
+						let alpha = 1;
+						if (cellColor) [red, green, blue, alpha] = cellColor;
+
+						const skinColor = cell.skin ? render.colors.get(cell.skin) : undefined;
+						if (skinColor) {
+							alpha = skinColor[3];
+							red += (skinColor[0] - red) * alpha;
+							green += (skinColor[1] - green) * alpha;
+							blue += (skinColor[2] - blue) * alpha;
+						}
+
+						ccBuf[o++] = red; ccBuf[o++] = green; ccBuf[o++] = blue; ccBuf[o++] = alpha;
+						// it looks kinda weird when cells get sucked in when being eaten
+						circleCellAlphaBuffer[uploaded++] = cellOrPelletAlpha(cell) * (cell.deadTo ? 0.25 : 1);
+					}
+
+					gl.bindBuffer(gl.ARRAY_BUFFER, glconf.circleCellBuffer);
+					gl.bufferSubData(gl.ARRAY_BUFFER, 0, circleCellBuffer);
+					gl.bindBuffer(gl.ARRAY_BUFFER, glconf.circleCellAlphaBuffer);
+					gl.bufferSubData(gl.ARRAY_BUFFER, 0, circleCellAlphaBuffer);
+
+					gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, uploaded);
+				}
+
+				gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 			})();
 
 			ui.stats.update(world.selected);
