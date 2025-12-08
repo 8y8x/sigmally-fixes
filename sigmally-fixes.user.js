@@ -1273,13 +1273,21 @@
 			// the mouse
 			oldCanvas.addEventListener('mousemove', e => dispatchEvent(new MouseEvent('mousemove', e)));
 
+			// when GPU acceleration is disabled, some devices (like my macbook) won't bother with webgl2, but others
+			// (like my PC) will use a slow, software-based renderer that can't hold 60FPS
+			const glGPUOnly = newCanvas.getContext('webgl2', { depth: false, failIfMajorPerformanceCaveat: true });
 			const gl = aux.require(
-				newCanvas.getContext('webgl2', { alpha: false, antialias: false, depth: false }),
+				newCanvas.getContext('webgl2', { depth: false }),
 				'Couldn\'t get WebGL2 context. Possible causes:\r\n' +
 				'- Maybe GPU/Hardware acceleration needs to be enabled in your browser settings; \r\n' +
 				'- Maybe your browser is just acting weird and it might fix itself after a restart; \r\n' +
 				'- Maybe your GPU drivers are exceptionally old.',
 			);
+			if (!glGPUOnly) {
+				const msg = 'WebGL2 failIfMajorPerformanceCaveat triggered: game will be very laggy! To fix, turn on ' +
+				'GPU/Hardware acceleration in your browser settings.';
+				prompt(msg, msg); // not fatal, but something the user should really fix
+			}
 			game.gl = gl;
 
 			// indicate that we will restore the context
