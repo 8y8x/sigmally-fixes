@@ -1284,8 +1284,8 @@
 				'- Maybe your GPU drivers are exceptionally old.',
 			);
 			if (!glGPUOnly) {
-				const msg = 'WebGL2 failIfMajorPerformanceCaveat triggered: game will be very laggy! To fix, turn on ' +
-				'GPU/Hardware acceleration in your browser settings.';
+				const msg = 'WebGL2 failIfMajorPerformanceCaveat triggered: your GPU was not detected and the game ' +
+					'will be laggy! Try enabling GPU/Hardware acceleration in your browser settings.';
 				prompt(msg, msg); // not fatal, but something the user should really fix
 			}
 			game.gl = gl;
