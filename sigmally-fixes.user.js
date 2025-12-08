@@ -2082,6 +2082,8 @@
 		/** @type {Map<symbol, Vision>} */
 		world.views = new Map();
 
+		world.synchronized = true; // 2.8.0: strictly for backwards compatibility with SigMod
+
 		world.alive = () => {
 			for (const vision of world.views.values()) {
 				for (const id of vision.owned) {
@@ -2554,6 +2556,20 @@
 						}
 
 						// (b) : add, upd
+						let primaryHash, secondaryHash;
+						for (const vision of world.views.values()) {
+							for (const id of vision.owned) {
+								const cell = world.cells.get(id);
+								if (!cell || cell.deadAt) continue;
+								if (vision.view === TAB_PRIMARY) primaryHash = cell.hash;
+								else if (vision.view === TAB_SECONDARY) secondaryHash = cell.hash;
+								else continue;
+								break;
+							}
+						}
+						const primaryVision = world.views.get(TAB_PRIMARY);
+						const secondaryVision = world.views.get(TAB_SECONDARY); // maybe undefined
+
 						while (true) {
 							const id = dat.getUint32(o, true);
 							o += 4;
@@ -2568,11 +2584,11 @@
 
 							let clan; [clan, o] = aux.readZTString(dat, o);
 
-							let red = 0.5, green = 0.5, blue = 0.5;
+							let red = 127, green = 127, blue = 127;
 							if (flags & 0x02) { // update color
-								red = dat.getUint8(o++) / 255;
-								green = dat.getUint8(o++) / 255;
-								blue = dat.getUint8(o++) / 255;
+								red = dat.getUint8(o++);
+								green = dat.getUint8(o++);
+								blue = dat.getUint8(o++);
 							}
 
 							/** @type {string | undefined} */
@@ -2598,9 +2614,9 @@
 								if (pellet) {
 									// update
 									if (flags & 0x02) {
-										pellet.red = red;
-										pellet.green = green;
-										pellet.blue = blue;
+										pellet.red = red / 255;
+										pellet.green = green / 255;
+										pellet.blue = blue / 255;
 									}
 									const record = pellet[view];
 									// reset born, deadAt, deadTo if necessary
@@ -2617,7 +2633,7 @@
 										tx: x, ty: y, tr: r,
 										vx: x, vy: y, vr: r, vweight: 0, vupdated: now,
 										born: now, deadAt: 0, deadTo: 0,
-										red, green, blue,
+										red: red / 255, green: green / 255, blue: blue / 255,
 										[TAB_PRIMARY]: new Float32Array(PELLET_RECORD_SIZE),
 										[TAB_SECONDARY]: new Float32Array(PELLET_RECORD_SIZE),
 										[TAB_SPECTATE]: new Float32Array(PELLET_RECORD_SIZE),
@@ -2629,9 +2645,9 @@
 								if (cell) {
 									// update
 									if (flags & 0x02) {
-										cell.red = red;
-										cell.green = green;
-										cell.blue = blue;
+										cell.red = red / 255;
+										cell.green = green / 255;
+										cell.blue = blue / 255;
 									}
 									if (flags & 0x04) cell.name = name || 'An unnamed cell';
 									if (flags & 0x08) cell.skin = skin ?? '';
@@ -2665,16 +2681,23 @@
 									cell.tr = r;
 								} else {
 									// new
+									const hash = String(red << 16 | green << 8 | blue) + name;
 									world.cells.set(id, cell = {
 										id,
 										vx: x, vy: y, vr: r, vjr: r, vupdated: now, vweight: 0,
 										tx: x, ty: y, tr: r,
 										born: now, deadAt: 0, deadTo: 0,
 										name: name || 'An unnamed cell', skin: skin ?? '', clan,
-										red, green, blue, jagged, sub,
+										red: red / 255, green: green / 255, blue: blue / 255,
+										jagged, sub, hash,
 										[TAB_PRIMARY]: new Float32Array(CELL_RECORD_SIZE),
 										[TAB_SECONDARY]: new Float32Array(CELL_RECORD_SIZE),
 										[TAB_SPECTATE]: new Float32Array(CELL_RECORD_SIZE),
+										merged: { // 2.8.0: strictly for SigMod backwards compatibility
+											get nx() { return cell.tx },
+											get ny() { return cell.ty },
+											get nr() { return cell.tr },
+										},
 									});
 
 									const record = cell[view];
@@ -2684,7 +2707,11 @@
 									record[2] = r;
 									record[CELL_TOPINDEX] = (record[CELL_TOPINDEX] + 1) & CELL_TOPINDEX_MASK;
 
-									// TODO: must predict which cells we will own, if merging
+									// predict which cells we will own
+									if (!isEject) {
+										if (hash === primaryHash) primaryVision.owned.add(id);
+										else if (hash === secondaryHash) secondaryVision.owned.add(id);
+									}
 								}
 							}
 						}
@@ -4411,6 +4438,12 @@
 				gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 			})();
 
+			// used in cells() and minimap()
+			const ownedByMe = new Map();
+			for (const vision of world.views.values()) {
+				for (const id of vision.owned) ownedByMe.set(id, vision.view);
+			}
+
 			(function cells() {
 				// don't render anything if the current tab is not connected
 				const con = net.connections.get(world.selected);
@@ -4548,11 +4581,6 @@
 					if (!cell || cell.deadAt) continue;
 					// cells under 128 radius can't split; cells that would make a 17th (or above) cell can't split
 					if (cell.tr < 128 || nextCellIdx++ >= 16) unsplittable.add(id);
-				}
-
-				const ownedByMe = new Map();
-				for (const vision of world.views.values()) {
-					for (const id of vision.owned) ownedByMe.set(id, vision.view);
 				}
 
 				const digits = [];
@@ -4983,13 +5011,9 @@
 				for (const cell of world.cells.values()) {
 					if (cell.deadAt) continue;
 
-					let ownedByOther = false;
-					for (const otherVision of world.views.values()) {
-						if (otherVision === vision) continue;
-						ownedByOther = otherVision.owned.has(cell.id) && cell.born >= otherVision.spawned;
-						if (ownedByOther) break;
-					}
-					if ((!cell.clan || cell.clan !== aux.userData?.clan) && !ownedByOther) continue;
+					const owner = ownedByMe.get(cell.id);
+					if (owner === world.selected) continue; // skip selected cells, will be drawn on top
+					if (!owner && (!cell.clan || cell.clan !== aux.userData?.clan)) continue;
 					drawCell(cell);
 
 					const hash = cell.name + (cell.red * 65536 + cell.green * 256 + cell.blue);
@@ -5030,10 +5054,6 @@
 					ownY /= ownN;
 					// draw name above player's cells
 					drawName(ownX, ownY, myName);
-
-					// send a hint to sigmod
-					ctx.globalAlpha = 0;
-					ctx.fillText(`X: ${ownX}, Y: ${ownY}`, 0, -1000);
 				}
 			})();
 
