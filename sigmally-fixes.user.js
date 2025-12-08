@@ -4335,64 +4335,6 @@
 				gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 			})();
 
-			/*(function TODO_lightweight_cells() {
-				// don't render anything if the current tab is not connected
-				const con = net.connections.get(world.selected);
-				if (!con?.handshake) return;
-
-				// set up circle program
-				gl.useProgram(glconf.programs.circle);
-				gl.bindVertexArray(glconf.circleCellVao);
-				circleUboFloats[0] = 1; // u_circle_alpha
-				circleUboFloats[1] = 0; // u_circle_scale
-				gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Circle);
-				gl.bufferSubData(gl.UNIFORM_BUFFER, 0, circleUboFloats);
-
-				const main = new Float32Array((world.pellets.size + world.cells.size) * 7);
-				const alpha = new Float32Array(world.pellets.size + world.cells.size);
-				let o = 0, oa = 0;
-				for (const pellet of world.pellets.values()) {
-					if (pellet.deadTo) {
-						const killer = world.cells.get(pellet.deadTo);
-						const xyr = world.xyr(pellet, killer, now);
-						main[o++] = xyr.x;
-						main[o++] = xyr.y;
-						main[o++] = xyr.r;
-					} else {
-						main[o++] = pellet.tx;
-						main[o++] = pellet.ty;
-						main[o++] = pellet.tr;
-					}
-					main[o++] = pellet.red;
-					main[o++] = pellet.green;
-					main[o++] = pellet.blue;
-					main[o++] = 1;
-					alpha[oa++] = 1;
-				}
-				const cellsSorted = [];
-				for (const cell of world.cells.values()) {
-					const killer = cell.deadTo ? world.cells.get(cell.deadTo) : undefined;
-					const xyr = world.xyr(cell, killer, now);
-					cellsSorted.push([cell, xyr, settings.jellyPhysics ? xyr.jr : xyr.r]);
-				}
-				cellsSorted.sort((a, b) => a[2] - b[2]);
-				for (const [cell, xyr] of cellsSorted) {
-					main[o++] = xyr.x;
-					main[o++] = xyr.y;
-					main[o++] = xyr.r;
-					main[o++] = cell.red;
-					main[o++] = cell.green;
-					main[o++] = cell.blue;
-					main[o++] = 1;
-					alpha[oa++] = 1;
-				}
-				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.circleCellBuffer);
-				gl.bufferData(gl.ARRAY_BUFFER, main, gl.STATIC_DRAW);
-				gl.bindBuffer(gl.ARRAY_BUFFER, glconf.circleCellAlphaBuffer);
-				gl.bufferData(gl.ARRAY_BUFFER, alpha, gl.STATIC_DRAW);
-				gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, alpha.length);
-			})();*/
-
 			(function cells() {
 				// don't render anything if the current tab is not connected
 				const con = net.connections.get(world.selected);
@@ -4437,15 +4379,12 @@
 					for (const pellet of world.pellets.values()) {
 						if (pellet.deadTo) continue;
 						cpBuf[o++] = pellet.tx; cpBuf[o++] = pellet.ty; cpBuf[o++] = pellet.tr;
-						if (foodColor) {
-							cpBuf.set(foodColor, o);
-							o += 4;
-						} else {
-							cpBuf[o++] = pellet.red;
-							cpBuf[o++] = pellet.green;
-							cpBuf[o++] = pellet.blue;
-							cpBuf[o++] = 1; // alpha
-						}
+
+						let { red, green, blue } = pellet;
+						let alpha = 1;
+						if (foodColor) [red, green, blue, alpha] = foodColor;
+						cpBuf[o++] = red; cpBuf[o++] = green; cpBuf[o++] = blue; cpBuf[o++] = alpha;
+
 						++circlePelletsUploaded;
 					}
 
