@@ -582,6 +582,7 @@
 			clanScaleFactor: 1,
 			colorUnderSkin: true,
 			delayDouble: false,
+			disableQuests: false,
 			drawDelay: 120,
 			jellySkinLag: true,
 			massBold: false,
@@ -1152,8 +1153,8 @@
 		setting('Show spectator tab ping', [checkbox('spectatorLatency')], () => settings.spectator,
 			'When enabled, shows another ping measurement for your spectator tab.');
 		setting('Separate XP boost from score', [checkbox('separateBoost')], () => true,
-			'If you have an XP boost, your score will be doubled. If you don\'t want that, you can separate the XP ' +
-			'boost from your score.');
+			'If you have an XP boost, your score in the top left will be doubled. If you don\'t want that, you can ' +
+			'separate the XP boost from your score. For example "Score: 69420" becomes "Score: 34710 (X2)"');
 		setting('Color under skin', [checkbox('colorUnderSkin')], () => true,
 			'When disabled, transparent skins will be see-through and not show your cell color. Turn this off ' +
 			'if using a bubble skin, for example.');
@@ -1165,8 +1166,13 @@
 			'is useful, but when using the doublesplit keybind, those small back pieces may go in front. ' +
 			'When this setting is enabled, a 50ms delay will be added to the second split only when in 5+ cells, ' +
 			'typically fixing the problem.');
-		setting(`Performance tab ${newTag}`, [checkbox('perftab')], () => true,
-			'TODO');
+		setting(`Ping variance ${newTag}`, [checkbox('perftab')], () => true,
+			`Visualizes how delayed or early every game tick is, for each tab. Every game tick should be 40ms apart, so for example if two game ticks were 45ms apart or 35ms apart, you will see a variance of 5ms. <br>
+			The graph is very sensitive, so <b>any</b> lag will be immediately visible. Some variance is normal.`);
+		setting(`Disable daily challenges ${newTag}`, [checkbox('disableQuests')], () => true,
+			'The food and playtime quests (or "daily challenges") send a lot of extra data (about 25% of sent ' +
+			'packets). If you don\'t care about your daily challenges, you can turn these quests off. <br>' +
+			'Note the other quests don\'t send any extra data so they can still be completed.');
 
 		// #3 : create options for sigmod
 		let sigmodInjection;
@@ -1637,7 +1643,7 @@
 				lastY = e.clientY;
 
 				if (!scrolling) return;
-				e.preventDefault(); // TODO why?
+				e.preventDefault();
 
 				list.scrollTop = scrollTop =
 					Math.min(Math.max(scrollTop + deltaY * list.scrollHeight / 182, 0), list.scrollHeight - 182);
@@ -1872,6 +1878,9 @@
 					return;
 				}
 
+				const fontFamily = `"${sigmod.settings.font || 'Ubuntu'}", Ubuntu`;
+				if (overlay.style.fontFamily !== fontFamily) overlay.style.fontFamily = fontFamily;
+
 				overlay.style.color = aux.settings.darkTheme ? '#fffc' : '#000c';
 				if (inputs.lock.type === 'horizontal') {
 					// left-right arrow svg
@@ -1910,10 +1919,10 @@
 			const overlay = document.createElement('div');
 			overlay.style.cssText = 'position: fixed; top: 10px; left: 50vw; width: 0; height: 65px; \
 				user-select: none; z-index: 2; background: #0006; transform: translateX(-50%); \
-				display: none; grid-template-rows: 1fr;';
+				display: none; grid-template-rows: 1fr; font: bold 14px Ubuntu;';
 			document.body.appendChild(overlay);
 
-			const tabs = new Map();
+			const tabs = perftab.tabs = new Map();
 			const pollTab = (view, enabled) => {
 				const oldTab = tabs.get(view);
 				if (oldTab && !enabled) {
@@ -1941,7 +1950,7 @@
 					else if (view === world.viewId.spectate) title = 'spec';
 
 					const caption = document.createElement('div');
-					caption.style.cssText = 'height: 20px; text-align: center; position: absolute; top: 0px; left: 0; width: 100px; color: #fff; font: bold 14px Ubuntu; line-height: 15px;';
+					caption.style.cssText = 'height: 20px; text-align: center; position: absolute; top: 0px; left: 0; width: 100px; color: #fff; line-height: 15px;';
 					caption.textContent = title;
 					container.appendChild(caption);
 
@@ -1965,6 +1974,9 @@
 					overlay.style.display = 'none';
 					return;
 				}
+
+				const fontFamily = `"${sigmod.settings.font || 'Ubuntu'}", Ubuntu`;
+				if (overlay.style.fontFamily !== fontFamily) overlay.style.fontFamily = fontFamily;
 
 				overlay.style.display = 'grid';
 				pollTab(world.viewId.primary, true);
@@ -2333,7 +2345,6 @@
 			let alpha = (now - cell.vupdated) / settings.drawDelay;
 			alpha = alpha > 1 ? 1 : alpha;
 
-			// TODO: why are we not using aux.exponentialEase?
 			const x = cell.vx + (tx - cell.vx) * alpha;
 			const y = cell.vy + (ty - cell.vy) * alpha;
 			const r = cell.vr + (cell.tr - cell.vr) * alpha;
@@ -2402,6 +2413,8 @@
 				rejections: 0,
 				retries: 0,
 				ws: connect(view),
+				DEBUG_sent: 0,
+				DEBUG_quest: 0,
 			});
 		};
 
@@ -2434,7 +2447,7 @@
 			ws.binaryType = 'arraybuffer';
 			ws.addEventListener('close', e => {
 				console.error('WebSocket closed:', e);
-				establishedCallback?.(); // TODO what does establishedCallback even do?
+				establishedCallback?.();
 				establishedCallback = undefined;
 
 				const connection = net.connections.get(view);
@@ -2544,7 +2557,7 @@
 								world.killPellet(view, killed, killerId, now);
 								if (vision.owned.has(killerId)) {
 									++world.stats.foodEaten;
-									net.food(view); // dumbass quest code go brrr
+									if (!settings.disableQuests) net.food(view); // dumbass quest code go brrr
 								}
 							} else {
 								const xyr = world.xyr(killed, undefined, now);
@@ -2969,6 +2982,7 @@
 			dat.setUint8(0, connection.handshake.shuffle[opcode]);
 			for (let i = 0; i < dataBuf.byteLength; ++i) dat.setUint8(1 + i, dataBuf[i]);
 			connection.ws.send(dat);
+			++connection.DEBUG_sent;
 		};
 
 		// #5 : export input functions
@@ -2986,6 +3000,7 @@
 			dat.setInt32(1, x, true);
 			dat.setInt32(5, y, true);
 			connection.ws.send(dat);
+			++connection.DEBUG_sent;
 		};
 
 		/** @param {number} opcode */
@@ -2993,6 +3008,8 @@
 			const connection = net.connections.get(view);
 			if (!connection?.handshake || connection.ws?.readyState !== WebSocket.OPEN) return;
 			connection.ws.send(connection.handshake.shuffle.slice(opcode, opcode + 1));
+			++connection.DEBUG_sent;
+			if (opcode === 0xc0 || opcode === 0xbf) ++connection.DEBUG_quest;
 		};
 		net.w = bindOpcode(21);
 		net.qdown = bindOpcode(18);
@@ -3020,6 +3037,7 @@
 			// flags = 0
 			for (let i = 0; i < msgBuf.byteLength; ++i) dat.setUint8(2 + i, msgBuf[i]);
 			connection.ws.send(dat);
+			++connection.DEBUG_sent;
 		};
 
 		/**
@@ -3119,6 +3137,7 @@
 
 		// dumbass quest code go brrr
 		setInterval(() => {
+			if (settings.disableQuests) return;
 			for (const view of net.connections.keys()) net.time(view);
 		}, 1000);
 
@@ -4571,7 +4590,9 @@
 					const killer = cell.deadTo ? world.cells.get(cell.deadTo) : undefined;
 					const xyr = world.xyr(cell, killer, now);
 					cellsSorted.push([cell, xyr, settings.jellyPhysics ? xyr.jr : xyr.r]);
-					numPlayerElements += 8; // TODO cell, text, mass digits, ...?
+					++numPlayerElements;
+					// overallocate a little for the text, don't want to compute much
+					if (cell.tr >= 64) numPlayerElements += 2 + String(cell.tr * cell.tr / 100).length;
 				}
 				cellsSorted.sort((a, b) => a[2] - b[2]);
 
