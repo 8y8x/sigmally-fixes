@@ -586,12 +586,6 @@
 			multiNames: [],
 			nameBold: false,
 			nameScaleFactor: 1,
-			nbox: false,
-			nboxCount: 3,
-			nboxCyclePair: '',
-			nboxHoldKeybinds: ['', '', '', '', '', '', '', ''],
-			nboxSelectKeybinds: ['', '', '', '', '', '', '', ''],
-			nboxSwitchPair: '',
 			outlineMulti: 0.2,
 			// delta's default colors, #ff00aa and #ffffff
 			outlineMultiColor: /** @type {[number, number, number, number]} */ ([1, 0, 2/3, 1]),
@@ -602,7 +596,6 @@
 			scrollFactor: 1,
 			selfSkin: '',
 			selfSkinMulti: '',
-			selfSkinNbox: ['', '', '', '', '', ''],
 			slowerJellyPhysics: false,
 			separateBoost: false,
 			showStats: true,
@@ -1045,7 +1038,7 @@
 			'smaller cell under a big cell.');
 		setting('Self skin URL', [image('selfSkin')], () => true,
 			'A custom skin for yourself. You can drag+drop a skin here, or use a direct URL. Not visible to others.');
-		setting('Secondary skin URL', [image('selfSkinMulti')], () => !!settings.multibox || settings.nbox,
+		setting('Secondary skin URL', [image('selfSkinMulti')], () => !!settings.multibox,
 			'A custom skin for your secondary multibox tab. You can drag+drop a skin here, or use a direct URL. Not ' +
 			'visible to others.');
 		setting('Map background', [image('background')], () => true,
@@ -1091,62 +1084,25 @@
 			'most other keybinds.');
 		setting(`Vision merging`,
 			[dropdown('synchronization', [['latest-smart', 'latest-smart'], ['latest', 'latest'], ['', '']])],
-			() => !!settings.multibox || settings.nbox || settings.spectator,
+			() => !!settings.multibox || settings.spectator,
 			'TODO');
-		setting('One-tab mode', [checkbox('mergeCamera')], () => !!settings.multibox || settings.nbox,
+		setting('One-tab mode', [checkbox('mergeCamera')], () => !!settings.multibox,
 			'When enabled, your camera will focus on both multibox tabs at once. Disable this if you prefer two-tab-' +
 			'style multiboxing. <br>' +
 			'When one-tab multiboxing, you <b>must</b> use the Natural (weighted) camera style.');
 		setting('Multibox outline thickness', [slider('outlineMulti', 0.2, 0, 1, 0.01, 2)],
-			() => !!settings.multibox || settings.nbox,
+			() => !!settings.multibox,
 			'When multiboxing, rings appear on your cells, the thickness being a % of your cell radius. This only ' +
 			'shows when you\'re near one of your tabs.');
-		setting('Current tab outline color', [color('outlineMultiColor')], () => !!settings.multibox || settings.nbox,
+		setting('Current tab outline color', [color('outlineMultiColor')], () => !!settings.multibox,
 			'The color of the rings around your current multibox tab. Only shown when near another tab. The slider ' +
 			'is the outline opacity.');
-		setting('Other tab outline color', [color('outlineMultiInactiveColor')], () => !!settings.multibox || settings.nbox,
+		setting('Other tab outline color', [color('outlineMultiInactiveColor')], () => !!settings.multibox,
 			'The color of the rings around your other inactive multibox tabs. Only shown when near another tab. The ' +
 			'slider is the outline opacity.');
-		setting('Block respawns near other tabs', [checkbox('blockNearbyRespawns')], () => !!settings.multibox || settings.nbox,
+		setting('Block respawns near other tabs', [checkbox('blockNearbyRespawns')], () => !!settings.multibox,
 			'When enabled, the respawn key (using SigMod) will be disabled if your multibox tabs are close. ' +
 			'This means you can spam the respawn key until your multibox tab spawns nearby.');
-
-		// don't allow turning on without multiboxing enabled first
-		setting('N-boxing', [checkbox('nbox')], () => !!settings.multibox || settings.nbox,
-			'<h1>ADVANCED USERS ONLY.</h1>' +
-			'Enables multiboxing with 3 or more tabs (known as triboxing or quadboxing). <br>' +
-			'Official Sigmally servers limit how many connections can be made from an IP address (usually 3). If you ' +
-			'can\'t connect some of your tabs: <br>' +
-			'- Try disabling the spectator tab for a third connection. <br>' +
-			'- Try using proxies to connect via multiple IP addresses. <br>' +
-			'- Try playing on a private server instead. <br>' +
-			'When enabled, the multibox keybind above will cycle between all tabs.');
-		setting('N-box tab count', [slider('nboxCount', 3, 3, 8, 1, 0)], () => settings.nbox,
-			'The number of tabs to make available for selection.');
-		setting('N-box change pair', [keybind('nboxCyclePair')],
-			() => settings.nbox,
-			'Pressing this key will cycle between selecting pairs #1/#2, #3/#4, #5/#6, and #7/#8. The last used tab ' +
-			'in this pair will be selected. (Think of this as switching between multiple multibox game windows.)');
-		setting('N-box switch within pair', [keybind('nboxSwitchPair')],
-			() => settings.nbox,
-			'Pressing this key will switch between tabs within your current pair (from #1/#2, #3/#4, #5/#6, or #7/#8).');
-		for (let i = 0; i < 8; ++i) {
-			setting(`N-box select tab #${i + 1}`, [keybind(i, settings.nboxSelectKeybinds)],
-				() => settings.nbox && settings.nboxCount >= i + 1,
-				`Pressing this key will switch to tab #${i + 1}.`);
-		}
-		for (let i = 0; i < 8; ++i) {
-			setting(`N-box hold tab #${i + 1}`, [keybind(i, settings.nboxHoldKeybinds)],
-				() => settings.nbox && settings.nboxCount >= i + 1,
-				`Holding this key will temporarily switch to tab #${i + 1}. Releasing all n-box keys will return you ` +
-				'to the last selected tab.');
-		}
-		for (let i = 2; i < 8; ++i) {
-			setting(`N-box skin #${i + 1}`, [image(i, settings.selfSkinNbox, `selfSkinNbox.${i}`)],
-				() => settings.nbox && settings.nboxCount >= i + 1,
-				`A custom skin for tab #${i + 1}. You can drag+drop a skin here, or use a direct URL. Not ` +
-				'visible to others.');
-		}
 
 		separator('• text •');
 		setting('Name scale factor', [slider('nameScaleFactor', 1, 0.5, 2, 0.01, 2)], () => true,
@@ -1982,11 +1938,10 @@
 					container.style.cssText = `grid-column: ${thisIndex}; width: 100px; position: relative;`;
 					overlay.appendChild(container);
 
-					const multiIndex = world.multis.indexOf(view);
-					let title;
-					if (multiIndex !== -1) title = `#${multiIndex + 1}`;
+					let title = '?';
+					if (view === world.viewId.primary) title = '#1';
+					else if (view === world.viewId.secondary) title = '#2';
 					else if (view === world.viewId.spectate) title = 'spec';
-					else title = '?'; // :)
 
 					const caption = document.createElement('div');
 					caption.style.cssText = 'height: 20px; text-align: center; position: absolute; top: 0px; left: 0; width: 100px; color: #fff; font: bold 14px Ubuntu; line-height: 15px;';
@@ -2015,9 +1970,8 @@
 				}
 
 				overlay.style.display = 'grid';
-				// TODO: order this nicely, multi => spectator => others
-				const numTabs = settings.nbox ? settings.nboxCount : settings.multibox ? 2 : 1;
-				for (let i = 0; i < world.multis.length; ++i) pollTab(world.multis[i], i < numTabs);
+				pollTab(world.viewId.primary, true);
+				pollTab(world.viewId.secondary, settings.multibox);
 				pollTab(world.viewId.spectate, settings.spectator);
 			}, 500);
 
@@ -2126,7 +2080,6 @@
 		world.cells = new Map();
 		/** @type {Map<number, Pellet>} */
 		world.pellets = new Map();
-		world.multis = [TAB_PRIMARY, TAB_SECONDARY, Symbol(), Symbol(), Symbol(), Symbol(), Symbol(), Symbol()];
 		world.viewId = { primary: TAB_PRIMARY, secondary: TAB_SECONDARY, spectate: TAB_SPECTATE };
 		world.selected = world.viewId.primary;
 		/** @type {Map<symbol, Vision>} */
@@ -2196,7 +2149,7 @@
 			}
 
 			// compute even if tabs won't actually be merged, because the multi outlines must still show
-			if (settings.multibox || settings.nbox) {
+			if (settings.multibox) {
 				for (const [view, vision] of world.views) {
 					const set = /** @type {Set<symbol>} */ (sets.get(view));
 
@@ -2251,7 +2204,6 @@
 
 				for (const view of set) {
 					const vision = /** @type {Vision} */ (world.views.get(view));
-
 					if (!settings.mergeCamera) {
 						({ mass, sumX, sumY, weight } = /** @type {SingleCamera} */ (cameras.get(view)));
 					}
@@ -2856,7 +2808,7 @@
 
 						if (myPosition) { // myPosition could be zero
 							if (myPosition - 1 >= lb.length) {
-								const nick = input.nick[world.multis.indexOf(view) || 0].value;
+								const nick = input.nick[view === world.viewId.secondary ? 1 : 0].value;
 								lb.push({
 									me: true,
 									name: aux.parseName(nick),
@@ -3106,7 +3058,7 @@
 		net.create(world.viewId.primary);
 		let lastChangedSpectate = -Infinity;
 		setInterval(() => {
-			if (!settings.multibox && !settings.nbox) {
+			if (!settings.multibox) {
 				world.selected = world.viewId.primary;
 				ui.captcha.reposition();
 				ui.linesplit.update();
@@ -3173,11 +3125,6 @@
 		input.views = new Map();
 		input.zoom = 1;
 
-		input.nboxSelectedPairs = [world.multis[0], world.multis[2], world.multis[4], world.multis[6]];
-		input.nboxSelectedReal = world.viewId.primary;
-		/** @type {Set<symbol>} */
-		input.nboxSelectedTemporary = new Set();
-
 		/** @param {symbol} view */
 		const create = view => {
 			const old = input.views.get(view);
@@ -3216,11 +3163,7 @@
 		const unfocused = () => ui.escOverlayVisible() || document.activeElement?.tagName === 'INPUT';
 
 		/** @param {symbol} view */
-		input.name = view => {
-			const i = world.multis.indexOf(view);
-			if (i <= 0) return input.nick[0]?.value || '';
-			else return settings.multiNames[i - 1] || '';
-		};
+		input.name = view => view === world.viewId.secondary ? input.nick[1].value : input.nick[0].value;
 
 		/**
 		 * @param {symbol} view
@@ -3354,7 +3297,7 @@
 			// i don't think browsers support DOM_DELTA_LINE, so assume DOM_DELTA_PIXEL otherwise
 			const deltaY = e.deltaMode === e.DOM_DELTA_PAGE ? e.deltaY : e.deltaY / 100;
 			input.zoom *= 0.8 ** (deltaY * settings.scrollFactor);
-			const minZoom = (!settings.multibox && !settings.nbox && !aux.settings.zoomout) ? 1 : 0.8 ** 15;
+			const minZoom = (!settings.multibox && !aux.settings.zoomout) ? 1 : 0.8 ** 15;
 			input.zoom = Math.min(Math.max(input.zoom, minZoom), 0.8 ** -21);
 		});
 
@@ -3370,67 +3313,10 @@
 			if (!release && settings.multibox && keybind === settings.multibox.toLowerCase()) {
 				e.preventDefault(); // prevent selecting anything on the page
 
-				// cycle to the next tab
-				const tabs = settings.nbox ? settings.nboxCount : 2;
-				const i = world.multis.indexOf(world.selected);
-				const newI = Math.min((i + 1) % tabs, world.multis.length);
-				input.nboxSelectedNonTemporary = world.multis[newI];
-
-				input.nboxSelectedTemporary.clear();
-				input.nboxSelectedNonTemporary = world.multis[newI];
-				input.nboxSelectedPairs[Math.floor(newI / 2)] = world.multis[newI];
-
-				input.tab(world.multis[newI]);
-				input.autoRespawn(world.multis[newI]);
+				const newTab = world.selected === world.viewId.primary ? world.viewId.secondary : world.viewId.primary
+				input.tab(newTab);
+				input.autoRespawn(newTab);
 				return true;
-			}
-
-			if (settings.nbox) {
-				if (!release && keybind === settings.nboxSwitchPair.toLowerCase()) {
-					const i = world.multis.indexOf(input.nboxSelectedReal);
-					const pair = Math.floor(i / 2);
-					// don't allow switching in a pair that doesn't exist
-					const partner = pair * 2 === i ? (i + 1 < settings.nboxCount ? i + 1 : i) : i - 1;
-					input.nboxSelectedReal = input.nboxSelectedPairs[pair] = world.multis[partner];
-					input.nboxSelectedTemporary.clear(); // but still clear the temporary holds regardless
-					input.tab(world.multis[partner]);
-					input.autoRespawn(world.selected);
-					return true;
-				}
-
-				if (!release && keybind === settings.nboxCyclePair.toLowerCase()) {
-					const i = world.multis.indexOf(input.nboxSelectedReal);
-					const pair = Math.floor(i / 2);
-					const newPair = (pair + 1) % Math.ceil(settings.nboxCount / 2);
-					input.nboxSelectedReal = input.nboxSelectedPairs[newPair];
-					input.nboxSelectedTemporary.clear();
-					input.tab(input.nboxSelectedReal);
-					input.autoRespawn(world.selected);
-					return true;
-				}
-
-				for (let i = 0; i < settings.nboxCount; ++i) {
-					if (!release && keybind === settings.nboxSelectKeybinds[i].toLowerCase()) {
-						input.nboxSelectedReal = input.nboxSelectedPairs[Math.floor(i / 2)] = world.multis[i];
-						input.nboxSelectedTemporary.clear();
-						input.tab(world.multis[i]);
-						input.autoRespawn(world.selected);
-						return true;
-					}
-
-					const hold = settings.nboxHoldKeybinds[i].toLowerCase();
-					if (keybind === hold || (release && hold.endsWith('+' + keybind))) {
-						if (release) {
-							input.nboxSelectedTemporary.delete(world.multis[i]);
-							if (input.nboxSelectedTemporary.size === 0) input.tab(input.nboxSelectedReal);
-						} else {
-							input.nboxSelectedTemporary.add(world.multis[i]);
-							input.tab(world.multis[i]);
-						}
-						input.autoRespawn(world.selected);
-						return true;
-					}
-				}
 			}
 
 			return false;
@@ -3619,27 +3505,20 @@
 		/** @type {HTMLInputElement[]} */
 		input.nick = [aux.require(document.querySelector('input#nick'),
 			'Can\'t find the nickname element. Try reloading the page?')];
+		const nick2 = input.nick[1] = input.nick[0].cloneNode(true);
+		nick2.maxLength = 50;
+		nick2.placeholder = 'Nickname #2';
+		nick2.value = settings.multiNames[0];
+		nick2.addEventListener('change', () => {
+			settings.multiNames[0] = nick2.value;
+			settings.save();
+		});
 
-		const nickList = () => {
-			const target = settings.nbox ? settings.nboxCount : settings.multibox ? 2 : 1;
-			for (let i = input.nick.length; i < target; ++i) {
-				const el = /** @type {HTMLInputElement} */ (input.nick[0].cloneNode(true));
-				Object.assign(el, { maxLength: 50, placeholder: `Nickname #${i + 1}`, value: settings.multiNames[i - 1] || '' });
-
-				el.addEventListener('change', () => {
-					settings.multiNames[i - 1] = el.value;
-					settings.save();
-				});
-
-				const row = /** @type {Element} */ (input.nick[0].parentElement?.cloneNode());
-				row.appendChild(el);
-				input.nick[input.nick.length - 1].parentElement?.insertAdjacentElement('afterend', row);
-				input.nick.push(el);
-			}
-			for (let i = input.nick.length; i > target; --i) input.nick.pop()?.parentElement?.remove();
-		};
-		nickList();
-		setInterval(nickList, 500);
+		const nick2Row = input.nick[0].parentElement.cloneNode();
+		nick2Row.appendChild(nick2);
+		nick2Row.style.display = settings.multibox ? '' : 'none';
+		setInterval(() => nick2Row.style.display = settings.multibox ? '' : 'none', 500);
+		input.nick[0].parentElement.insertAdjacentElement('afterend', nick2Row);
 
 		/** @type {HTMLButtonElement} */
 		const play = aux.require(document.querySelector('button#play-btn'),
@@ -4532,7 +4411,7 @@
 					const cell = world.cells.get(id);
 					if (!cell || cell.deadAt) continue;
 					// cells under 128 radius can't split; cells that would make a 17th (or above) cell can't split
-					if (cell.nr < 128 || nextCellIdx++ < 16) unsplittable.add(id);
+					if (cell.tr < 128 || nextCellIdx++ >= 16) unsplittable.add(id);
 				}
 
 				const ownedByMe = new Set();
@@ -4573,6 +4452,9 @@
 						continue;
 					}
 
+					const cellOwnedBySelected = vision.owned.has(cell.id);
+					const cellOwnedByMe = cellOwnedBySelected || ownedByMe.has(cell.id);
+
 					let pushedTexture = false;
 					if (cell.skin) {
 						const img = render.externalImage(cell.skin);
@@ -4600,8 +4482,8 @@
 
 					let flags = 1; // cell
 					if (settings.cellOutlines) flags |= 2; // subtle outlines (or custom cell outlines)
-					if (vision.camera.merged && vision.owned.has(cell.id)) flags |= 4; // active
-					if (vision.camera.merged && ownedByMe.has(cell.id)) flags |= 8; // inactive
+					if (vision.camera.merged && cellOwnedBySelected) flags |= 4; // active
+					if (vision.camera.merged && cellOwnedByMe) flags |= 8; // inactive
 					if (unsplittable.has(cell.id)) flags |= 0x10; // unsplittable
 					if (!cell.skin || settings.colorUnderSkin) flags |= 0x20; // color under skin
 					pBuf[pbo++] = flags; // a_flags
