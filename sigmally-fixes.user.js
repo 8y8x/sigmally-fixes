@@ -3973,7 +3973,7 @@
 							// #fff - #fff => #fff (respect emoji)
 							// #888 - #888 => #888 (respect emoji)
 							// #fff - #888 => #888 + color/2 (blur/antialias)
-							out_color = silcol + sharp(texcol - silcol) * v_color;
+							out_color = silcol * vec4(1, 1, 1, v_color.a) + sharp(texcol - silcol) * v_color;
 						} else {
 							out_color = sharp(texcol) * v_color;
 						}
