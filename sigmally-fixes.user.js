@@ -4112,9 +4112,10 @@
 		render.atlasImages = [];
 		render.atlas = new Map();
 		render.colors = new Map();
-		render.addToAtlas = (key, imageData, width, height, type, padding) => {
-			if (width > 4096 || height > 4096) {
-				// has to be its own texture
+		render.addToAtlas = (key, imageData, width, height, type, padding, isBackground) => {
+			if (width > 4096 || height > 4096 || isBackground) {
+				// has to be its own texture (backgrounds are their own texture so they can repeat easily, or if not
+				// then they are likely high quality?)
 				const texture = gl.createTexture();
 				gl.bindTexture(gl.TEXTURE_2D, texture);
 				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, imageData);
@@ -4128,7 +4129,7 @@
 				render.atlasImages.push(atlas);
 
 				const entry = {
-					atlasIndex: render.atlasImages.length - 1,
+					key, atlasIndex: render.atlasImages.length - 1,
 					x: 0, y: 0, w: width, h: height,
 					type, rectangle: undefined, padding, accessed: performance.now(),
 				};
@@ -4155,7 +4156,7 @@
 						gl.texSubImage2D(gl.TEXTURE_2D, 0, x * ATLAS_GRID, y * ATLAS_GRID, width, height, gl.RGBA, gl.UNSIGNED_BYTE, imageData);
 						gl.generateMipmap(gl.TEXTURE_2D);
 						const entry = {
-							atlasIndex: i, x: x * ATLAS_GRID, y: y * ATLAS_GRID, w: width, h: height,
+							key, atlasIndex: i, x: x * ATLAS_GRID, y: y * ATLAS_GRID, w: width, h: height,
 							type, rectangle: shiftedRectangle, padding,
 						};
 						render.atlas.set(key, entry);
@@ -4183,7 +4184,7 @@
 			gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, imageData);
 			gl.generateMipmap(gl.TEXTURE_2D); // generating mipmaps for the entire image is wasteful but faster(?)
 			const entry = {
-				atlasIndex: bestIndex,
+				key, atlasIndex: bestIndex,
 				x: 0, y: 0, w: width, h: height,
 				type, rectangle, padding, accessed: performance.now(),
 			};
@@ -4231,7 +4232,7 @@
 		// reload text once Ubuntu has loaded, prevents some serif fonts from being locked in
 		document.fonts.addEventListener('loadingdone', () => render.resetCache(img => img.type === 'text'));
 
-		render.externalImage = src => {
+		render.externalImage = (src, isBackground) => {
 			const key = 'IMG:' + src;
 			let atlased = render.atlas.get(key);
 			if (atlased) {
@@ -4242,14 +4243,14 @@
 			render.atlas.set(key, 'loading');
 			const image = new Image();
 			image.addEventListener('load', () => {
-				render.addToAtlas(key, image, image.width, image.height, 'image', 0);
-				render.colors.set(src, aux.dominantColor(image)); // all external images must have a dominant color
+				render.addToAtlas(key, image, image.width, image.height, 'image', 0, isBackground);
+				render.colors.set(key, aux.dominantColor(image)); // all external images must have a dominant color
 			});
 			image.src = src;
 			return 'loading';
 		};
 
-		render.localImage = dbKey => {
+		render.localImage = (dbKey, isBackground) => {
 			const key = 'LOC:' + dbKey;
 			let atlased = render.atlas.get(key);
 			if (atlased) {
@@ -4270,7 +4271,7 @@
 					const image = new Image();
 					// this can cause a lot of lag (~500ms) when loading a large image for the first time
 					image.addEventListener('load', () => {
-						render.addToAtlas(key, image, image.width, image.height, 'local', 0);
+						render.addToAtlas(key, image, image.width, image.height, 'local', 0, isBackground);
 						render.colors.set(key, aux.dominantColor(image));
 					});
 					image.src = /** @type {string} */ (reader.result);
@@ -4426,15 +4427,15 @@
 				gl.bindVertexArray(glconf.backgroundVao);
 
 				let img = render.BACKGROUND;
-				if (settings.background?.startsWith('🖼️')) img = render.localImage('background');
-				else if (settings.background) img = render.externalImage(settings.background);
+				if (settings.background?.startsWith('🖼️')) img = render.localImage('background', true);
+				else if (settings.background) img = render.externalImage(settings.background, true);
 				else if (aux.settings.showGrid) {
-					img = render.externalImage(aux.settings.darkTheme ? darkGridSrc : lightGridSrc);
+					img = render.externalImage(aux.settings.darkTheme ? darkGridSrc : lightGridSrc, true);
 				}
 
 				if (img && img !== 'loading') gl.bindTexture(gl.TEXTURE_2D, render.atlasImages[img.atlasIndex].texture);
 				else gl.bindTexture(gl.TEXTURE_2D, null);
-				const repeating = img && img.width <= 512 && img.height <= 512;
+				const repeating = img && img !== 'loading' && img.w <= 512 && img.h <= 512;
 
 				let borderColor;
 				let borderLrtb;
@@ -4448,8 +4449,8 @@
 				borderUboInts[8] = ((img && img !== 'loading') ? 0x01 : 0) | (aux.settings.darkTheme ? 0x02 : 0)
 					| (repeating ? 0x04 : 0) | (settings.rainbowBorder ? 0x08 : 0);
 
-				borderUboFloats[9] = 4096; // u_background_width
-				borderUboFloats[10] = 4096; // u_background_height
+				borderUboFloats[9] = img?.w ?? 1; // u_background_width
+				borderUboFloats[10] = img?.h ?? 1; // u_background_height
 				borderUboFloats[11] = now / 1000 * 0.2 % (Math.PI * 2); // u_border_time
 
 				gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Border);
@@ -4476,6 +4477,18 @@
 						if (alpha2 < alpha) alpha = alpha2;
 					}
 					return alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
+				};
+
+				const cellSkin = (cell, cellOwner) => {
+					if (cellOwner === world.viewId.primary && settings.selfSkin) {
+						if (settings.selfSkin.startsWith('🖼️')) return render.localImage('selfSkin');
+						else return render.externalImage(settings.selfSkin);
+					} else if (cellOwner === world.viewId.secondary && settings.selfSkinMulti) {
+						if (settings.selfSkinMulti.startsWith('🖼️')) return render.localImage('selfSkinMulti');
+						else return render.externalImage(settings.selfSkinMulti);
+					} else if (aux.settings.showSkins && cell.skin) {
+						return render.externalImage(cell.skin);
+					}
 				};
 
 				// #1 : non-deadTo pellets
@@ -4657,18 +4670,7 @@
 					}
 
 					const cellOwner = ownedByMe.get(cell.id);
-
-					let img;
-					if (cellOwner === world.viewId.primary && settings.selfSkin) {
-						if (settings.selfSkin.startsWith('🖼️')) img = render.localImage('selfSkin');
-						else img = render.externalImage(settings.selfSkin);
-					} else if (cellOwner === world.viewId.secondary && settings.selfSkinMulti) {
-						if (settings.selfSkinMulti.startsWith('🖼️')) img = render.localImage('selfSkinMulti');
-						else img = render.externalImage(settings.selfSkinMulti);
-					} else if (cell.skin) {
-						img = render.externalImage(cell.skin);
-					}
-
+					const img = cellSkin(cell, cellOwner);
 					if (img && img !== 'loading') {
 						// a_texture_pos.xy, a_texture_size.xy
 						pBuf[pbo++] = img.x + img.w * (1 - skinScale) / 2; // a_texture_pos.x
@@ -4793,7 +4795,8 @@
 							pBuf[pbo++] = pBuf[pbo++] = 0; // a_silhouette_pos.xy
 							pBuf[pbo++] = -1; // a_silhouette_index
 
-							pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 1; pBuf[pbo++] = alpha; // a_color (white)
+							// a_color (white)
+							pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 1; pBuf[pbo++] = alpha * settings.massOpacity;
 							// a_flags : 0x80 | 0x100 | ignore gradient (0x200)
 							pBuf[pbo++] = (useNameColor ? 0x80 : 0) | (cell.sub ? 0x100 : 0) | 0x200; // a_flags
 
@@ -4847,7 +4850,9 @@
 						let alpha = 1;
 						if (cellColor) [red, green, blue, alpha] = cellColor;
 
-						const skinColor = cell.skin ? render.colors.get(cell.skin) : undefined;
+						const cellOwner = ownedByMe.get(cell.id);
+						const img = cellSkin(cell, cellOwner);
+						const skinColor = img && img !== 'loading' ? render.colors.get(img.key) : undefined;
 						if (skinColor) {
 							alpha = skinColor[3];
 							red += (skinColor[0] - red) * alpha;
