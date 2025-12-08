@@ -4464,7 +4464,21 @@
 				for (const [cell, xyr] of cellsSorted) {
 					const { x, y, r, jr } = xyr;
 					const alpha = cellOrPelletAlpha(cell);
-					pBuf[pbo++] = x; pBuf[pbo++] = y; pBuf[pbo++] = pBuf[pbo++] = r; // a_size.y // a_pos.xy, a_size.xy
+					pBuf[pbo++] = x; pBuf[pbo++] = y; // a_pos.xy
+					// without jelly physics, the radius of cells is adjusted such that its subtle outline doesn't go
+					// past its original radius.
+					// jelly physics does not do this, so colliding cells need to look kinda 'joined' together,
+					// so we multiply the radius by 1.02 (approximately the size increase from the stroke thickness)
+					let skinScale = 1;
+					if (aux.settings.jellyPhysics && !cell.jagged) {
+						const strokeThickness = Math.max(jr * 0.01, 10);
+						pBuf[pbo++] = pBuf[pbo++] = jr + strokeThickness; // a_size.xy
+						if (settings.jellySkinLag) {
+							skinScale = Math.min((jr + strokeThickness) / (r + strokeThickness), 1);
+						}
+					} else {
+						pBuf[pbo++] = pBuf[pbo++] = r + 2; // a_size.xy
+					}
 
 					if (cell.jagged) {
 						// special case
@@ -4505,7 +4519,9 @@
 						if (img !== 'loading') {
 							pushedTexture = true;
 							// a_texture_pos.xy, a_texture_size.xy
-							pBuf[pbo++] = img.x; pBuf[pbo++] = img.y; pBuf[pbo++] = img.w; pBuf[pbo++] = img.h;
+							pBuf[pbo++] = img.x + img.w * (1 - skinScale) / 2; // a_texture_pos.x
+							pBuf[pbo++] = img.y + img.h * (1 - skinScale) / 2; // a_texture_pos.y
+							pBuf[pbo++] = img.w * skinScale; pBuf[pbo++] = img.h * skinScale; // a_texture_pos.xy
 							pBuf[pbo++] = img.atlasIndex; // a_texture_index
 							usedTextureIndices.add(img.atlasIndex);
 						}
