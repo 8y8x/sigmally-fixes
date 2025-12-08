@@ -889,7 +889,7 @@
 					transaction.addEventListener('complete', () => {
 						/** @type {string} */ (parent[property]) = input.value = `🖼️ ${file.name}`;
 						settingsExt.save();
-						render.resetDatabaseCache();
+						render.resetCache(img => img.type === 'local');
 					});
 					transaction.addEventListener('error', err => {
 						input.value = '(failed to load image)';
@@ -1280,10 +1280,7 @@
 			newCanvas.addEventListener('webglcontextlost', e => e.preventDefault()); 
 			newCanvas.addEventListener('webglcontextrestored', () => {
 				glconf.init();
-				// cleanup old caches (after render), as we can't do this within glconf.init()
-				render.resetDatabaseCache();
-				render.resetTextCache();
-				render.resetTextureCache();
+				render.resetCache(() => true); // cleanup old caches (after render), can't do this within glconf.init()
 			});
 
 			const resize = () => {
@@ -4089,6 +4086,29 @@
 		render.atlas = new Map();
 		render.colors = new Map();
 		render.addToAtlas = (key, imageData, width, height, type, padding) => {
+			if (width > 4096 || height > 4096) {
+				// has to be its own texture
+				const texture = gl.createTexture();
+				gl.bindTexture(gl.TEXTURE_2D, texture);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, imageData);
+				gl.generateMipmap(gl.TEXTURE_2D);
+				const rectangle = 1n << BigInt(ATLAS_PER_ROW * ATLAS_PER_ROW) - 1n;
+				const atlas = {
+					texture,
+					reservedMap: undefined,
+					removed: 0,
+				};
+				render.atlasImages.push(atlas);
+
+				const entry = {
+					atlasIndex: render.atlasImages.length - 1,
+					x: 0, y: 0, w: width, h: height,
+					type, rectangle: undefined, padding, accessed: performance.now(),
+				};
+				render.atlas.set(key, entry);
+				return entry;
+			}
+
 			const upWidth = Math.ceil(width / ATLAS_GRID) * ATLAS_GRID;
 			const upHeight = Math.ceil(height / ATLAS_GRID) * ATLAS_GRID;
 			let rectangle = 1n;
@@ -4143,6 +4163,16 @@
 			render.atlas.delete(key);
 			const atlasImg = render.atlasImages[img.atlasIndex];
 			++atlasImg.removed;
+
+			if (atlasImg.reservedMap === undefined || img.rectangle === undefined) {
+				// this is not really an "atlas" and can't be reused
+				gl.deleteTexture(atlasImg.texture);
+				render.atlasImages.splice(img.atlasIndex, 1);
+				for (const otherImg of render.atlas.values()) {
+					if (otherImg.atlasIndex >= img.atlasIndex) --otherImg.atlasIndex;
+				}
+				return;
+			}
 			atlasImg.reservedMap ^= img.rectangle;
 
 			gl.bindTexture(gl.TEXTURE_2D, atlasImg.texture);
@@ -4152,12 +4182,16 @@
 		};
 
 		render.resetCache = (filter) => {
+			const DEBUG_keysDeleted = [];
 			const mipmapsNeeded = new Set();
 			for (const [key, img] of render.atlas) {
 				if (!filter(img)) continue;
 				render.deleteFromAtlas(key, img, true);
 				mipmapsNeeded.add(img.atlasIndex);
+				DEBUG_keysDeleted.push(key);
 			}
+
+			console.log('render.resetCache:', DEBUG_keysDeleted);
 
 			for (const index of mipmapsNeeded) {
 				gl.bindTexture(gl.TEXTURE_2D, render.atlasImages[index].texture);
@@ -4182,6 +4216,37 @@
 				render.colors.set(src, aux.dominantColor(image)); // all external images must have a dominant color
 			});
 			image.src = src;
+			return 'loading';
+		};
+
+		render.localImage = dbKey => {
+			const key = 'LOC:' + dbKey;
+			let atlased = render.atlas.get(key);
+			if (atlased) {
+				if (atlased !== 'loading') atlased.accessed = now;
+				return atlased;
+			}
+
+			const database = settings.database;
+			if (!database) return 'loading';
+
+			render.atlas.set(key, 'loading');
+			const req = database.transaction('images').objectStore('images').get(dbKey);
+			req.addEventListener('success', () => {
+				if (!req.result) return;
+
+				const reader = new FileReader();
+				reader.addEventListener('load', () => {
+					const image = new Image();
+					// this can cause a lot of lag (~500ms) when loading a large image for the first time
+					image.addEventListener('load', () => {
+						render.addToAtlas(key, image, image.width, image.height, 'local', 0);
+						render.colors.set(key, aux.dominantColor(image));
+					});
+					image.src = /** @type {string} */ (reader.result);
+				});
+				reader.readAsDataURL(req.result); // must decompress PNG/JPEG/similar
+			});
 			return 'loading';
 		};
 
@@ -4482,9 +4547,9 @@
 					if (cell.tr < 128 || nextCellIdx++ >= 16) unsplittable.add(id);
 				}
 
-				const ownedByMe = new Set();
+				const ownedByMe = new Map();
 				for (const vision of world.views.values()) {
-					for (const id of vision.owned) ownedByMe.add(id);
+					for (const id of vision.owned) ownedByMe.set(id, vision.view);
 				}
 
 				const digits = [];
@@ -4540,23 +4605,27 @@
 						continue;
 					}
 
-					const cellOwnedBySelected = vision.owned.has(cell.id);
-					const cellOwnedByMe = cellOwnedBySelected || ownedByMe.has(cell.id);
+					const cellOwner = ownedByMe.get(cell.id);
 
-					let pushedTexture = false;
-					if (cell.skin) {
-						const img = render.externalImage(cell.skin);
-						if (img !== 'loading') {
-							pushedTexture = true;
-							// a_texture_pos.xy, a_texture_size.xy
-							pBuf[pbo++] = img.x + img.w * (1 - skinScale) / 2; // a_texture_pos.x
-							pBuf[pbo++] = img.y + img.h * (1 - skinScale) / 2; // a_texture_pos.y
-							pBuf[pbo++] = img.w * skinScale; pBuf[pbo++] = img.h * skinScale; // a_texture_pos.xy
-							pBuf[pbo++] = img.atlasIndex; // a_texture_index
-							usedTextureIndices.add(img.atlasIndex);
-						}
+					let img;
+					if (cellOwner === world.viewId.primary && settings.selfSkin) {
+						if (settings.selfSkin.startsWith('🖼️')) img = render.localImage('selfSkin');
+						else img = render.externalImage(settings.selfSkin);
+					} else if (cellOwner === world.viewId.secondary && settings.selfSkinMulti) {
+						if (settings.selfSkinMulti.startsWith('🖼️')) img = render.localImage('selfSkinMulti');
+						else img = render.externalImage(settings.selfSkinMulti);
+					} else if (cell.skin) {
+						img = render.externalImage(cell.skin);
 					}
-					if (!pushedTexture) {
+
+					if (img && img !== 'loading') {
+						// a_texture_pos.xy, a_texture_size.xy
+						pBuf[pbo++] = img.x + img.w * (1 - skinScale) / 2; // a_texture_pos.x
+						pBuf[pbo++] = img.y + img.h * (1 - skinScale) / 2; // a_texture_pos.y
+						pBuf[pbo++] = img.w * skinScale; pBuf[pbo++] = img.h * skinScale; // a_texture_pos.xy
+						pBuf[pbo++] = img.atlasIndex; // a_texture_index
+						usedTextureIndices.add(img.atlasIndex);
+					} else {
 						// a_texture_pos.xy, a_texture_size.xy
 						pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 0;
 						pBuf[pbo++] = -1; // a_texture_index
@@ -4575,8 +4644,8 @@
 
 					let flags = 1; // cell
 					if (settings.cellOutlines) flags |= 2; // subtle outlines (or custom cell outlines)
-					if (vision.camera.merged && cellOwnedBySelected) flags |= 4; // active
-					if (vision.camera.merged && cellOwnedByMe) flags |= 8; // inactive
+					if (vision.camera.merged && cellOwner === world.selected) flags |= 4; // active
+					if (vision.camera.merged && cellOwner && cellOwner !== world.selected) flags |= 8; // inactive
 					if (unsplittable.has(cell.id)) flags |= 0x10; // unsplittable
 					if (!cell.skin || settings.colorUnderSkin) flags |= 0x20; // color under skin
 					pBuf[pbo++] = flags; // a_flags
@@ -4595,7 +4664,7 @@
 						else clanLine = baseLine;
 					}
 
-					const useNameColor = cellOwnedByMe && sigmod.settings.nameColor1;
+					const useNameColor = cellOwner && sigmod.settings.nameColor1;
 					const useSilhouette = useNameColor || cell.sub;
 
 					if (clanName) {
