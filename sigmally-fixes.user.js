@@ -337,7 +337,7 @@
 
 		// the iconic Ubuntu font was replaced with Arial for some stupid reason, no one wants that
 		const link = document.createElement('link');
-		link.href = `https://fonts.googleapis.com/css2?family=Ubuntu:wght@400,700&display=swap`;
+		link.href = 'https://fonts.googleapis.com/css2?family=Ubuntu:wght@400;700&display=swap';
 		link.rel = 'stylesheet';
 		document.head.appendChild(link);
 
