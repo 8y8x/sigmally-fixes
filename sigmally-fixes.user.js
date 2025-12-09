@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.8.0
+// @version      2.8.1
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -25,7 +25,7 @@
 'use strict';
 
 (() => {
-	const sfVersion = '2.8.0';
+	const sfVersion = '2.8.1';
 	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -4689,7 +4689,8 @@
 
 							pBuf[pbo++] = pBuf[pbo++] = pBuf[pbo++] = 0; // a_color.rgb
 							// a_color.a: draw default viruses twice as strong for better contrast against light theme
-							pBuf[pbo++] = ((!aux.settings.darkTheme && virusSrc === defaultVirusSrc) ? 1.5 : 1) * alpha;
+							pBuf[pbo++] = ((!aux.settings.darkTheme && virusSrc === defaultVirusSrc) ? 1.5 : 1) * alpha
+								* settings.cellOpacity;
 							pBuf[pbo++] = 1; // a_flags: cell (1)
 						} else {
 							// a_texture_pos.xy, a_texture_size.xy
@@ -4699,7 +4700,8 @@
 							pBuf[pbo++] = pBuf[pbo++] = 0; // a_silhouette_pos.xy
 							pBuf[pbo++] = -1; // a_silhouette_index
 
-							pBuf[pbo++] = 1; pBuf[pbo++] = 0; pBuf[pbo++] = 0; pBuf[pbo++] = alpha; // a_color (red)
+							pBuf[pbo++] = 1; pBuf[pbo++] = 0; pBuf[pbo++] = 0;
+							pBuf[pbo++] = alpha * settings.cellOpacity; // a_color (red)
 							pBuf[pbo++] = 1 | 0x20; // a_flags: cell (1) | color under skin (0x20)
 						}
 						continue;
@@ -4726,9 +4728,10 @@
 					// a_color
 					if (cellColor) {
 						pBuf[pbo++] = cellColor[0]; pBuf[pbo++] = cellColor[1]; pBuf[pbo++] = cellColor[2];
-						pBuf[pbo++] = cellColor[3] * alpha;
+						pBuf[pbo++] = cellColor[3] * alpha * settings.cellOpacity;
 					} else {
-						pBuf[pbo++] = cell.red; pBuf[pbo++] = cell.green; pBuf[pbo++] = cell.blue; pBuf[pbo++] = alpha;
+						pBuf[pbo++] = cell.red; pBuf[pbo++] = cell.green; pBuf[pbo++] = cell.blue;
+						pBuf[pbo++] = alpha * settings.cellOpacity;
 					}
 
 					let flags = 1; // cell
