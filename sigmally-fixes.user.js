@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.8.1
+// @version      2.8.2-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -25,7 +25,7 @@
 'use strict';
 
 (() => {
-	const sfVersion = '2.8.1';
+	const sfVersion = '2.8.2-BETA';
 	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -2130,7 +2130,7 @@
 			for (const id of vision.owned) {
 				const cell = world.cells.get(id);
 				// don't include cells owned before respawning
-				if (!cell || cell.born < vision.spawned) continue;
+				if (!cell || cell[vision.view][CELL_BORN] < vision.spawned) continue;
 
 				if (settings.cameraMovement === 'instant') {
 					const xyr = world.xyr(cell, undefined, now);
@@ -4739,7 +4739,7 @@
 					if (vision.camera.merged && cellOwner === world.selected) flags |= 4; // active
 					if (vision.camera.merged && cellOwner && cellOwner !== world.selected) flags |= 8; // inactive
 					if (unsplittable.has(cell.id)) flags |= 0x10; // unsplittable
-					if (!cell.skin || settings.colorUnderSkin) flags |= 0x20; // color under skin
+					if (!img || img === 'loading' || settings.colorUnderSkin) flags |= 0x20; // color under skin
 					pBuf[pbo++] = flags; // a_flags
 
 					// now text
