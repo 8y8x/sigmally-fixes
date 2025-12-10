@@ -1818,6 +1818,7 @@
 				const mount = document.createElement('div');
 				document.body.appendChild(mount);
 				const reposition = () => {
+					let replacesModeButtons = false;
 					if (view === world.viewId.spectate) {
 						mount.style.cssText = 'position: fixed; bottom: 10px; left: 50vw; transform: translateX(-50%); \
 							z-index: 1000;';
@@ -1828,13 +1829,13 @@
 						mount.style.cssText = `position: fixed; top: ${place ? place.top + 'px' : '50vh'};
 							left: ${place ? (place.left + place.width / 2) + 'px' : '50vw'};
 							transform: translate(-50%, ${place ? '0%' : '-50%'}); z-index: 1000;`;
+						replacesModeButtons = type !== 'v3'; // v3 is invisible, so it shouldn't hide the play buttons
 					} else {
 						mount.style.cssText = `position: fixed; top: 50vh; left: 50vw; transform: translate(-50%, -50%);
 							z-index: 1000;`;
 					}
 
-					// v3 is invisible, so it shouldn't hide the play buttons
-					return type !== 'v3' && view !== world.viewId.spectate;
+					return replacesModeButtons;
 				};
 
 				/** @type {CaptchaInstance} */
@@ -3371,7 +3372,7 @@
 			if (!release && settings.multibox && keybind === settings.multibox.toLowerCase()) {
 				e.preventDefault(); // prevent selecting anything on the page
 
-				const newTab = world.selected === world.viewId.primary ? world.viewId.secondary : world.viewId.primary
+				const newTab = world.selected === world.viewId.primary ? world.viewId.secondary : world.viewId.primary;
 				input.tab(newTab);
 				input.autoRespawn(newTab);
 				return true;
