@@ -3870,8 +3870,8 @@
 
 					vec2 vertex01 = a_vertex * 0.5 + 0.5;
 					v_color = a_color;
-					v_uv = (a_texture_pos + vertex01 * a_texture_size) / vec2(4096, 4096);
-					v_silhouette_uv = (a_silhouette_pos + vertex01 * a_texture_size) / vec2(4096, 4096);
+					v_uv = (a_texture_pos + 1.0 + vertex01 * (a_texture_size - 2.0)) / vec2(4096, 4096);
+					v_silhouette_uv = (a_silhouette_pos + 1.0 + vertex01 * (a_texture_size - 2.0)) / vec2(4096, 4096);
 					v_vertex = a_vertex;
 
 					// gold name
@@ -4172,8 +4172,10 @@
 				return entry;
 			}
 
-			const upWidth = Math.ceil(width / ATLAS_GRID) * ATLAS_GRID;
-			const upHeight = Math.ceil(height / ATLAS_GRID) * ATLAS_GRID;
+			// add padding, so text is less likely to have lines around its edges
+			// use 12 because all sigmally skins are conveniently 500x500 (instead of 512x512)
+			const upWidth = Math.ceil((width + 12) / ATLAS_GRID) * ATLAS_GRID;
+			const upHeight = Math.ceil((height + 12) / ATLAS_GRID) * ATLAS_GRID;
 			let rectangle = 1n;
 			for (let x = 1; x * ATLAS_GRID < upWidth; ++x) rectangle |= rectangle << 1n;
 			for (let y = 1; y * ATLAS_GRID < upHeight; ++y) rectangle |= rectangle << BigInt(ATLAS_PER_ROW);
@@ -4387,7 +4389,6 @@
 		let lastCacheClean = performance.now();
 		render.fps = 0;
 		render.lastFrame = performance.now();
-		render.BACKGROUND = null;
 		const renderGame = () => {
 			now = performance.now();
 			const dt = Math.max(now - render.lastFrame, 0.1) / 1000; // there's a chance (now - lastFrame) can be 0
@@ -4463,7 +4464,7 @@
 				gl.useProgram(glconf.programs.bg);
 				gl.bindVertexArray(glconf.backgroundVao);
 
-				let img = render.BACKGROUND;
+				let img;
 				if (settings.background?.startsWith('🖼️')) img = render.localImage('background', true);
 				else if (settings.background) img = render.externalImage(settings.background, true);
 				else if (aux.settings.showGrid) {
@@ -5094,7 +5095,6 @@
 					}
 				}
 
-				console.log(avgPos);
 				for (const entry of avgPos.values()) drawName(entry.x / entry.n, entry.y / entry.n, entry.name);
 
 				// draw my cells above everyone else
