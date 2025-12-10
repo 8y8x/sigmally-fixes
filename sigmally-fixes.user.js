@@ -4211,7 +4211,7 @@
 
 			const texture = gl.createTexture();
 			gl.bindTexture(gl.TEXTURE_2D, texture);
-			gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, 4096, 4096);
+			gl.texStorage2D(gl.TEXTURE_2D, 6, gl.RGBA8, 4096, 4096);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
 			const atlas = {
 				texture,
