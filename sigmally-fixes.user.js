@@ -5094,7 +5094,8 @@
 					}
 				}
 
-				for (const entry of avgPos) drawName(entry.x / entry.n, entry.y / entry.n, entry.name);
+				console.log(avgPos);
+				for (const entry of avgPos.values()) drawName(entry.x / entry.n, entry.y / entry.n, entry.name);
 
 				// draw my cells above everyone else
 				let myName = '', ownN = 0, ownX = 0, ownY = 0;
