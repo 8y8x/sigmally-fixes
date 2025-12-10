@@ -511,9 +511,10 @@
 				Object.defineProperty(keys, 'respawn', getset('respawnKey'));
 
 				if (keys.line) {
-					sigmod.settings.horizontalLineKey = keys.line.horizontal;
-					sigmod.settings.verticalLineKey = keys.line.vertical;
-					sigmod.settings.fixedLineKey = keys.line.fixed;
+					// cast to string, these may be corrupted if sigfixes is ever run twice
+					sigmod.settings.horizontalLineKey = String(keys.line.horizontal);
+					sigmod.settings.verticalLineKey = String(keys.line.vertical);
+					sigmod.settings.fixedLineKey = String(keys.line.fixed);
 					Object.defineProperties(keys.line, {
 						horizontal: getset('horizontalLineKey'),
 						vertical: getset('verticalLineKey'),
@@ -522,9 +523,9 @@
 				}
 
 				if (keys.splits) {
-					sigmod.settings.doubleKey = keys.splits.double;
-					sigmod.settings.tripleKey = keys.splits.triple;
-					sigmod.settings.quadKey = keys.splits.quad;
+					sigmod.settings.doubleKey = String(keys.splits.double);
+					sigmod.settings.tripleKey = String(keys.splits.triple);
+					sigmod.settings.quadKey = String(keys.splits.quad);
 					Object.defineProperties(keys.splits, {
 						double: getset('doubleKey'),
 						triple: getset('tripleKey'),
@@ -4152,6 +4153,7 @@
 				const texture = gl.createTexture();
 				gl.bindTexture(gl.TEXTURE_2D, texture);
 				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, imageData);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
 				gl.generateMipmap(gl.TEXTURE_2D);
 				const rectangle = 1n << BigInt(ATLAS_PER_ROW * ATLAS_PER_ROW) - 1n;
 				const atlas = {
@@ -4207,6 +4209,7 @@
 			const texture = gl.createTexture();
 			gl.bindTexture(gl.TEXTURE_2D, texture);
 			gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, 4096, 4096);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
 			const atlas = {
 				texture,
 				reservedMap: rectangle,
