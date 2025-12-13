@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.8.2
+// @version      2.8.3-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -25,7 +25,7 @@
 'use strict';
 
 (() => {
-	const sfVersion = '2.8.2';
+	const sfVersion = '2.8.3-BETA';
 	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -5085,14 +5085,13 @@
 					if (!owner && (!cell.clan || cell.clan !== aux.userData?.clan)) continue;
 					drawCell(cell);
 
-					const hash = cell.name + (cell.red * 65536 + cell.green * 256 + cell.blue);
-					const entry = avgPos.get(hash);
+					const entry = avgPos.get(cell.hash);
 					if (entry) {
 						++entry.n;
 						entry.x += cell.tx;
 						entry.y += cell.ty;
 					} else {
-						avgPos.set(hash, { name: cell.name, n: 1, x: cell.tx, y: cell.ty });
+						avgPos.set(cell.hash, { name: cell.name, n: 1, x: cell.tx, y: cell.ty });
 					}
 				}
 
