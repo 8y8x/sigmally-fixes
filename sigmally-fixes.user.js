@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.8.3-BETA
+// @version      2.8.3
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -25,7 +25,7 @@
 'use strict';
 
 (() => {
-	const sfVersion = '2.8.3-BETA';
+	const sfVersion = '2.8.3';
 	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -2132,7 +2132,8 @@
 			for (const id of vision.owned) {
 				const cell = world.cells.get(id);
 				// don't include cells owned before respawning
-				if (!cell || cell[vision.view][CELL_BORN] < vision.spawned) continue;
+				// use global .born because a cell might first be seen by another tab
+				if (!cell || cell.born < vision.spawned - 40) continue;
 
 				if (settings.cameraMovement === 'instant') {
 					const xyr = world.xyr(cell, undefined, now);
