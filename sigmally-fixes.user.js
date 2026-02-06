@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.8.4-BETA
+// @version      2.8.4
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -25,7 +25,7 @@
 'use strict';
 
 (() => {
-	const sfVersion = '2.8.4-BETA';
+	const sfVersion = '2.8.4';
 	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -1269,7 +1269,7 @@
 			newCanvas.style.cssText = `background: #003; width: 100vw; height: 100vh; position: fixed; top: 0; left: 0;
 				z-index: 1;`;
 			game.canvas = newCanvas;
-			(document.querySelector('body div') ?? document.body).appendChild(newCanvas);
+			(document.querySelector('.body__inner') ?? document.body).appendChild(newCanvas);
 
 			// TODO: are these necessary anymore?
 			// forward macro inputs from the canvas to the old one - this is for sigmod mouse button controls
