@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.8.4
+// @version      2.8.5-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -25,7 +25,7 @@
 'use strict';
 
 (() => {
-	const sfVersion = '2.8.4';
+	const sfVersion = '2.8.5-BETA';
 	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -2468,7 +2468,6 @@
 
 				const connection = net.connections.get(view);
 				const vision = world.views.get(view);
-				if (!connection || !vision) return; // if the entry no longer exists, don't reconnect
 
 				connection.handshake = undefined;
 				connection.latency = undefined;
@@ -2490,6 +2489,8 @@
 				render.uploadPellets = true;
 
 				connection.ws = undefined;
+
+				if (!connection || !vision) return; // if the entry no longer exists, don't reconnect
 
 				const thisUrl = net.url();
 				const url = new URL(thisUrl); // use the current url, not realUrl
