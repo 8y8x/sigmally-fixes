@@ -9,6 +9,11 @@
 		"Keep the alert short and unintrusive, as it shifts all the buttons down and out of the main UI.",
 		"No HTML; the < and > characters are stripped."
 	],
+	"2.8.4": {
+		"ok": false,
+		"alert": "PSA: NoPayScripts is malware",
+		"color": "#09f"
+	},
 	"2.8.3": {
 		"ok": false,
 		"alert": "Upgrade Sigmally Fixes for the latest bug fixes, including black screen fix and peformance improvements: {autolink}",
