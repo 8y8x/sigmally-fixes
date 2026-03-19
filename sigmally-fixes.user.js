@@ -4353,6 +4353,8 @@
 				return atlased;
 			}
 
+			text = aux.trim(text);
+
 			const textSize = BASE_TEXT_SIZE * (isMass ? 0.5 * settings.massScaleFactor : settings.nameScaleFactor);
 			const lineWidth = Math.ceil(textSize / 10) * settings.textOutlinesFactor;
 			let font = `${textSize}px "${sigmod.settings.font || 'Ubuntu'}", Ubuntu`;
