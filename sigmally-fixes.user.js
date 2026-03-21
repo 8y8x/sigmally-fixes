@@ -4807,7 +4807,7 @@
 					let clanLine = baseLine - lineHeight * (settings.nameScaleFactor + settings.clanScaleFactor / 2);
 					const hasName = (showNames ?? true) && cell.tr >= 64;
 					const hasMass = (aux.settings.showMass ?? true) && cell.tr >= 64;
-					const clanName = settings.clans && cell.clan && aux.clans.get(cell.clan);
+					const clanName = settings.clans ? (aux.clans.get(cell.clan) || cell.clan) : '';
 					if (!hasName) {
 						// this only does something if showNames is off
 						if (!clanName) massLine = baseLine;
