@@ -3763,7 +3763,9 @@
 
 					v_uv_wallpaper = a_vertex * 0.5 + 0.5;
 					v_uv_wallpaper.y = 1.0 - v_uv_wallpaper.y; // flip vertically
-					v_uv_wallpaper = (u_wallpaper_xy + v_uv_wallpaper * u_wallpaper_wh) / 4096.0;
+					if ((u_border_flags & 0x20) != 0) { // wallpaper on a 4096x4096 atlas
+						v_uv_wallpaper = (u_wallpaper_xy + v_uv_wallpaper * u_wallpaper_wh) / 4096.0;
+					}
 
 					gl_Position = vec4(a_vertex, 0, 1); // span the whole screen
 				}
@@ -4523,6 +4525,7 @@
 						borderUboFloats[10] = wallpaper.w;
 						borderUboFloats[11] = wallpaper.h;
 						flags |= 0x10;
+						if (wallpaper.rectangle !== undefined) flags |= 0x20; // on an atlas
 
 						// the background is put into TEXTURE0, so if that's taken then the wallpaper needs to go into
 						// TEXTURE1 instead
