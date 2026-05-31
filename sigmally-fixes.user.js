@@ -1054,6 +1054,9 @@
 		setting('Map background', [image('background')], () => true,
 			'A square background image to use within the entire map border. Images 512x512 and under will be treated ' +
 			'as a repeating pattern, where 50 pixels = 1 grid square.');
+		setting(`Wallpaper ${newTag}`, [image('wallpaper')], () => true,
+			'An image drawn behind the entire game. It does not move with the camera, it always stays fixed in place ' +
+			'on your screen.');
 		setting('Lines between cell and mouse', [checkbox('tracer')], () => true,
 			'If enabled, draws tracers between all of the cells you ' +
 			'control and your mouse. Useful as a hint to your subconscious about which tab you\'re currently on.');
@@ -1172,10 +1175,10 @@
 			'is useful, but when using the doublesplit keybind, those small back pieces may go in front. ' +
 			'When this setting is enabled, a 50ms delay will be added to the second split only when in 5+ cells, ' +
 			'typically fixing the problem.');
-		setting(`Ping variance ${newTag}`, [checkbox('perftab')], () => true,
+		setting('Ping variance', [checkbox('perftab')], () => true,
 			`Visualizes how delayed or early every game tick is, for each tab. Every game tick should be 40ms apart, so for example if two game ticks were 45ms apart or 35ms apart, you will see a variance of 5ms. <br>
 			The graph is very sensitive, so <b>any</b> lag will be immediately visible. Some variance is normal.`);
-		setting(`Disable daily challenges ${newTag}`, [checkbox('disableQuests')], () => true,
+		setting('Disable daily challenges', [checkbox('disableQuests')], () => true,
 			'The food and playtime quests (or "daily challenges") send a lot of extra data (about 25% of sent ' +
 			'packets). If you don\'t care about your daily challenges, you can turn these quests off. <br>' +
 			'Note the other quests don\'t send any extra data so they can still be completed.');
@@ -3682,10 +3685,13 @@
 			borderUbo: `layout(std140) uniform Border {
 				vec4 u_border_color; // @ 0x00, i = 0
 				vec4 u_border_xyzw_lrtb; // @ 0x10, i = 4
-				int u_border_flags; // @ 0x20, i = 8
-				float u_background_width; // @ 0x24, i = 9
-				float u_background_height; // @ 0x28, i = 10
-				float u_border_time; // @ 0x2c, i = 11
+				vec2 u_wallpaper_xy; // @ 0x20, i = 8
+				vec2 u_wallpaper_wh; // @ 0x28, i = 10
+				float u_background_width; // @ 0x30, i = 12
+				float u_background_height; // @ 0x34, i = 13
+				int u_wallpaper_texture_index; // @ 0x38, i = 14
+				int u_border_flags; // @ 0x3c, i = 15
+				float u_border_time; // @ 0x40, i = 16
 			};`,
 			cameraUbo: `layout(std140) uniform Camera {
 				float u_camera_ratio; // @ 0x00
@@ -3709,6 +3715,17 @@
 				vec4 u_tracer_color; // @ 0x00, i = 0
 				float u_tracer_thickness; // @ 0x10, i = 4
 			};`,
+			fromTextureArray: `vec4 from_texture_array(int index, vec2 uv) {
+				if (index == -1) return vec4(0, 0, 0, 0);
+				else if (index == 0) return texture(u_textures[0], uv);
+				else if (index == 1) return texture(u_textures[1], uv);
+				else if (index == 2) return texture(u_textures[2], uv);
+				else if (index == 3) return texture(u_textures[3], uv);
+				else if (index == 4) return texture(u_textures[4], uv);
+				else if (index == 5) return texture(u_textures[5], uv);
+				else if (index == 6) return texture(u_textures[6], uv);
+				else if (index == 7) return texture(u_textures[7], uv);
+			}`,
 		};
 
 		glconf.init = () => {
@@ -3723,7 +3740,8 @@
 				${parts.cameraUbo}
 				flat out float f_blur;
 				flat out float f_thickness;
-				out vec2 v_uv;
+				out vec2 v_uv_background;
+				out vec2 v_uv_wallpaper;
 				out vec2 v_world_pos;
 
 				void main() {
@@ -3734,14 +3752,18 @@
 					v_world_pos += u_camera_pos * vec2(1.0, -1.0);
 
 					if ((u_border_flags & 0x04) != 0) { // background repeating
-						v_uv = v_world_pos * 0.02 * (50.0 / u_background_width);
-						v_uv /= vec2(1.0, u_background_height / u_background_width);
+						v_uv_background = v_world_pos * 0.02 * (50.0 / u_background_width);
+						v_uv_background /= vec2(1.0, u_background_height / u_background_width);
 					} else {
-						v_uv = (v_world_pos - vec2(u_border_xyzw_lrtb.x, u_border_xyzw_lrtb.z))
+						v_uv_background = (v_world_pos - vec2(u_border_xyzw_lrtb.x, u_border_xyzw_lrtb.z))
 							/ vec2(u_border_xyzw_lrtb.y - u_border_xyzw_lrtb.x,
 								u_border_xyzw_lrtb.w - u_border_xyzw_lrtb.z);
-						v_uv = vec2(v_uv.x, 1.0 - v_uv.y); // flip vertically
+						v_uv_background.y = 1.0 - v_uv_background.y; // flip vertically
 					}
+
+					v_uv_wallpaper = a_vertex * 0.5 + 0.5;
+					v_uv_wallpaper.y = 1.0 - v_uv_wallpaper.y; // flip vertically
+					v_uv_wallpaper = (u_wallpaper_xy + v_uv_wallpaper * u_wallpaper_wh) / 4096.0;
 
 					gl_Position = vec4(a_vertex, 0, 1); // span the whole screen
 				}
@@ -3749,18 +3771,28 @@
 				${parts.boilerplate}
 				flat in float f_blur;
 				flat in float f_thickness;
-				in vec2 v_uv;
+				in vec2 v_uv_background;
+				in vec2 v_uv_wallpaper;
 				in vec2 v_world_pos;
 				${parts.borderUbo}
 				${parts.cameraUbo}
-				uniform sampler2D u_textures;
+				uniform sampler2D u_textures[8];
 				out vec4 out_color;
 
+				${parts.fromTextureArray}
+
 				void main() {
+					if ((u_border_flags & 0x10) != 0) { // wallpaper enabled
+						out_color = from_texture_array(u_wallpaper_texture_index, v_uv_wallpaper);
+					}
+
 					if ((u_border_flags & 0x01) != 0) { // background enabled
 						if ((u_border_flags & 0x04) != 0 // repeating
-							|| (0.0 <= min(v_uv.x, v_uv.y) && max(v_uv.x, v_uv.y) <= 1.0)) { // within border
-							out_color = texture(u_textures, v_uv);
+							|| (0.0 <= min(v_uv_background.x, v_uv_background.y)
+								&& max(v_uv_background.x, v_uv_background.y) <= 1.0)) { // within border
+							vec4 tex = texture(u_textures[0], v_uv_background); // background always on TEXTURE0
+							out_color.rgb = tex.rgb * tex.a + out_color.rgb * (1.0 - tex.a);
+							out_color.a += (1.0 - out_color.a) * tex.a;
 						}
 					}
 
@@ -3791,7 +3823,7 @@
 
 					out_color = out_color * (1.0 - alpha) + border_color * alpha;
 				}
-			`, ['Border', 'Camera'], [0]);
+			`, ['Border', 'Camera'], [0, 1, 2, 3, 4, 5, 6, 7]);
 
 			// also used to draw glow
 			programs.circle = program('circle', `
@@ -3956,17 +3988,7 @@
 					return vec4(sharpf(v.x), sharpf(v.y), sharpf(v.z), sharpf(v.w));
 				}
 
-				vec4 from_texture_array(int index, vec2 uv) {
-					if (index == -1) return vec4(0, 0, 0, 0);
-					else if (index == 0) return texture(u_textures[0], uv);
-					else if (index == 1) return texture(u_textures[1], uv);
-					else if (index == 2) return texture(u_textures[2], uv);
-					else if (index == 3) return texture(u_textures[3], uv);
-					else if (index == 4) return texture(u_textures[4], uv);
-					else if (index == 5) return texture(u_textures[5], uv);
-					else if (index == 6) return texture(u_textures[6], uv);
-					else if (index == 7) return texture(u_textures[7], uv);
-				}
+				${parts.fromTextureArray}
 
 				void main() {
 					vec4 texcol = from_texture_array(f_texture_index, v_uv);
@@ -4254,16 +4276,12 @@
 		};
 
 		render.resetCache = (filter) => {
-			const DEBUG_keysDeleted = [];
 			const mipmapsNeeded = new Set();
 			for (const [key, img] of render.atlas) {
 				if (img === 'loading' || !filter(img)) continue;
 				render.deleteFromAtlas(key, img, true);
 				mipmapsNeeded.add(img.atlasIndex);
-				DEBUG_keysDeleted.push(key);
 			}
-
-			console.log('render.resetCache:', DEBUG_keysDeleted);
 
 			for (const index of mipmapsNeeded) {
 				if (!render.atlasImages[index]) continue; // happens when a large image is removed
@@ -4468,32 +4486,59 @@
 				gl.useProgram(glconf.programs.bg);
 				gl.bindVertexArray(glconf.backgroundVao);
 
-				let img;
-				if (settings.background?.startsWith('🖼️')) img = render.localImage('background', true);
-				else if (settings.background) img = render.externalImage(settings.background, true);
+				let bg;
+				if (settings.background?.startsWith('🖼️')) bg = render.localImage('background', true);
+				else if (settings.background) bg = render.externalImage(settings.background, true);
 				else if (aux.settings.showGrid) {
-					img = render.externalImage(aux.settings.darkTheme ? darkGridSrc : lightGridSrc, true);
+					bg = render.externalImage(aux.settings.darkTheme ? darkGridSrc : lightGridSrc, true);
 				}
 
-				if (img && img !== 'loading') gl.bindTexture(gl.TEXTURE_2D, render.atlasImages[img.atlasIndex].texture);
+				let bgReady = bg && bg !== 'loading';
+				if (bgReady) gl.bindTexture(gl.TEXTURE_2D, render.atlasImages[bg.atlasIndex].texture);
 				else gl.bindTexture(gl.TEXTURE_2D, null);
-				const repeating = img && img !== 'loading' && img.w <= 512 && img.h <= 512;
+				const repeating = bg && bg !== 'loading' && bg.w <= 512 && bg.h <= 512;
 
-				let borderColor;
-				let borderLrtb;
-				borderColor = (aux.settings.showBorder && vision.border) ? [0, 0, 1, 1] /* #00ff */
+				const borderColor = (aux.settings.showBorder && vision.border) ? [0, 0, 1, 1] /* #00ff */
 					: [0, 0, 0, 0] /* transparent */;
-				borderLrtb = vision.border || { l: 0, r: 0, t: 0, b: 0 };
-
 				borderUboFloats.set(borderColor, 0); // u_border_color
+				const borderLrtb = vision.border || { l: 0, r: 0, t: 0, b: 0 };
 				borderUboFloats.set([borderLrtb.l, borderLrtb.r, borderLrtb.t, borderLrtb.b], 4); // u_border_xyzw_lrtb
-				// flags
-				borderUboInts[8] = ((img && img !== 'loading') ? 0x01 : 0) | (aux.settings.darkTheme ? 0x02 : 0)
-					| (repeating ? 0x04 : 0) | (settings.rainbowBorder ? 0x08 : 0);
 
-				borderUboFloats[9] = img?.w ?? 1; // u_background_width
-				borderUboFloats[10] = img?.h ?? 1; // u_background_height
-				borderUboFloats[11] = now / 1000 * 0.2 % (Math.PI * 2); // u_border_time
+				borderUboFloats[12] = bg ? bg.w : 1; // u_background_width
+				borderUboFloats[13] = bg ? bg.h : 1; // u_background_height
+
+				let flags = bgReady ? 0x01 : 0;
+				flags |= aux.settings.darkTheme ? 0x02 : 0;
+				flags |= repeating ? 0x04 : 0;
+				flags |= settings.rainbowBorder ? 0x08 : 0;
+
+				if (settings.wallpaper) {
+					let wallpaper;
+					if (settings.wallpaper.startsWith('🖼️')) wallpaper = render.localImage('wallpaper', false);
+					else wallpaper = render.externalImage(settings.wallpaper, false);
+
+					if (wallpaper && wallpaper !== 'loading') {
+						borderUboFloats[8] = wallpaper.x;
+						borderUboFloats[9] = wallpaper.y;
+						borderUboFloats[10] = wallpaper.w;
+						borderUboFloats[11] = wallpaper.h;
+						flags |= 0x10;
+
+						// the background is put into TEXTURE0, so if that's taken then the wallpaper needs to go into
+						// TEXTURE1 instead
+						if (bgReady) {
+							gl.activeTexture(gl.TEXTURE1);
+							borderUboInts[14] = 1; // u_wallpaper_texture_index
+						} else {
+							borderUboInts[14] = 0; // u_wallpaper_texture_index
+						}
+						gl.bindTexture(gl.TEXTURE_2D, render.atlasImages[wallpaper.atlasIndex].texture);
+						if (bgReady) gl.activeTexture(gl.TEXTURE0);
+					}
+				}
+
+				borderUboInts[15] = flags; // u_border_flags
+				borderUboFloats[16] = now / 1000 * 0.2 % (Math.PI * 2); // u_border_time
 
 				gl.bindBuffer(gl.UNIFORM_BUFFER, glconf.uniforms.Border);
 				gl.bufferSubData(gl.UNIFORM_BUFFER, 0, borderUboFloats);
