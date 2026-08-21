@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.8.6
+// @version      2.8.7
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -25,7 +25,7 @@
 'use strict';
 
 (() => {
-	const sfVersion = '2.8.6';
+	const sfVersion = '2.8.7';
 	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -560,6 +560,14 @@
 		};
 		patchInterval = setInterval(sigmod.patch, 500);
 		sigmod.patch();
+
+		// prevent nems.is advertisement from showing up, no one wants to see that
+		const oldAppendChild = document.body.appendChild;
+		document.body.appendChild = function(...args) {
+			const el = args[0];
+			if (typeof el === 'object' && el.id === 'nemsis-promo-overlay') return;
+			return oldAppendChild.apply(this, args);
+		};
 
 		return sigmod;
 	})();
