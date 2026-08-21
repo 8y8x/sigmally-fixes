@@ -9,11 +9,6 @@
 		"Keep the alert short and unintrusive, as it shifts all the buttons down and out of the main UI.",
 		"No HTML; the < and > characters are stripped."
 	],
-	"2.8.6": {
-		"ok": false,
-		"alert": "Upgrade Sigmally Fixes to permanently hide nems.is advertisement: {autolink}",
-		"color": "#09f"
-	},
 	"2.8.5": {
 		"ok": false,
 		"alert": "Upgrade Sigmally Fixes to permanently hide nems.is advertisement: {autolink}",
