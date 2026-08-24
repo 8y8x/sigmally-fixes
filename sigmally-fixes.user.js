@@ -1398,7 +1398,7 @@
 					if (stats.uptime >= 60 * 60)
 						uptime = Math.floor(stats.uptime / 60 / 60 % 24) + 'hr ' + uptime;
 					if (stats.uptime >= 24 * 60 * 60)
-						uptime = Math.floor(stats.uptime / 24 / 60 / 60 % 60) + 'd ' + uptime;
+						uptime = Math.floor(stats.uptime / 24 / 60 / 60) + 'd ' + uptime;
 				}
 
 				misc.textContent = [
