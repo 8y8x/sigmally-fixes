@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.8.6
+// @version      2.8.7-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -25,7 +25,7 @@
 'use strict';
 
 (() => {
-	const sfVersion = '2.8.6';
+	const sfVersion = '2.8.7-BETA';
 	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -605,7 +605,7 @@
 			moveAfterLinesplit: false,
 			multibox: '',
 			/** @type {string[]} */
-			multiNames: [],
+			multiNames: [''],
 			nameBold: false,
 			nameScaleFactor: 1,
 			outlineMulti: 0.2,
@@ -614,6 +614,7 @@
 			outlineMultiInactiveColor: /** @type {[number, number, number, number]} */ ([1, 1, 1, 1]),
 			pelletGlow: false,
 			perftab: false,
+			persistentW: false,
 			rainbowBorder: false,
 			scrollFactor: 1,
 			selfSkin: '',
@@ -628,6 +629,7 @@
 			theme: /** @type {[number, number, number, number]} */ ([252 / 255, 114 / 255, 0, 0]),
 			tracer: false,
 			unsplittableColor: /** @type {[number, number, number, number]} */ ([1, 1, 1, 1]),
+			wallpaper: '',
 		};
 
 		const settingsExt = {};
@@ -1062,7 +1064,7 @@
 		setting('Map background', [image('background')], () => true,
 			'A square background image to use within the entire map border. Images 512x512 and under will be treated ' +
 			'as a repeating pattern, where 50 pixels = 1 grid square.');
-		setting(`Wallpaper ${newTag}`, [image('wallpaper')], () => true,
+		setting(`Wallpaper`, [image('wallpaper')], () => true,
 			'An image drawn behind the entire game. It does not move with the camera, it always stays fixed in place ' +
 			'on your screen.');
 		setting('Lines between cell and mouse', [checkbox('tracer')], () => true,
@@ -1120,6 +1122,11 @@
 		setting('Block respawns near other tabs', [checkbox('blockNearbyRespawns')], () => !!settings.multibox,
 			'When enabled, the respawn key (using SigMod) will be disabled if your multibox tabs are close. ' +
 			'This means you can spam the respawn key until your multibox tab spawns nearby.');
+		setting(`Keep feeding when switching ${newTag}`, [checkbox('persistentW')], () => !!settings.multibox,
+			'When disabled, only the current tab can eject mass (W\'s).<br>' +
+			'When enabled, a tab will keep ejecting as long as W hasn\'t been released <b>while on that tab.</b> ' +
+			'So if you switch tabs while holding W, the old tab will keep ejecting until you switch back to it and ' +
+			'trigger a release of the W key. This mimics traditional two-tab multiboxing.');
 
 		separator('• text •');
 		setting('Name scale factor', [slider('nameScaleFactor', 1, 0.5, 2, 0.01, 2)], () => true,
@@ -1149,7 +1156,7 @@
 			'When enabled, only F11 is allowed to be pressed when in fullscreen. Most other browser and system ' +
 			'keybinds will be disabled.');
 		setting('Unsplittable cell outline', [color('unsplittableColor')], () => true,
-			'The color of the ring around cells that cannot split. The slider ');
+			'The color of the ring around cells that cannot split. The slider is the outline opacity.');
 		setting('Jelly physics skin size lag', [checkbox('jellySkinLag')], () => true,
 			'Jelly physics causes cells to grow and shrink slower than text and skins, making the game more ' +
 			'satisfying. If you have a skin that looks weird only with jelly physics, try turning this off.');
@@ -2017,7 +2024,7 @@
 				const now = performance.now();
 				tab.points[tab.pointsIndex++ % 25] = [now - tab.updated, now];
 				tab.updated = now;
-				if (tab.pointsIndex % 25 === 0) {
+				/* if (tab.pointsIndex % 25 === 0) { */
 					// update caption
 					let maxDifference = 0;
 					for (let i = 0; i < 25; ++i) {
@@ -2025,7 +2032,7 @@
 						if (maxDifference < diff) maxDifference = diff;
 					}
 					tab.caption.innerHTML = `${tab.title}:&nbsp;&nbsp;<span style="color: #fffc">±${Math.round(maxDifference)}ms</span>`;
-				}
+				/* } */
 
 				const { canvas, ctx } = tab;
 				canvas.width = Math.ceil(80 * (devicePixelRatio - 0.0001)); // clears the canvas
@@ -3335,8 +3342,13 @@
 			const inputs = create(oldView);
 			const newInputs = create(view);
 
-			newInputs.w = inputs.w;
-			inputs.w = false; // stop current tab from feeding; don't change forceW
+			if (settings.persistentW) {
+				newInputs.w ||= inputs.w; // the system would be spamming W 'keydown's so the new tab would pick it up
+				// do not change current inputs.w
+			} else {
+				newInputs.w = inputs.w;
+				inputs.w = false; // stop current tab from feeding; don't change forceW
+			}
 			// update mouse immediately (after setTimeout, when mouse events happen)
 			setTimeout(() => inputs.world = input.toWorld(oldView, inputs.mouse = input.current));
 
@@ -3445,6 +3457,8 @@
 			}
 			if (fastFeeding) inputs.forceW = inputs.w = true;
 
+			console.log(inputs.w);
+
 			switch (e.code) {
 				case 'KeyQ':
 					if (!e.repeat) net.qdown(world.selected);
@@ -3537,8 +3551,15 @@
 		addEventListener('keyup', e => {
 			// allow inputs if unfocused
 			if (e.code === 'KeyQ') net.qup(world.selected);
-			else if (e.code === 'KeyW') {
-				const inputs = input.views.get(world.selected) ?? create(world.selected);
+
+			// sigmod forces the W key to be immediately released since it has its own rapid feed setting
+			// buuut we don't like it :)
+			const inputs = input.views.get(world.selected) ?? create(world.selected);
+			if (sigmod.settings.rapidFeedKey) {
+				if (e.key === sigmod.settings.rapidFeedKey && e.isTrusted) {
+					inputs.w = false;
+				}
+			} else if (e.code === 'KeyW') {
 				inputs.w = false; // don't change forceW
 			}
 
