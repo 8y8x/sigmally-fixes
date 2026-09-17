@@ -2024,7 +2024,7 @@
 				const now = performance.now();
 				tab.points[tab.pointsIndex++ % 25] = [now - tab.updated, now];
 				tab.updated = now;
-				/* if (tab.pointsIndex % 25 === 0) { */
+				if (tab.pointsIndex % 25 === 0) {
 					// update caption
 					let maxDifference = 0;
 					for (let i = 0; i < 25; ++i) {
@@ -2032,7 +2032,7 @@
 						if (maxDifference < diff) maxDifference = diff;
 					}
 					tab.caption.innerHTML = `${tab.title}:&nbsp;&nbsp;<span style="color: #fffc">±${Math.round(maxDifference)}ms</span>`;
-				/* } */
+				}
 
 				const { canvas, ctx } = tab;
 				canvas.width = Math.ceil(80 * (devicePixelRatio - 0.0001)); // clears the canvas
@@ -3243,7 +3243,11 @@
 		const unfocused = () => ui.escOverlayVisible() || document.activeElement?.tagName === 'INPUT';
 
 		/** @param {symbol} view */
-		input.name = view => view === world.viewId.secondary ? input.nick[1].value : input.nick[0].value;
+		input.name = view => {
+			// U+200B is an invisible space character. 
+			if (view === world.viewId.secondary) return input.nick[1].value + String.fromCharCode(0x200b);
+			return input.nick[0].value;
+		}
 
 		/**
 		 * @param {symbol} view
@@ -3456,8 +3460,6 @@
 				fastFeeding &&= !e.isTrusted;
 			}
 			if (fastFeeding) inputs.forceW = inputs.w = true;
-
-			console.log(inputs.w);
 
 			switch (e.code) {
 				case 'KeyQ':
