@@ -2701,7 +2701,7 @@
 									}
 									if (flags & 0x04) cell.name = name || 'An unnamed cell';
 									if (flags & 0x08) cell.skin = skin ?? '';
-									cell.clan = clan;
+									cell.clan ||= clan; // private servers don't need to be so stupid
 									cell.jagged = jagged;
 									cell.sub = sub;
 
