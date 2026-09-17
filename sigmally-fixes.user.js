@@ -2731,7 +2731,7 @@
 									cell.tr = r;
 								} else {
 									// new
-									const hash = String(red << 16 | green << 8 | blue) + name;
+									const hash = clan + String(red << 16 | green << 8 | blue) + name;
 									world.cells.set(id, cell = {
 										id,
 										vx: x, vy: y, vr: r, vjr: r, vupdated: now, vweight: 0,
@@ -4730,11 +4730,18 @@
 				// for white cell outlines
 				let nextCellIdx = 0;
 				const unsplittable = new Set();
-				for (const id of vision.owned) {
+				// cellA.id < cellB.id if and only if cellA was born before cellB.
+				// technically, IDs will wrap around 4,294,967,295 but this can only happen in extreme circumstances on
+				// private servers (e.g. ss2-practice 22 days in is on ID ~300,000,000, but OgarII would self-destruct
+				// way before then), so don't bother handling it
+				// vision.owned can be appended to by other tabs. for example, if your multi only sees half of your
+				// cells split, then the wrong cells will get an unsplittable outline
+				const sortedOwned = [...vision.owned].sort((a,b) => a - b);
+				for (const id of sortedOwned) {
 					const cell = world.cells.get(id);
 					if (cell && !cell.deadAt) ++nextCellIdx; // this counts towards the split limit
 				}
-				for (const id of vision.owned) {
+				for (const id of sortedOwned) {
 					const cell = world.cells.get(id);
 					if (!cell || cell.deadAt) continue;
 					// cells under 128 radius can't split; cells that would make a 17th (or above) cell can't split
