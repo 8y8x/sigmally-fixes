@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.8.7
+// @version      2.8.8
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -25,7 +25,7 @@
 'use strict';
 
 (() => {
-	const sfVersion = '2.8.7';
+	const sfVersion = '2.8.8';
 	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -407,6 +407,7 @@
 		 * 	foodColor?: [number, number, number, number],
 		 * 	font?: string,
 		 * 	horizontalLineKey?: string,
+		 *  leftClickBind?: string,
 		 * 	mapColor?: [number, number, number, number],
 		 * 	nameColor1?: [number, number, number, number],
 		 * 	nameColor2?: [number, number, number, number],
@@ -415,6 +416,7 @@
 		 * 	rapidFeedKey?: string,
 		 * 	removeOutlines?: boolean,
 		 * 	respawnKey?: string,
+		 *  rightClickBind?: string,
 		 * 	showNames?: boolean,
 		 * 	tripleKey?: string,
 		 * 	verticalLineKey?: string,
@@ -449,9 +451,11 @@
 			applyColor('outlineColor', '#0000ff', [real.game?.borderColor]);
 			sigmod.settings.removeOutlines = real.game?.removeOutlines;
 			sigmod.settings.virusImage = real.game?.virusImage;
-			sigmod.settings.rapidFeedKey = real.macros?.keys?.rapidFeed;
 			// sigmod's showNames setting is always "true" interally (i think??)
 			sigmod.settings.showNames = aux.setting('input#showNames', true);
+
+			sigmod.settings.leftClickBind = real.macros?.mouse?.left;
+			sigmod.settings.rightClickBind = real.macros?.mouse?.right;
 
 			sigmod.settings.font = real.game?.font ?? 'Ubuntu';
 
@@ -507,6 +511,9 @@
 			});
 			const keys = real.settings?.macros?.keys;
 			if (keys) {
+				sigmod.settings.rapidFeedKey = keys.rapidFeed;
+				Object.defineProperty(keys, 'rapidFeed', getset('rapidFeedKey'));
+
 				sigmod.settings.respawnKey = keys.respawn;
 				Object.defineProperty(keys, 'respawn', getset('respawnKey'));
 
@@ -3454,12 +3461,9 @@
 				e.preventDefault(); // doesn't seem to work for me, but works for others
 			}
 
-			// if fast feed is rebound, only allow the spoofed W's from sigmod
-			let fastFeeding = e.code === 'KeyW';
-			if (sigmod.settings.rapidFeedKey && sigmod.settings.rapidFeedKey !== 'w') {
-				fastFeeding &&= !e.isTrusted;
+			if (sigmod.exists ? e.key === sigmod.settings.rapidFeedKey : e.code === 'KeyW') {
+				inputs.forceW = inputs.w = true;
 			}
-			if (fastFeeding) inputs.forceW = inputs.w = true;
 
 			switch (e.code) {
 				case 'KeyQ':
@@ -3483,8 +3487,7 @@
 			const vision = world.views.get(view);
 			if (!vision) return;
 
-			// use e.isTrusted in case the key was bound to W
-			if (e.isTrusted && !e.repeat) {
+			if (!e.repeat) {
 				if (e.key.toLowerCase() === sigmod.settings.doubleKey?.toLowerCase()) {
 					setTimeout(() => input.split(view));
 					// separate both splits by 50ms (at least one tick, 40ms) to ensure the correct piece goes in front
@@ -3554,18 +3557,32 @@
 			// allow inputs if unfocused
 			if (e.code === 'KeyQ') net.qup(world.selected);
 
-			// sigmod forces the W key to be immediately released since it has its own rapid feed setting
-			// buuut we don't like it :)
 			const inputs = input.views.get(world.selected) ?? create(world.selected);
-			if (sigmod.settings.rapidFeedKey) {
-				if (e.key === sigmod.settings.rapidFeedKey && e.isTrusted) {
-					inputs.w = false;
-				}
-			} else if (e.code === 'KeyW') {
+			if (sigmod.exists ? e.key === sigmod.settings.rapidFeedKey : e.code === 'KeyW') {
 				inputs.w = false; // don't change forceW
 			}
 
 			if (handleKeybind(e)) return;
+		});
+
+		// handle sigmod mouse inputs
+		addEventListener('mousedown', e => {
+			if (unfocused()) return;
+
+			const inputs = input.views.get(world.selected) ?? create(world.selected);
+			if (e.button === 0 && sigmod.settings.leftClickBind === 'fastfeed') {
+				inputs.w = inputs.forceW = true;
+			} else if (e.button === 2 && sigmod.settings.rightClickBind === 'fastfeed') {
+				inputs.w = inputs.forceW = true;
+			}
+		});
+		addEventListener('mouseup', e => {
+			// allow releasing inputs if unfocused
+			const inputs = input.views.get(world.selected) ?? create(world.selected);
+			if (sigmod.settings.leftClickBind === 'fastfeed' || sigmod.settings.rightClickBind === 'fastfeed') {
+				// just copying sigmod's implementation here, i'm not sure why the logic is different from mousedown tho
+				inputs.w = false;
+			}
 		});
 
 		addEventListener('mousedown', e => void (!unfocused() && handleKeybind(e)));
