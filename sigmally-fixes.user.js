@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.8.8
+// @version      2.8.9
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -25,7 +25,7 @@
 'use strict';
 
 (() => {
-	const sfVersion = '2.8.8';
+	const sfVersion = '2.8.9';
 	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -3461,7 +3461,7 @@
 				e.preventDefault(); // doesn't seem to work for me, but works for others
 			}
 
-			if (sigmod.exists ? e.key === sigmod.settings.rapidFeedKey : e.code === 'KeyW') {
+			if (sigmod.exists ? e.key.toLowerCase() === sigmod.settings.rapidFeedKey?.toLowerCase() : e.code === 'KeyW') {
 				inputs.forceW = inputs.w = true;
 			}
 
@@ -3558,7 +3558,7 @@
 			if (e.code === 'KeyQ') net.qup(world.selected);
 
 			const inputs = input.views.get(world.selected) ?? create(world.selected);
-			if (sigmod.exists ? e.key === sigmod.settings.rapidFeedKey : e.code === 'KeyW') {
+			if (sigmod.exists ? e.key.toLowerCase() === sigmod.settings.rapidFeedKey?.toLowerCase() : e.code === 'KeyW') {
 				inputs.w = false; // don't change forceW
 			}
 
