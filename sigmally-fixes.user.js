@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.8.9
+// @version      2.8.10
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -25,7 +25,7 @@
 'use strict';
 
 (() => {
-	const sfVersion = '2.8.9';
+	const sfVersion = '2.8.10';
 	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -407,7 +407,6 @@
 		 * 	foodColor?: [number, number, number, number],
 		 * 	font?: string,
 		 * 	horizontalLineKey?: string,
-		 *  leftClickBind?: string,
 		 * 	mapColor?: [number, number, number, number],
 		 * 	nameColor1?: [number, number, number, number],
 		 * 	nameColor2?: [number, number, number, number],
@@ -416,7 +415,6 @@
 		 * 	rapidFeedKey?: string,
 		 * 	removeOutlines?: boolean,
 		 * 	respawnKey?: string,
-		 *  rightClickBind?: string,
 		 * 	showNames?: boolean,
 		 * 	tripleKey?: string,
 		 * 	verticalLineKey?: string,
@@ -451,11 +449,9 @@
 			applyColor('outlineColor', '#0000ff', [real.game?.borderColor]);
 			sigmod.settings.removeOutlines = real.game?.removeOutlines;
 			sigmod.settings.virusImage = real.game?.virusImage;
+			sigmod.settings.rapidFeedKey = real.macros?.keys?.rapidFeed;
 			// sigmod's showNames setting is always "true" interally (i think??)
 			sigmod.settings.showNames = aux.setting('input#showNames', true);
-
-			sigmod.settings.leftClickBind = real.macros?.mouse?.left;
-			sigmod.settings.rightClickBind = real.macros?.mouse?.right;
 
 			sigmod.settings.font = real.game?.font ?? 'Ubuntu';
 
@@ -511,9 +507,6 @@
 			});
 			const keys = real.settings?.macros?.keys;
 			if (keys) {
-				sigmod.settings.rapidFeedKey = keys.rapidFeed;
-				Object.defineProperty(keys, 'rapidFeed', getset('rapidFeedKey'));
-
 				sigmod.settings.respawnKey = keys.respawn;
 				Object.defineProperty(keys, 'respawn', getset('respawnKey'));
 
@@ -612,7 +605,7 @@
 			moveAfterLinesplit: false,
 			multibox: '',
 			/** @type {string[]} */
-			multiNames: [''],
+			multiNames: [],
 			nameBold: false,
 			nameScaleFactor: 1,
 			outlineMulti: 0.2,
@@ -621,7 +614,6 @@
 			outlineMultiInactiveColor: /** @type {[number, number, number, number]} */ ([1, 1, 1, 1]),
 			pelletGlow: false,
 			perftab: false,
-			persistentW: false,
 			rainbowBorder: false,
 			scrollFactor: 1,
 			selfSkin: '',
@@ -636,7 +628,6 @@
 			theme: /** @type {[number, number, number, number]} */ ([252 / 255, 114 / 255, 0, 0]),
 			tracer: false,
 			unsplittableColor: /** @type {[number, number, number, number]} */ ([1, 1, 1, 1]),
-			wallpaper: '',
 		};
 
 		const settingsExt = {};
@@ -1071,7 +1062,7 @@
 		setting('Map background', [image('background')], () => true,
 			'A square background image to use within the entire map border. Images 512x512 and under will be treated ' +
 			'as a repeating pattern, where 50 pixels = 1 grid square.');
-		setting(`Wallpaper`, [image('wallpaper')], () => true,
+		setting(`Wallpaper ${newTag}`, [image('wallpaper')], () => true,
 			'An image drawn behind the entire game. It does not move with the camera, it always stays fixed in place ' +
 			'on your screen.');
 		setting('Lines between cell and mouse', [checkbox('tracer')], () => true,
@@ -1129,11 +1120,6 @@
 		setting('Block respawns near other tabs', [checkbox('blockNearbyRespawns')], () => !!settings.multibox,
 			'When enabled, the respawn key (using SigMod) will be disabled if your multibox tabs are close. ' +
 			'This means you can spam the respawn key until your multibox tab spawns nearby.');
-		setting(`Keep feeding when switching ${newTag}`, [checkbox('persistentW')], () => !!settings.multibox,
-			'When disabled, only the current tab can eject mass (W\'s).<br>' +
-			'When enabled, a tab will keep ejecting as long as W hasn\'t been released <b>while on that tab.</b> ' +
-			'So if you switch tabs while holding W, the old tab will keep ejecting until you switch back to it and ' +
-			'trigger a release of the W key. This mimics traditional two-tab multiboxing.');
 
 		separator('• text •');
 		setting('Name scale factor', [slider('nameScaleFactor', 1, 0.5, 2, 0.01, 2)], () => true,
@@ -1163,7 +1149,7 @@
 			'When enabled, only F11 is allowed to be pressed when in fullscreen. Most other browser and system ' +
 			'keybinds will be disabled.');
 		setting('Unsplittable cell outline', [color('unsplittableColor')], () => true,
-			'The color of the ring around cells that cannot split. The slider is the outline opacity.');
+			'The color of the ring around cells that cannot split. The slider ');
 		setting('Jelly physics skin size lag', [checkbox('jellySkinLag')], () => true,
 			'Jelly physics causes cells to grow and shrink slower than text and skins, making the game more ' +
 			'satisfying. If you have a skin that looks weird only with jelly physics, try turning this off.');
@@ -2708,7 +2694,7 @@
 									}
 									if (flags & 0x04) cell.name = name || 'An unnamed cell';
 									if (flags & 0x08) cell.skin = skin ?? '';
-									cell.clan ||= clan; // private servers don't need to be so stupid
+									cell.clan ||= clan;
 									cell.jagged = jagged;
 									cell.sub = sub;
 
@@ -3250,11 +3236,7 @@
 		const unfocused = () => ui.escOverlayVisible() || document.activeElement?.tagName === 'INPUT';
 
 		/** @param {symbol} view */
-		input.name = view => {
-			// U+200B is an invisible space character. 
-			if (view === world.viewId.secondary) return input.nick[1].value + String.fromCharCode(0x200b);
-			return input.nick[0].value;
-		}
+		input.name = view => view === world.viewId.secondary ? input.nick[1].value : input.nick[0].value;
 
 		/**
 		 * @param {symbol} view
@@ -3353,13 +3335,8 @@
 			const inputs = create(oldView);
 			const newInputs = create(view);
 
-			if (settings.persistentW) {
-				newInputs.w ||= inputs.w; // the system would be spamming W 'keydown's so the new tab would pick it up
-				// do not change current inputs.w
-			} else {
-				newInputs.w = inputs.w;
-				inputs.w = false; // stop current tab from feeding; don't change forceW
-			}
+			newInputs.w = inputs.w;
+			inputs.w = false; // stop current tab from feeding; don't change forceW
 			// update mouse immediately (after setTimeout, when mouse events happen)
 			setTimeout(() => inputs.world = input.toWorld(oldView, inputs.mouse = input.current));
 
@@ -3461,9 +3438,12 @@
 				e.preventDefault(); // doesn't seem to work for me, but works for others
 			}
 
-			if (sigmod.exists ? e.key.toLowerCase() === sigmod.settings.rapidFeedKey?.toLowerCase() : e.code === 'KeyW') {
-				inputs.forceW = inputs.w = true;
+			// if fast feed is rebound, only allow the spoofed W's from sigmod
+			let fastFeeding = e.code === 'KeyW';
+			if (sigmod.settings.rapidFeedKey && sigmod.settings.rapidFeedKey !== 'w') {
+				fastFeeding &&= !e.isTrusted;
 			}
+			if (fastFeeding) inputs.forceW = inputs.w = true;
 
 			switch (e.code) {
 				case 'KeyQ':
@@ -3487,7 +3467,8 @@
 			const vision = world.views.get(view);
 			if (!vision) return;
 
-			if (!e.repeat) {
+			// use e.isTrusted in case the key was bound to W
+			if (e.isTrusted && !e.repeat) {
 				if (e.key.toLowerCase() === sigmod.settings.doubleKey?.toLowerCase()) {
 					setTimeout(() => input.split(view));
 					// separate both splits by 50ms (at least one tick, 40ms) to ensure the correct piece goes in front
@@ -3556,33 +3537,12 @@
 		addEventListener('keyup', e => {
 			// allow inputs if unfocused
 			if (e.code === 'KeyQ') net.qup(world.selected);
-
-			const inputs = input.views.get(world.selected) ?? create(world.selected);
-			if (sigmod.exists ? e.key.toLowerCase() === sigmod.settings.rapidFeedKey?.toLowerCase() : e.code === 'KeyW') {
+			else if (e.code === 'KeyW') {
+				const inputs = input.views.get(world.selected) ?? create(world.selected);
 				inputs.w = false; // don't change forceW
 			}
 
 			if (handleKeybind(e)) return;
-		});
-
-		// handle sigmod mouse inputs
-		addEventListener('mousedown', e => {
-			if (unfocused()) return;
-
-			const inputs = input.views.get(world.selected) ?? create(world.selected);
-			if (e.button === 0 && sigmod.settings.leftClickBind === 'fastfeed') {
-				inputs.w = inputs.forceW = true;
-			} else if (e.button === 2 && sigmod.settings.rightClickBind === 'fastfeed') {
-				inputs.w = inputs.forceW = true;
-			}
-		});
-		addEventListener('mouseup', e => {
-			// allow releasing inputs if unfocused
-			const inputs = input.views.get(world.selected) ?? create(world.selected);
-			if (sigmod.settings.leftClickBind === 'fastfeed' || sigmod.settings.rightClickBind === 'fastfeed') {
-				// just copying sigmod's implementation here, i'm not sure why the logic is different from mousedown tho
-				inputs.w = false;
-			}
 		});
 
 		addEventListener('mousedown', e => void (!unfocused() && handleKeybind(e)));

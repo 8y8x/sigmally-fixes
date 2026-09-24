@@ -9,6 +9,16 @@
 		"Keep the alert short and unintrusive, as it shifts all the buttons down and out of the main UI.",
 		"No HTML; the < and > characters are stripped."
 	],
+	"2.8.9": {
+		"ok": false,
+		"alert": "This version of Sigmally Fixes may have broken W feeding for you. Upgrade to fix: {autolink}",
+		"color": "#f90"
+	},
+	"2.8.8": {
+		"ok": false,
+		"alert": "This version of Sigmally Fixes may have broken W feeding for you. Upgrade to fix: {autolink}",
+		"color": "#f90"
+	},
 	"2.8.7": {
 		"ok": false,
 		"alert": "This version of Sigmally Fixes may have broken W feeding for you. Upgrade to fix: {autolink}",
