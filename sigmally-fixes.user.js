@@ -452,6 +452,7 @@
 			sigmod.settings.rapidFeedKey = real.macros?.keys?.rapidFeed;
 			// sigmod's showNames setting is always "true" interally (i think??)
 			sigmod.settings.showNames = aux.setting('input#showNames', true);
+			sigmod.settings.hideOwnName = real.game?.hideOwnName;
 
 			sigmod.settings.font = real.game?.font ?? 'Ubuntu';
 
@@ -1447,6 +1448,9 @@
 				if (linesContainer.style.fontFamily !== fontFamily)
 					linesContainer.style.fontFamily = title.style.fontFamily = fontFamily;
 
+				const name1 = input.name(world.viewId.primary);
+				const name2 = input.name(world.viewId.secondary);
+
 				const friends = /** @type {any} */ (window).sigmod?.friend_names;
 				const friendSettings = /** @type {any} */ (window).sigmod?.friends_settings;
 				lb.forEach((entry, i) => {
@@ -1458,8 +1462,11 @@
 						lines.push(line);
 					}
 
+					let entryName = entry.name || 'An unnamed cell';
+					if (sigmod.settings.hideOwnName && (entry.name === name1 || entry.name === name2)) entryName = '';
+
 					line.style.display = 'block';
-					line.textContent = `${entry.place ?? i + 1}. ${entry.name || 'An unnamed cell'}`;
+					line.textContent = `${entry.place ?? i + 1}. ${entryName}`;
 					if (entry.me) line.style.color = '#faa';
 					else if (friends instanceof Set && friends.has(entry.name) && friendSettings?.highlight_friends)
 						line.style.color = friendSettings.highlight_color;
