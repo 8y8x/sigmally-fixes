@@ -538,7 +538,7 @@
 			// create a fake sigmally proxy for sigmod, which properly relays some packets (because SigMod does not
 			// support one-tab technology). it should also fix chat bugs due to disconnects and stuff
 			// we do this by hooking into the SigWsHandler object
-			{
+			if (real.version < 11) {
 				/** @type {object | undefined} */
 				let handler;
 				const old = Function.prototype.bind;
@@ -2937,7 +2937,7 @@
 					}
 				}
 
-				sigmod.handleMessage?.(dat);
+				for (const cb of packetSubscriptions) cb(dat);
 			});
 			ws.addEventListener('open', () => {
 				establishedCallback?.();
@@ -3178,6 +3178,13 @@
 			if (settings.disableQuests) return;
 			for (const view of net.connections.keys()) net.time(view);
 		}, 1000);
+
+		const packetSubscriptions = new Set();
+		packetSubscriptions.add(dat => sigmod.handleMessage?.(dat));
+		net.subscribePackets = cb => {
+			packetSubscriptions.add(cb);
+			return () => packetSubscriptions.delete(cb);
+		};
 
 		return net;
 	})();
