@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.8.10
+// @version      2.8.11-BETA
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -25,7 +25,7 @@
 'use strict';
 
 (() => {
-	const sfVersion = '2.8.10';
+	const sfVersion = '2.8.11-BETA';
 	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -1423,6 +1423,7 @@
 
 		ui.leaderboard = (() => {
 			const container = document.createElement('div');
+			container.id = 'sf-leaderboard';
 			container.style.cssText = 'position: fixed; top: 10px; right: 10px; width: 200px; height: fit-content; \
 				user-select: none; z-index: 2; background: #0006; padding: 15px 5px; transform-origin: top right; \
 				display: none;';
