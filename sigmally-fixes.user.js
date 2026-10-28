@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sigmally Fixes V2
-// @version      2.8.11-BETA
+// @version      2.8.12
 // @description  Easily 10X your FPS on Sigmally.com + many bug fixes + great for multiboxing + supports SigMod
 // @author       8y8x
 // @match        https://*.sigmally.com/*
@@ -25,7 +25,7 @@
 'use strict';
 
 (() => {
-	const sfVersion = '2.8.11-BETA';
+	const sfVersion = '2.8.12';
 	const { Infinity, undefined } = window; // yes, this actually makes a significant difference
 
 	////////////////////////////////
@@ -346,6 +346,19 @@
 		document.head.appendChild(link);
 
 		document.body.style.fontFamily = 'Ubuntu, Arial, sans-serif';
+
+		// fix tournament servers not allowing you to log in properly
+		if (!document.querySelector('.top-winners__list')) {
+			let div = document.createElement('div');
+			div.className = 'top-winners__list';
+			div.style.display = 'none';
+			document.body.appendChild(div);
+
+			div = document.createElement('div');
+			div.className = 'top-users__list';
+			div.style.display = 'none';
+			document.body.appendChild(div);
+		}
 
 		return aux;
 	})();
